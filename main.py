@@ -1,192 +1,148 @@
-import os
-import re
-from selenium.common.exceptions import TimeoutException
-import requests
-from selenium import webdriver
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.firefox.service import Service
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
-import time
-from flask import Flask, request, jsonify
-import threading
-import time
-from urllib.parse import quote_plus
-import json
-
-config = json.load(open('config.json', 'r', encoding='utf-8'))
-
-KEY = config['auth_key']
-GECKODRIVER = config.get('geckodriver', None)
-if GECKODRIVER is None:
-    print("geckodriver not found! selenium will download automatically.")
-    print("FAIL IS COMMON IF YOU ARE IN CHINA MAINLAND.")
-THIRD_PARTY_PARSER = config.get('use_jina_reader', False)
-
-def parse_search_page(driver):
-    """解析当前页面的搜索结果"""
-    page_results = []
-    items = driver.find_elements(By.CSS_SELECTOR, 'li.b_algo')
-    
-    for item in items:
-        try:
-            title_elem = item.find_element(By.CSS_SELECTOR, 'h2 a')
-            title = title_elem.text.strip()
-            url = title_elem.get_attribute('href')
-            
-            if title and url:
-                page_results.append({
-                    'title': title,
-                    'url': url
-                })
-        except NoSuchElementException:
-            continue
-            
-    return page_results
-
-def wait_for_network_idle(d, t=10, i=5):
-    st = time.time(); ist = None
-    while time.time() - st < t:
-        r = d.execute_script("var r=performance.getEntriesByType('resource').filter(x=>!x.responseEnd||x.responseEnd===0).length,n=performance.getEntriesByType('navigation')[0];return{p:r,n:n&&!n.domComplete};")
-        ds = d.execute_script("return{r:document.readyState,j:typeof jQuery!=='undefined',a:typeof jQuery!=='undefined'?jQuery.active:0,l:!!document.querySelector('.loading,.spinner,[data-loading]')};")
-        if r is None or ds is None:
-            time.sleep(0.5)
-            continue
-        idle = r['p']==0 and not r['n'] and ds['r']=='complete' and (not ds['j'] or ds['a']==0)
-        if idle:
-            if ist is None: ist = time.time()
-            elif time.time() - ist >= i: return True
-        else: ist = None
-        time.sleep(0.5)
-    return False
-
-options = Options()
-options.set_preference("dom.webdriver.enabled", False)
-options.set_preference("useAutomationExtension", False)
-options.add_argument("--headless")
-options.page_load_strategy = 'eager'
-if GECKODRIVER:
-    service = Service(executable_path=GECKODRIVER)
-else:
-    service = Service()
-driver = None
-timer = None
-life_thread = None
-lock = threading.Lock()
-def get_driver():
-    global driver, timer, life_thread
-    if driver is not None:
-        timer = time.time()
-        return driver
-    else:
-        driver = webdriver.Firefox(options=options, service=service)
-        driver.set_page_load_timeout(10)
-        timer = time.time()
-        if life_thread is not None and life_thread.is_alive():
-            pass
-        else:
-            life_thread = threading.Thread(target=life_control)
-            life_thread.start()
-        return driver
-
-def life_control():
-    global timer, driver
-    while True:
-        if time.time() - timer > 360:
-            print('driver life expired')
-            driver.quit()
-            driver = None
-            timer = None
-            return
-        time.sleep(10)
+from flask import Flask, request
+from functions import *
 
 app = Flask(__name__)
+KEY = config["server"]["auth_key"]
 
 @app.before_request
 def before_request():
     key = request.headers.get('key')
     if key != KEY:
+        if request.path in ["/ping", "/download"]:
+            return None
         return 'require key', 403
+
+@app.errorhandler(500)
+def internal_error(error):
+    return 'Server error! This is not your fault!', 500
 
 @app.route("/ping", methods=["GET"])
 def ping():
     return "Pong!"
 
-@app.route("/search", methods=["GET"])
-def search():
-    with lock:
-        try:
-            query = request.args.get('q')
-            limit = int(request.args.get('l')) if request.args.get('l') else None
-            if not query:
-                return 'require query', 400
-            results = []
-            while True:
-                # warm up driver
-                if driver is None:
-                    try:
-                        get_driver().get("https://www.bing.com/search?q=bing")
-                    except TimeoutException:
-                        pass # dont care
-                    wait_for_network_idle(get_driver(), i=2)
-                url = f'https://www.bing.com/search?q={quote_plus(query)}{"&first="+str(len(results)+1) if results else ""}'
-                try:
-                    get_driver().get(url)
-                except TimeoutException:
-                    pass # dont care
-                wait_for_network_idle(get_driver(), i=2)
-                results.extend(parse_search_page(get_driver()))
-                if not results: # no more results or get blocked
-                    break
-                if limit is None or len(results) >= limit: # enough results
-                    break
-            return jsonify(results[:limit])
-        except:
-            return 'Internal Server Error, this is not your fault ヽ(*。>Д<)o゜', 500
-        finally:
-            get_driver().get("about:blank") # clear
+@app.route("/status", methods=["GET"])
+def status():
+    return {
+        "browser": is_bing_crawler_enabled,
+        "downloads": is_download_service_required,
+        "ocr": is_ocr_enabled,
+        "transcribe": is_vr_enabled,
+        "ncm": is_ncm_enabled,
+        "bilibili": is_bilibili_enabled,
+    }
 
-@app.route("/read/<path:url>", methods=["GET"])
-def read(url):
-    with lock:
+if is_download_service_required:
+    @app.route("/download", methods=["GET"])
+    def download():
+        key = request.args.get('k')
+        filename = request.args.get('f')
+        if key is not None and filename is not None and filename in downloads and key == downloads[filename]["key"]:
+            data = downloads[filename]["data"]
+            del downloads[filename]
+            return data
+        return 'forbidden', 403
+
+if is_bing_crawler_enabled:
+    @app.route("/search", methods=["GET"])
+    def search():
+        query = request.args.get('q')
+        if not query:
+            return 'require query', 400
+        limit = request.args.get('limit', None)
+        if limit is not None:
+            try:
+                limit = int(limit)
+            except ValueError:
+                return 'limit must be an integer', 400
+        results = browser.search(query, limit)
+        return results
+
+if is_bing_crawler_enabled:
+    @app.route("/read/<path:url>", methods=["GET"])
+    def read(url):
+        if not url:
+            return 'require url', 400
+        results = browser.read(url)
+        return results
+
+if is_ncm_enabled:
+    @app.route("/ncmlyric", methods=["GET"])
+    def lyric():
         try:
+            id = request.args.get('id')
+            if not id:
+                url = request.args.get('url')
+                if url:
+                    if "music.163.com" in url:
+                        id = re.search(r"id=(\d+)", url).group(1)
+                    else:
+                        final_url = ncm.get_final_url_without_content(url)
+                        if final_url and "music.163.com" in final_url:
+                            id = re.search(r"id=(\d+)", final_url).group(1)
+                        else:
+                            return 'url is not a ncm lyric url', 400
+                else:
+                    return 'require id or url', 400
+            data = ncm.get_details_text(id)
+            return data
+        except:
+            return 'Invalid id or url', 400
+
+if is_bilibili_enabled:
+    @app.route("/bilibilivideo", methods=["GET"])
+    def video_info():
+        url = request.args.get('url')
+        bv = request.args.get('bv')
+        if not url and not bv:
+            return 'require url or bv', 400
+        results = bili.get_bili_text(bv=bv, url=url)
+        return results
+
+if is_vr_enabled:
+    @app.route("/voicerecognition", methods=["GET", "POST"])
+    def recognition():
+        if request.method == "GET":
+            url = request.args.get('url')
             if not url:
                 return 'require url', 400
-            # warm up driver
-            if driver is None:
-                get_driver().get("about:blank") # this won't timeout, right?
-                time.sleep(2)
-            try:
-                get_driver().get(url)
-                wait_for_network_idle(get_driver(), i=3)
-            except TimeoutException:
-                pass # dont care
-            web_source = get_driver().page_source
-            if not web_source:
-                return 'Timeout! But this is not your fault ヽ(*。>Д<)o゜', 500
-            try:
-                if THIRD_PARTY_PARSER:
-                    response = requests.post(f"https://r.jina.ai/", headers={"X-Retain-Images": "none", "X-Md-Link-Style": "discarded"}, data={"url": get_driver().current_url, "html": web_source}, timeout=20).text
-                else:
-                    body_text = driver.find_element(By.TAG_NAME, 'body').text
-                    response = re.sub(r'\n{2,}', '\n', body_text) # remove extra newlines
-            except requests.exceptions.Timeout:
-                response = "Internal Server Timeout! But this is not your fault ヽ(*。>Д<)o゜"
-            except Exception as e:
-                response = f"Internal Server Error: {e}! But this is not your fault ヽ(*。>Д<)o゜"
-            return response
-        except:
-            return 'Internal Server Error, this is not your fault ヽ(*。>Д<)o゜', 500
-        finally:
-            get_driver().get("about:blank") # clear
+            result = vr.transcribe_from_url(url)
+            return result
+        else:
+            data = request.get_data()
+            if not data:
+                return 'require data', 400
+            result = vr.transcribe_from_data(data)
+            return result
+
+if is_ocr_enabled:
+    @app.route("/ocr", methods=["GET", "POST"])
+    def ocr():
+        if request.method == "GET":
+            url = request.args.get('url')
+            if not url:
+                return 'require url', 400
+            result = ocr_service.extract_text_from_url(url)
+            return result
+        else:
+            data = request.get_data()
+            if not data:
+                return 'require data', 400
+            result = ocr_service.extract_text_from_data(data)
+            return result
 
 if __name__ == '__main__':
-    if "cert" in config and "key" in config:
-        if os.path.exists(config['cert']) and os.path.exists(config['key']):
-            app.run(debug=False, host='0.0.0.0', port=config['port'], ssl_context=(config['cert'], config['key']))
+    if "cert" in config["server"] and "key" in config["server"]:
+        if os.path.exists(config["server"]["cert"]) and os.path.exists(config["server"]["key"]):
+            app.run(debug=False, host='0.0.0.0', port=config["server"]["port"], ssl_context=(config["server"]["cert"], config["server"]["key"]))
         else:
             print('cert or key not found')
+            print("Falling back to HTTP mode...")
+            print("SERVER IS RUNNING WITH HTTP!")
+            print("DO NOT EXPOSE THIS SERVER TO PUBLIC!")
+            print()
+            app.run(debug=False, host='0.0.0.0', port=config["server"]["port"])
     else:
         print("SERVER IS RUNNING WITH HTTP!")
         print("DO NOT EXPOSE THIS SERVER TO PUBLIC!")
-        app.run(debug=False, host='0.0.0.0', port=config['port'])
+        print()
+        app.run(debug=False, host='0.0.0.0', port=config["server"]["port"])
