@@ -1,3 +1,4 @@
+import asyncio
 import re
 from urllib.parse import quote_plus, urlparse
 from selenium.common.exceptions import TimeoutException
@@ -359,7 +360,7 @@ class VoiceRecognition:
         if service["type"] == "aliyun":
             return VoiceRecognition.audio_transcription_aliyun(service["key"], service["model"], audio_url)
         elif service["type"] == "azure":
-            return VoiceRecognition.audio_transcription_azure(service["url"], service["key"], None, audio_url)
+            return VoiceRecognition.audio_transcription_azure(service["url"], service["key"], audio_url=audio_url)
         return ""
 
     def transcribe_from_data(self, audio_data) -> str:
@@ -370,7 +371,7 @@ class VoiceRecognition:
             audio_url = generate_download_link(audio_data)
             return VoiceRecognition.audio_transcription_aliyun(service["key"], service["model"], audio_url)
         elif service["type"] == "azure":
-            return VoiceRecognition.audio_transcription_azure(service["url"], service["key"], audio_data, audio_url)
+            return VoiceRecognition.audio_transcription_azure(service["url"], service["key"], audio_data)
         return ""
 
 class OCR:
@@ -414,46 +415,74 @@ class OCR:
         except Exception as e:
             raise Exception(f"OCR failed: {str(e)}")
 
-# class Link:
-#     def __init__(self):
-#         if not os.path.exists("link_datas"):
-#             os.makedirs("link_datas")
-#         self.userdata: dict[int, User] = {}
-
-#     def __call__(self, data):
-#         if data["user"] not in self.userdata:
-#             self.userdata[data["user"]] = User(data["user"])
-#         user = self.userdata[data["user"]]
-#         match data["type"]:
-#             case "fetch":
-#                 return user.handle_fetch(data)
-#             case "task":
-#                 return user.handle_task(data)
-#             case "memory":
-#                 return user.handle_memory(data)
-#             case _:
-#                 raise Exception(f"unknown type: {data['type']}")
-
-# class User:
-#     def __init__(self, user_id: int):
-#         self.user_id: int = user_id
-#         if not os.path.exists(f"link_datas/{user_id}.json"):
-#             self.memory = []
-#             self.tasks = []
-#         else:
-#             with open(f"link_datas/{user_id}.json", "r") as f:
-#                 data = json.load(f)
-#                 self.memory = data.get("memory", [])
-#                 self.tasks = data.get("tasks", [])
+class UserManager:
+    def __init__(self):
+        if not os.path.exists("link_datas"):
+            os.makedirs("link_datas")
+        self.users: dict[int, User] = {}
     
-#     def handle_fetch(self, data):
-#         pass
+    def get_user(self, user_id: int):
+        if user_id not in self.users:
+            self.users[user_id] = User(user_id)
+        return self.users[user_id]
 
-#     def handle_task(self, data):
-#         pass
+    def save(self):
+        for user_id, user in self.users.items():
+            with open(f"link_datas/{user_id}.json", "w", encoding="utf-8") as f:
+                logger.info(f"Saving user {user_id} data to file: link_datas/{user_id}.json")
+                json.dump({"memory": user.memory, "tasks": user.tasks}, f, ensure_ascii=False)
+
+class Link:
+    def __init__(self, user_manager: UserManager):
+        self.user_manager = user_manager
+        self.desynced_users: list[int] = []
+
+    def __call__(self, data):
+        if data["user"] not in self.user_manager.users:
+            self.user_manager.users[data["user"]] = User(data["user"])
+        user = self.user_manager.users[data["user"]]
+        match data["type"]:
+            case "task":
+                return user.handle_task(data)
+            case "memory":
+                return user.handle_memory(data)
+            case "sync":
+                return user.handle_sync(data)
+            case _:
+                raise Exception(f"unknown type: {data['type']}")
+
+class User:
+    def __init__(self, user_id: int):
+        self.user_id: int = user_id
+        if not os.path.exists(f"link_datas/{user_id}.json"):
+            logger.debug(f"User {user_id} data file not found, creating new one")
+            self.memory = []
+            self.tasks = {}
+        else:
+            with open(f"link_datas/{user_id}.json", "r", encoding="utf-8") as f:
+                logger.debug(f"Loading user {user_id} data from file")
+                data = json.load(f)
+                self.memory = data.get("memory", [])
+                self.tasks = data.get("tasks", {})
     
-#     def handle_memory(self, data):
-#         pass
+    def handle_task(self, data):
+        if data["operate"] == "create":
+            self.tasks[data["name"]] = data["data"]
+        elif data["operate"] == "remove":
+            if data["name"] in self.tasks:
+                del self.tasks[data["name"]]
+    
+    def handle_memory(self, data):
+        if data["operate"] == "add":
+            self.memory.append(data["data"])
+        elif data["operate"] == "remove":
+            if data["data"] in self.memory:
+                self.memory.remove(data["data"])
+    
+    def handle_sync(self, data):
+        if data["operate"] == "push_all":
+            self.memory = data["memory"]
+            self.tasks = data["tasks"]
 
 class LRUCache:
     def __init__(self, capacity=50, allow_reverse=False):
@@ -530,21 +559,29 @@ if __name__ != "__main__":
     logger.addHandler(console_handler)
 
     is_download_service_required = False
-    is_websocket_required = False
+    is_usermanager_required = False
 
     is_bing_crawler_enabled = "bing_crawler" in config
+    is_ncm_enabled = "ncm" in config
+    is_bilibili_enabled = "bilibili" in config
+    is_vr_enabled = "VoiceRecognition" in config
+    is_ocr_enabled = "ocr" in config
+    is_webchat_enabled = "webchat" in config
+    is_link_enabled = "link" in config
+
+    if is_webchat_enabled or is_link_enabled:
+        is_usermanager_required = True
+        usermanager = UserManager()
+
     if is_bing_crawler_enabled:
         browser = Browser(config["bing_crawler"].get("use_jina_reader", False), config["bing_crawler"].get("geckodriver", None))
 
-    is_ncm_enabled = "ncm" in config
     if is_ncm_enabled:
         ncm = Ncm()
 
-    is_bilibili_enabled = "bilibili" in config
     if is_bilibili_enabled:
         bili = Bilibili()
 
-    is_vr_enabled = "VoiceRecognition" in config
     if is_vr_enabled:
         vr = VoiceRecognition(config["VoiceRecognition"])
         for service in vr.services:
@@ -552,14 +589,22 @@ if __name__ != "__main__":
                 is_download_service_required = True
                 break
 
-    is_ocr_enabled = "ocr" in config
     if is_ocr_enabled:
         ocr_service = OCR()
     
-    # is_link_enabled = "link" in config
-    # if is_link_enabled:
-    #     link = Link()
-    #     is_websocket_required = True
+    # if is_webchat_enabled:
+    #     webchat = Webchat(usermanager)
+    
+    if is_link_enabled:
+        link = Link(usermanager)
+        websocket_connect = None
+        event_loop = None
+
+        def send_to_websocket(message: str):
+            if websocket_connect:
+                asyncio.run_coroutine_threadsafe(websocket_connect.send_text(message), event_loop)
+            else:
+                logger.error("Failed to send message to websocket, websocket not connected")
 
     if is_download_service_required:
         if "public_address" in config["server"]:
@@ -583,6 +628,3 @@ if __name__ != "__main__":
             logger.critical("public_address not found in config, make sure you have an public address")
             logger.critical("or disable aliyun VoiceRecognition")
             exit(1)
-    
-    if is_websocket_required:
-        is_websocket_connected = False

@@ -1,13 +1,23 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.params import Query, Body
 from fastapi.responses import PlainTextResponse, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.concurrency import run_in_threadpool
 import uvicorn
 from functions import *
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global event_loop
+    event_loop = asyncio.get_event_loop()
+    yield
+    if is_usermanager_required:
+        logger.info("Saving user data...")
+        usermanager.save()
+        logger.info("Finished saving user data.")
+
 # 禁用 docs 和 redoc
-app = FastAPI(title="Web Search API", docs_url=None, redoc_url=None)
+app = FastAPI(title="Web Search API", docs_url=None, redoc_url=None, lifespan=lifespan)
 KEY = config["server"]["auth_key"]
 
 # 自定义请求验证错误处理 - 参数错误时返回 bad arguments
@@ -51,7 +61,7 @@ def status():
         "transcribe": is_vr_enabled,
         "ncm": is_ncm_enabled,
         "bilibili": is_bilibili_enabled,
-        "version": "1"
+        "version": "2"
     }
 
 # 下载服务，仅内部逻辑使用，不要写入文档
@@ -148,32 +158,41 @@ if is_ocr_enabled:
         result = ocr_service.extract_text_from_data(data)
         return result
 
-# if is_websocket_required:
-#     @app.websocket("/link")
-#     async def websocket_endpoint(websocket: WebSocket):
-#         if is_websocket_connected:
-#             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Only one websocket connection is allowed")
-#             return
-#         is_websocket_connected = True
-#         if websocket.headers.get('key') != KEY:
-#             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid key")
-#             return
-#         is_websocket_connected = True
-#         logger.info("websocket connected")
-#         await websocket.accept()
-#         try:
-#             async for message in websocket:
-#                 try:
-#                     data = json.loads(message)
-#                     result = link(data)
-#                     if result:
-#                         await websocket.send_text(result)
-#                 except Exception as e:
-#                     logger.error(f"Error processing message: {e}", exc_info=True)
-#         except WebSocketDisconnect:
-#             logger.info("websocket disconnected")
-#         finally:
-#             is_websocket_connected = False
+if is_usermanager_required:
+    @app.get("/userdata")
+    def get_user(uid: int):
+        return usermanager.get_user(uid)
+
+if is_link_enabled:
+    @app.websocket("/link")
+    async def websocket_endpoint(websocket: WebSocket):
+        global websocket_connect
+        if websocket.headers.get('key') != KEY:
+            await websocket.close(reason="Invalid key")
+            return
+        if websocket_connect:
+            await websocket.close(reason="Only one connection allowed")
+            return
+        websocket_connect = websocket
+        await websocket.accept()
+        logger.info("websocket connected")
+        try:
+            while True:
+                message = await websocket.receive_text()
+                try:
+                    data = json.loads(message)
+                    logger.info(f"Received message: {data}")
+                    result = link(data)
+                    if result:
+                        await websocket.send_text(result)
+                except json.JSONDecodeError:
+                    logger.warning("Received invalid JSON format")
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}", exc_info=True)
+        except WebSocketDisconnect:
+            logger.info("websocket disconnected")
+        finally:
+            websocket_connect = None
 
 if __name__ == '__main__':
     if "cert" in config["server"] and "key" in config["server"]:
