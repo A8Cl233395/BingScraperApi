@@ -1,15 +1,17 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.params import Query, Body
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.exceptions import RequestValidationError
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from functions import *
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global event_loop
-    event_loop = asyncio.get_event_loop()
+    set_event_loop(asyncio.get_event_loop())
     yield
     if is_usermanager_required:
         logger.info("Saving user data...")
@@ -41,7 +43,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.middleware("http")
 async def verify_key_middleware(request: Request, call_next):
     # 对 /ping 和 /download 路径跳过验证
-    if request.url.path in ["/ping", "/download", "/link"]:
+    if request.url.path in ["/ping", "/download", "/link", "/invitecodegen", "/invite"]:
         return await call_next(request)
     key = request.headers.get('key')
     if key != KEY:
@@ -61,7 +63,9 @@ def status():
         "transcribe": is_vr_enabled,
         "ncm": is_ncm_enabled,
         "bilibili": is_bilibili_enabled,
-        "version": "2"
+        "invite": is_invite_enabled,
+        "link": is_link_enabled,
+        "version": "3"
     }
 
 # 下载服务，仅内部逻辑使用，不要写入文档
@@ -163,6 +167,52 @@ if is_usermanager_required:
     def get_user(uid: int):
         return usermanager.get_user(uid)
 
+if is_invite_enabled:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[config["server"]["public_address"]],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        max_age=86400,
+    )
+    templates = Jinja2Templates(directory="assets")
+
+    TURNSTILE_SECRET = config["invite"]["turnstile-secret"]
+    INVITE_CODE_KEY = config["invite"]["invite-code-key"]
+
+    class InvitePost(BaseModel):
+        challenge: str
+        qqid: int
+        invite: str
+    
+    @app.get("/invite", response_class=HTMLResponse)
+    def invite(request: Request):
+        return templates.TemplateResponse(request, "invite.html", {"turnstile_website_key": config["invite"]["turnstile-website-key"], "server_url": config["server"]["public_address"]})
+    
+    @app.post("/invite", response_class=PlainTextResponse)
+    def invite_post(data: InvitePost = Body(...)):
+        response = requests.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', data={'secret': TURNSTILE_SECRET, "response": data.challenge}).json()
+        if not response["success"]:
+            raise HTTPException(status_code=400, detail="Invalid challenge")
+        if invitemanager.verify_invite_code(data.invite):
+            return invitemanager.generate_invite_token(data.qqid)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid invite code")
+    
+    @app.get("/invitecodegen", response_class=PlainTextResponse)
+    def invitecodegen(key: str = Query(...)):
+        if key != INVITE_CODE_KEY:
+            raise HTTPException(status_code=400, detail="Invalid key")
+        return invitemanager.generate_invite_code()
+
+    @app.get("/invitecheck", response_class=JSONResponse)
+    def invitecheck(qqid: int = Query(...), token: str = Query(...)):
+        if invitemanager.verify_invite_token(qqid, token):
+            return True
+        else:
+            return False
+
 if is_link_enabled:
     @app.websocket("/link")
     async def websocket_endpoint(websocket: WebSocket):
@@ -210,10 +260,8 @@ if __name__ == '__main__':
             logger.info("Falling back to HTTP mode...")
             logger.warning("SERVER IS RUNNING WITH HTTP!")
             logger.warning("DO NOT EXPOSE THIS SERVER TO PUBLIC!")
-            logger.info()
             uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False)
     else:
         logger.warning("SERVER IS RUNNING WITH HTTP!")
         logger.warning("DO NOT EXPOSE THIS SERVER TO PUBLIC!")
-        logger.info()
         uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False)

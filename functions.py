@@ -56,7 +56,7 @@ class Browser:
                 continue
         return page_results
 
-    def wait_for_network_idle(self, t=10, i=5):
+    def wait_for_network_idle(self, t=8, i=5):
         st = time.time(); ist = None
         while time.time() - st < t:
             r = self.driver.execute_script("var r=performance.getEntriesByType('resource').filter(x=>!x.responseEnd||x.responseEnd===0).length,n=performance.getEntriesByType('navigation')[0];return{p:r,n:n&&!n.domComplete};")
@@ -89,7 +89,7 @@ class Browser:
     
     def life_control(self):
         while True:
-            if time.time() - self.timer > 600:
+            if time.time() - self.timer > 1200:
                 logger.debug('driver life expired')
                 try:
                     self.driver.quit()
@@ -415,6 +415,37 @@ class OCR:
         except Exception as e:
             raise Exception(f"OCR failed: {str(e)}")
 
+class InviteManager:
+    def __init__(self):
+        self.invite_tokens: dict[int, tuple[str, int]] = {}
+        self.invite_codes: list[str] = []
+    
+    def generate_invite_token(self, user_id: int, expires_in: int = 60 * 5) -> str:
+        token = base64.b64encode(os.urandom(32)).decode('utf-8')
+        self.invite_tokens[user_id] = (token, time.time() + expires_in)
+        return token
+    
+    def generate_invite_code(self) -> str:
+        code = base64.b64encode(os.urandom(32)).decode('utf-8')
+        self.invite_codes.append(code)
+        return code
+    
+    def verify_invite_code(self, code: str) -> bool:
+        if code in self.invite_codes:
+            self.invite_codes.remove(code)
+            return True
+        return False
+    
+    def verify_invite_token(self, user_id: int, token: str) -> bool:
+        if user_id in self.invite_tokens and self.invite_tokens[user_id][0] == token:
+            if self.invite_tokens[user_id][1] > time.time():
+                del self.invite_tokens[user_id]
+                return True
+            else:
+                del self.invite_tokens[user_id]
+                return False
+        return False
+
 class UserManager:
     def __init__(self):
         if not os.path.exists("link_datas"):
@@ -426,6 +457,13 @@ class UserManager:
             self.users[user_id] = User(user_id)
         return self.users[user_id]
 
+    def is_user_exist(self, user_id: int) -> bool:
+        if user_id in self.users:
+            return True
+        elif os.path.exists(f"link_datas/{user_id}.json"):
+            return True
+        return False
+
     def save(self):
         for user_id, user in self.users.items():
             with open(f"link_datas/{user_id}.json", "w", encoding="utf-8") as f:
@@ -435,7 +473,6 @@ class UserManager:
 class Link:
     def __init__(self, user_manager: UserManager):
         self.user_manager = user_manager
-        self.desynced_users: list[int] = []
 
     def __call__(self, data):
         if data["user"] not in self.user_manager.users:
@@ -454,10 +491,13 @@ class Link:
 class User:
     def __init__(self, user_id: int):
         self.user_id: int = user_id
+        # init memory and tasks
         if not os.path.exists(f"link_datas/{user_id}.json"):
-            logger.debug(f"User {user_id} data file not found, creating new one")
+            logger.debug(f"User {user_id} data file not found")
             self.memory = []
             self.tasks = {}
+            self.token = None
+            self.expire = 0
         else:
             with open(f"link_datas/{user_id}.json", "r", encoding="utf-8") as f:
                 logger.debug(f"Loading user {user_id} data from file")
@@ -481,8 +521,10 @@ class User:
     
     def handle_sync(self, data):
         if data["operate"] == "push_all":
-            self.memory = data["memory"]
-            self.tasks = data["tasks"]
+            if "memory" in data:
+                self.memory = data["memory"]
+            if "tasks" in data:
+                self.tasks = data["tasks"]
 
 class LRUCache:
     def __init__(self, capacity=50, allow_reverse=False):
@@ -568,8 +610,9 @@ if __name__ != "__main__":
     is_ocr_enabled = "ocr" in config
     is_webchat_enabled = "webchat" in config
     is_link_enabled = "link" in config
+    is_invite_enabled = "invite" in config
 
-    if is_webchat_enabled or is_link_enabled:
+    if is_webchat_enabled or is_link_enabled or is_invite_enabled:
         is_usermanager_required = True
         usermanager = UserManager()
 
@@ -594,11 +637,18 @@ if __name__ != "__main__":
     
     # if is_webchat_enabled:
     #     webchat = Webchat(usermanager)
+
+    if is_invite_enabled:
+        invitemanager = InviteManager()
     
     if is_link_enabled:
         link = Link(usermanager)
         websocket_connect = None
         event_loop = None
+
+        def set_event_loop(loop):
+            global event_loop
+            event_loop = loop
 
         def send_to_websocket(message: str):
             if websocket_connect:

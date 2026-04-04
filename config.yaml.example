@@ -7,12 +7,14 @@ server:
   cert: "certs/domain.crt"
   # SSL密钥路径（可选，用于HTTPS）
   key: "certs/domain.key"
-  # 公网访问地址（可选，用于下载服务）
+  # 公网访问地址（可选，用于下载服务和邀请码验证）
   public_address: https://your-domain.com:5212
+  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: INFO
 
 # Bing搜索爬虫配置
 bing_crawler:
-  # 是否使用Jina Reader解析网页（推荐true，效果更好）
+  # 是否使用Jina Reader解析网页（推荐false，不使用额外的API）
   use_jina_reader: false
   # geckodriver路径（可选，留空则自动下载）
   geckodriver: geckodriver.exe
@@ -23,22 +25,34 @@ ncm:
 # B站视频功能配置（留空表示启用但无特殊配置）
 bilibili:
 
-# 语音识别服务配置
+# 语音识别服务配置（列表，可同时配置多个）
 VoiceRecognition:
-  # 阿里云语音识别
-  - type: aliyun
-    # 模型名称
-    model: "paraformer-v2"
-    # 阿里云API密钥
-    key: YOUR_ALIYUN_API_KEY_HERE
   # Azure语音识别
   - type: azure
     # Azure语音识别API密钥
     key: YOUR_AZURE_API_KEY_HERE
     # Azure语音识别API端点
     url: https://eastus.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15
+  # 阿里云语音识别
+  - type: aliyun
+    # 模型名称
+    model: "paraformer-v2"
+    # 阿里云API密钥
+    key: YOUR_ALIYUN_API_KEY_HERE
 
 # OCR服务配置
 ocr:
   # Umi-OCR服务端点
   umi_ocr_endpoint: "http://127.0.0.1:1224/api/ocr"
+
+# 链接分享服务配置（留空表示启用但无特殊配置）
+link:
+
+# 邀请码验证系统配置
+invite:
+  # Cloudflare Turnstile网站密钥
+  turnstile-website-key: YOUR_TURNSTILE_WEBSITE_KEY_HERE
+  # Cloudflare Turnstile密钥
+  turnstile-secret: YOUR_TURNSTILE_SECRET_HERE
+  # 邀请码生成密钥
+  invite-code-key: YOUR_INVITE_CODE_KEY_HERE

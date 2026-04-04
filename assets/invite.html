@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>验证码获取</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <style>
+        :root {
+            --vscode-bg: #1f1f1f;
+            --vscode-sidebar: #181818;
+            --vscode-modalBg: #252526;
+            --vscode-text: #cccccc;
+            --vscode-blue: #0078d4;
+            --vscode-blueHover: #026ec1;
+            --vscode-sidebarBorder: #2b2b2b;
+            --vscode-input: #313131;
+            --vscode-inputBorder: #3c3c3c;
+            --vscode-hover: #2a2d2e;
+            --vscode-active: #37373d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", 
+                         "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", 
+                         "Helvetica Neue", sans-serif;
+            background-color: var(--vscode-bg);
+            color: var(--vscode-text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .card {
+            background-color: var(--vscode-modalBg);
+            border-radius: 8px;
+            padding: 24px;
+            width: 100%;
+            max-width: 448px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+
+        .title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 24px;
+            text-align: center;
+            color: #ffffff;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.85rem;
+            margin-bottom: 6px;
+            color: #a0a0a0;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            background-color: var(--vscode-input);
+            border: 1px solid var(--vscode-inputBorder);
+            border-radius: 8px;
+            color: var(--vscode-text);
+            font-size: 0.95rem;
+            transition: all 0.15s ease;
+            outline: none;
+        }
+
+        .form-input:focus {
+            border-color: var(--vscode-blue);
+            box-shadow: 0 0 0 1px var(--vscode-blue);
+        }
+
+        .form-input::placeholder {
+            color: #6e6e6e;
+        }
+
+        .turnstile-container {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 12px 24px;
+            background-color: var(--vscode-blue);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            margin-top: 8px;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            background-color: var(--vscode-blueHover);
+            box-shadow: 0 0 20px rgba(0, 120, 212, 0.2);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .submit-btn.loading {
+            position: relative;
+            color: transparent;
+        }
+
+        .submit-btn.loading::after {
+            content: "";
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            top: 50%;
+            left: 50%;
+            margin-left: -10px;
+            margin-top: -10px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spinner 0.8s linear infinite;
+        }
+
+        @keyframes spinner {
+            to { transform: rotate(360deg); }
+        }
+
+        .result-container {
+            margin-top: 20px;
+            padding: 16px;
+            background-color: var(--vscode-input);
+            border: 1px solid var(--vscode-inputBorder);
+            border-radius: 8px;
+            display: none;
+        }
+
+        .result-container.show {
+            display: block;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .result-label {
+            font-size: 0.85rem;
+            color: #a0a0a0;
+            margin-bottom: 8px;
+        }
+
+        .result-content {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .result-text {
+            flex: 1;
+            padding: 10px 12px;
+            background-color: var(--vscode-bg);
+            border: 1px solid var(--vscode-inputBorder);
+            border-radius: 6px;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            font-size: 0.85rem;
+            word-break: break-all;
+            color: #d7ba7d;
+        }
+
+        .copy-btn {
+            padding: 8px 16px;
+            background-color: var(--vscode-input);
+            border: 1px solid var(--vscode-inputBorder);
+            border-radius: 6px;
+            color: var(--vscode-text);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .copy-btn:hover {
+            background-color: var(--vscode-hover);
+            border-color: var(--vscode-blue);
+        }
+
+        .copy-btn.copied {
+            background-color: #2d5a27;
+            border-color: #3c8c3c;
+            color: #7ee787;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-20px);
+            padding: 12px 24px;
+            background-color: var(--vscode-modalBg);
+            border: 1px solid var(--vscode-inputBorder);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            opacity: 0;
+            transition: all 0.2s ease;
+            z-index: 1000;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .toast.success {
+            border-color: #3c8c3c;
+            color: #7ee787;
+        }
+
+        .toast.error {
+            border-color: #c75450;
+            color: #f48771;
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 12px;
+            }
+
+            .card {
+                padding: 20px;
+            }
+
+            .title {
+                font-size: 1.1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1 class="title">验证码获取</h1>
+        
+        <form id="inviteForm">
+            <div class="form-group">
+                <label class="form-label" for="invite">邀请码</label>
+                <input 
+                    type="text" 
+                    id="invite" 
+                    class="form-input" 
+                    placeholder="请输入邀请码"
+                    required
+                    autocomplete="off"
+                >
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="qqid">QQ号</label>
+                <input 
+                    type="text" 
+                    id="qqid" 
+                    class="form-input" 
+                    placeholder="请输入QQ号"
+                    required
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    autocomplete="off"
+                >
+            </div>
+
+            <div class="turnstile-container">
+                <div 
+                    class="cf-turnstile" 
+                    data-sitekey="{{ turnstile_website_key }}"
+                    data-callback="onTurnstileSuccess"
+                    data-error-callback="onTurnstileError"
+                    data-expired-callback="onTurnstileExpired"
+                    data-theme="dark"
+                ></div>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submitBtn" disabled>
+                获取验证码
+            </button>
+        </form>
+
+        <div class="result-container" id="resultContainer">
+            <div class="result-label">您的验证码</div>
+            <div class="result-content">
+                <div class="result-text" id="resultText"></div>
+                <button class="copy-btn" id="copyBtn" onclick="copyToClipboard()">
+                    复制
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // 全局变量
+        let turnstileToken = null;
+        let isSubmitting = false;
+
+        // 获取 DOM 元素
+        const form = document.getElementById('inviteForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const inviteInput = document.getElementById('invite');
+        const qqidInput = document.getElementById('qqid');
+        const resultContainer = document.getElementById('resultContainer');
+        const resultText = document.getElementById('resultText');
+        const copyBtn = document.getElementById('copyBtn');
+        const toast = document.getElementById('toast');
+
+        // Turnstile 验证成功回调
+        function onTurnstileSuccess(token) {
+            turnstileToken = token;
+            updateSubmitButton();
+        }
+
+        // Turnstile 验证错误回调
+        function onTurnstileError() {
+            turnstileToken = null;
+            updateSubmitButton();
+            showToast('验证加载失败，请刷新页面重试', 'error');
+        }
+
+        // Turnstile 验证过期回调
+        function onTurnstileExpired() {
+            turnstileToken = null;
+            updateSubmitButton();
+            showToast('验证已过期，请重新验证', 'error');
+        }
+
+        // 更新提交按钮状态
+        function updateSubmitButton() {
+            const isFormValid = inviteInput.value.trim() && qqidInput.value.trim() && turnstileToken;
+            submitBtn.disabled = !isFormValid || isSubmitting;
+        }
+
+        // 监听输入变化
+        inviteInput.addEventListener('input', updateSubmitButton);
+        qqidInput.addEventListener('input', updateSubmitButton);
+
+        // 表单提交处理
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (isSubmitting || !turnstileToken) return;
+
+            // 验证 QQ 号格式
+            const qqid = qqidInput.value.trim();
+            if (!/^\d+$/.test(qqid)) {
+                showToast('QQ号只能包含数字', 'error');
+                return;
+            }
+
+            isSubmitting = true;
+            submitBtn.disabled = true;
+            submitBtn.classList.add('loading');
+            hideResult();
+
+            try {
+                const response = await fetch(`{{ server_url }}/invite`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        challenge: turnstileToken,
+                        qqid: qqid,
+                        invite: inviteInput.value.trim()
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`请求失败: ${response.status}`);
+                }
+
+                const text = await response.text();
+                
+                // 显示结果
+                showResult(text);
+                
+                // 自动复制
+                await autoCopy(text);
+                
+                showToast('验证码已复制到剪贴板', 'success');
+
+            } catch (error) {
+                console.error('Error:', error);
+                showToast(error.message || '获取验证码失败，请稍后重试', 'error');
+                
+                // 重置 Turnstile
+                if (window.turnstile) {
+                    window.turnstile.reset();
+                }
+                turnstileToken = null;
+                updateSubmitButton();
+            } finally {
+                isSubmitting = false;
+                submitBtn.classList.remove('loading');
+                updateSubmitButton();
+            }
+        });
+
+        // 显示结果
+        function showResult(text) {
+            resultText.textContent = text;
+            resultContainer.classList.add('show');
+        }
+
+        // 隐藏结果
+        function hideResult() {
+            resultContainer.classList.remove('show');
+        }
+
+        // 自动复制到剪贴板
+        async function autoCopy(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch (err) {
+                // 降级方案
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+            }
+        }
+
+        // 手动复制按钮
+        async function copyToClipboard() {
+            const text = resultText.textContent;
+            if (!text) return;
+
+            try {
+                await navigator.clipboard.writeText(text);
+                copyBtn.textContent = '已复制';
+                copyBtn.classList.add('copied');
+                
+                setTimeout(() => {
+                    copyBtn.textContent = '复制';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                showToast('复制失败，请手动复制', 'error');
+            }
+        }
+
+        // 显示 Toast 提示
+        function showToast(message, type = 'success') {
+            toast.textContent = message;
+            toast.className = 'toast ' + type;
+            
+            setTimeout(() => toast.classList.add('show'), 10);
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            updateSubmitButton();
+        });
+    </script>
+</body>
+</html>
