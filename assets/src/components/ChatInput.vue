@@ -3,6 +3,8 @@ import { state } from '../store';
 import { ref, watch, nextTick } from 'vue';
 import { processImage } from '../utils/image';
 import api from '../utils/api';
+import { isMobileDevice } from '../utils/device';
+
 
 const props = defineProps<{
   isChatStarted: boolean;
@@ -47,7 +49,7 @@ const handleSend = () => {
 
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter') {
-    if (!e.ctrlKey && !e.shiftKey) {
+    if (!isMobileDevice() && !e.ctrlKey && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     } else if (e.ctrlKey) {
@@ -164,8 +166,9 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         v-model="textInput"
         rows="1" 
         class="w-full resize-none outline-none border-none bg-transparent p-1 text-sm no-scrollbar text-text-main placeholder-text-placeholder min-h-[24px]"
-        placeholder="输入消息，Shift+Enter 或 Ctrl+Enter 换行，Enter 发送..."
+        :placeholder="isMobileDevice() ? '输入消息...' : '输入消息，Shift+Enter 或 Ctrl+Enter 换行，Enter 发送...'"
         @keydown="handleKeydown"
+
       ></textarea>
     </div>
 

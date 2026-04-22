@@ -28,6 +28,8 @@ import { ref, computed, watch, onMounted, nextTick, onUnmounted } from 'vue';
 import hljs from 'highlight.js/lib/common';
 import 'highlight.js/styles/github.css';
 import 'katex/dist/katex.min.css';
+import { isMobileDevice } from '../utils/device';
+
 
 const props = defineProps<{
   message: any;
@@ -153,7 +155,7 @@ const handleEdit = () => { isEditing.value = true; editText.value = userTextCont
 const submitEdit = () => { emit('edit', props.nodeId, editText.value); isEditing.value = false; };
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter') {
-    if (!e.ctrlKey && !e.shiftKey) {
+    if (!isMobileDevice() && !e.ctrlKey && !e.shiftKey) {
       e.preventDefault();
       submitEdit();
     } else if (e.ctrlKey) {
