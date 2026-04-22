@@ -10,3 +10,4 @@ assets/.vscode/
 assets/node_modules/
 assets/dist/
 assets/.env
+test.py

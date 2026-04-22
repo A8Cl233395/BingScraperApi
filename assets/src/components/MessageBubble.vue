@@ -4,9 +4,17 @@ import markedKatex from 'marked-katex-extension';
 marked.use(markedKatex({ throwOnError: false }));
 
 marked.use({
+  breaks: true,
+  gfm: true,
   renderer: {
     code(token) {
       const lang = token.lang || 'text';
+      const escapedCode = token.text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
       return `
 <div class="code-block-wrapper my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-bg-main">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
@@ -16,7 +24,7 @@ marked.use({
       <span class="text-[10px]">复制</span>
     </button>
   </div>
-  <pre class="!m-0 !p-3 !bg-code-bg overflow-x-auto"><code class="hljs language-${lang}">${token.text}</code></pre>
+  <pre class="!m-0 !p-3 !bg-code-bg overflow-x-auto"><code class="hljs language-${lang}">${escapedCode}</code></pre>
 </div>`;
     }
   }
@@ -313,10 +321,88 @@ onUnmounted(() => {
 @reference "tailwindcss";
 
 .prose pre { @apply bg-transparent p-0 m-0 border-none rounded-none overflow-visible; }
-.prose code { @apply text-xs font-mono; }
-.prose p { @apply mb-2 last:mb-0; }
-.prose ul, .prose ol { @apply ml-4 mb-2; }
-.prose li { @apply mb-1; }
+.prose code { @apply text-[0.85em] font-mono; }
+.prose :not(pre) > code {
+  background-color: var(--bg-panel);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  @apply px-1.5 py-0.5 rounded mx-0.5;
+}
+.prose p { @apply mb-3 last:mb-0 leading-relaxed; }
+.prose ul, .prose ol { @apply ml-6 mb-4 mt-2 list-outside; }
+.prose ul { @apply list-disc; }
+.prose ol { @apply list-decimal; }
+.prose li { @apply mb-1.5; }
+.prose li > p { @apply mb-1; }
+.prose li > ul, .prose li > ol { @apply mt-1 mb-2; }
+
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  color: var(--text-main);
+  @apply font-bold mt-6 mb-3 leading-tight;
+}
+.prose h1 { 
+  @apply text-xl pb-2; 
+  border-bottom: 1px solid var(--border-color);
+}
+.prose h2 { 
+  @apply text-lg pb-1; 
+  border-bottom: 1px solid var(--border-color);
+}
+.prose h3 { @apply text-base; }
+
+.prose blockquote {
+  border-left: 4px solid var(--border-color);
+  background-color: var(--bg-panel);
+  color: var(--text-muted);
+  @apply pl-4 py-1 my-4 italic rounded-r-sm;
+}
+
+.prose table {
+  @apply w-full border-collapse my-4 text-sm overflow-hidden rounded-md block md:table overflow-x-auto;
+  border: 1px solid var(--border-color);
+}
+.prose thead {
+  background-color: var(--bg-panel);
+  @apply text-left;
+}
+.prose th {
+  @apply px-4 py-2 font-semibold;
+  border-bottom: 1px solid var(--border-color);
+}
+.prose td {
+  @apply px-4 py-2;
+  border-bottom: 1px solid var(--border-color);
+}
+.prose tr:last-child td {
+  @apply border-b-0;
+}
+.prose tr:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+@media (prefers-color-scheme: dark) {
+  .prose tr:nth-child(even) {
+    background-color: rgba(255, 255, 255, 0.02);
+  }
+}
+
+.prose a {
+  color: var(--primary);
+  @apply hover:underline decoration-1 underline-offset-4;
+}
+
+.prose hr {
+  @apply my-6;
+  border-top: 1px solid var(--border-color);
+}
+
+.prose strong {
+  @apply font-semibold;
+  color: var(--text-main);
+}
+
+.prose em {
+  @apply italic;
+}
 
 /* Code block wrapper adjustments */
 .code-block-wrapper pre code.hljs {

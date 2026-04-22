@@ -1029,8 +1029,8 @@ class ChatInstance:
     @staticmethod
     def customize_reader(url):
         domain_regex = r"^(?:https?:)?(?:\/\/)?([^\/\?:]+)(?:[\/\?:].*)?$"
-        domain = re.search(domain_regex, url).group(1)
         try:
+            domain = re.search(domain_regex, url).group(1)
             match domain:
                 case "music.163.com":
                     song_id = re.search(r"id=(\d+)", url).group(1)
@@ -1042,9 +1042,9 @@ class ChatInstance:
                         if match:
                             id = match.group(1)
                         else:
-                            return "自定义解析失败，无法获取歌曲ID"
+                            raise ValueError("无法获取歌曲ID")
                     else:
-                        return "自定义解析失败，无法获取歌曲ID"
+                        raise ValueError("无法获取歌曲ID")
                     return ncm.get_details_text(id)
                 case "b23.tv" | "bilibili.com" | "www.bilibili.com":
                     return bili.get_bili_text(url)
