@@ -1,10 +1,12 @@
 config.yaml
-
-# Python cache files
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-
-AGENTS.md
+chatdata.db
+chatdata.db-shm
+chatdata.db-wal
+link_datas/
+certs/
+temp/
+assets/.vscode/
+assets/node_modules/
+assets/dist/
+assets/.env

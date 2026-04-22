@@ -1,58 +1,89 @@
 server:
-  # API认证密钥，所有请求需要在HTTP头中包含此密钥
-  auth_key: YOUR_API_KEY_HERE
-  # 服务端口
+  auth_key: ur_auth_key
   port: 5212
-  # SSL证书路径（可选，用于HTTPS）
-  cert: "certs/domain.crt"
-  # SSL密钥路径（可选，用于HTTPS）
-  key: "certs/domain.key"
-  # 公网访问地址（可选，用于下载服务和邀请码验证）
-  public_address: https://your-domain.com:5212
-  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  log_level: INFO
+#  cert: "certs/domain.crt"
+#  key: "certs/domain.key"
+  public_address: https://example.com
+  log_level: DEBUG
 
-# Bing搜索爬虫配置
 bing_crawler:
-  # 是否使用Jina Reader解析网页（推荐false，不使用额外的API）
   use_jina_reader: false
-  # geckodriver路径（可选，留空则自动下载）
+  # 需要手动下载geckodriver
   geckodriver: geckodriver.exe
 
-# 网易云音乐功能配置（留空表示启用但无特殊配置）
 ncm:
 
-# B站视频功能配置（留空表示启用但无特殊配置）
 bilibili:
 
-# 语音识别服务配置（列表，可同时配置多个）
 VoiceRecognition:
-  # Azure语音识别
   - type: azure
-    # Azure语音识别API密钥
-    key: YOUR_AZURE_API_KEY_HERE
-    # Azure语音识别API端点
+    key: xxx
     url: https://eastus.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15
-  # 阿里云语音识别
   - type: aliyun
-    # 模型名称
     model: "paraformer-v2"
-    # 阿里云API密钥
-    key: YOUR_ALIYUN_API_KEY_HERE
+    key: sk-xxx
 
-# OCR服务配置
 ocr:
-  # Umi-OCR服务端点
+  # 需要umi-ocr
   umi_ocr_endpoint: "http://127.0.0.1:1224/api/ocr"
 
-# 链接分享服务配置（留空表示启用但无特殊配置）
 link:
 
-# 邀请码验证系统配置
 invite:
-  # Cloudflare Turnstile网站密钥
-  turnstile-website-key: YOUR_TURNSTILE_WEBSITE_KEY_HERE
-  # Cloudflare Turnstile密钥
-  turnstile-secret: YOUR_TURNSTILE_SECRET_HERE
-  # 邀请码生成密钥
-  invite-code-key: YOUR_INVITE_CODE_KEY_HERE
+  # https://developers.cloudflare.com/turnstile/get-started/?preferred-color-scheme=dark#existing-sites
+  turnstile-secret: ""
+  invite-code-key: super_duper_SECRET_key_do_not_share
+
+webchat:
+  default-model: "deepseek-chat"
+  default-vision-model: "qwen3.5-plus" # 需要支持视觉输入
+  title-model: "deepseek-chat"
+  prompt_raw: |-
+    你是**马莉雅**（*Maria*）。你是一位真诚且具备适配能力的人工智能协作伙伴，略带一丝风趣。你的目标是通过富有洞见、同时清晰简洁的回复，精准回应用户的真实需求。你的核心原则是在共情与坦诚之间找到平衡：以支持性、接地气的人工智能身份，真诚认可用户的感受；同时以友善同行而非刻板说教者的姿态，温和但直接地纠正明显的错误信息。细微调整你的语气、情绪和幽默感，以适配用户的沟通风格。
+
+    ---
+
+    **用户区域**
+
+    这是用户区域，根据用户自定义。你可以在回复中适度借鉴和当前问题相关的记忆，提供个性化对话体验。
+
+    **用户记忆**：[时间戳] 记忆内容
+    {memory_block}
+
+    **定时任务**：[任务名称]：触发方式 触发时间
+    {task_block}
+
+    ---
+
+    **现在的时间**：{time}
+    **用户环境**：{device}
+
+    ---
+  models:
+    deepseek-chat:
+      desc: "Deepseek Chat"
+      api_key: sk-xxx
+      default-thinking: false
+      prefix-mark: prefix
+      think-during-tool-calls: true
+      thinking-toggle-extra-body:
+        'false':
+          thinking:
+            type: disabled
+        'true':
+          thinking:
+            type: enabled
+      url: https://api.deepseek.com/beta
+    qwen3.5-plus:
+      desc: "Qwen3.5 Plus"
+      api_key: sk-xxx
+      vision: true
+      default-thinking: true
+      prefix-mark: partial
+      think-during-tool-calls: false
+      thinking-toggle-extra-body:
+        'false':
+          enable_thinking: false
+        'true':
+          enable_thinking: true
+      url: https://dashscope.aliyuncs.com/compatible-mode/v1

@@ -1,11 +1,14 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, HTTPException, WebSocketDisconnect
 from fastapi.params import Query, Body
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
-from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field, field_validator
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from PIL import Image
+import io
 import uvicorn
 from functions import *
 
@@ -17,10 +20,39 @@ async def lifespan(app: FastAPI):
         logger.info("Saving user data...")
         usermanager.save()
         logger.info("Finished saving user data.")
+    if is_webchat_enabled:
+        logger.info("Saving webchat data...")
+        webchat.save_all()
+        logger.info("Finished saving webchat data.")
+        webchat.close()
+    if is_bing_crawler_enabled:
+        browser.stop()
 
 # 禁用 docs 和 redoc
-app = FastAPI(title="Web Search API", docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 KEY = config["server"]["auth_key"]
+
+if is_web_function_enabled:
+    TURNSTILE_SECRET = config["invite"]["turnstile-secret"]
+    INVITE_CODE_KEY = config["invite"]["invite-code-key"]
+    SERVER_ADDRESS = config["server"]["public_address"]
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        max_age=86400,
+    )
+
+    app.mount("/assets", StaticFiles(directory="assets/dist/assets"))
+
+    @app.get("/favicon.ico")
+    async def get_favicon(request: Request):
+        return FileResponse("assets/dist/favicon.ico")
+    
+    web_paths = [f"/assets/{filename}" for filename in os.listdir("assets/dist/assets")] 
 
 # 自定义请求验证错误处理 - 参数错误时返回 bad arguments
 @app.exception_handler(RequestValidationError)
@@ -42,13 +74,29 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.middleware("http")
 async def verify_key_middleware(request: Request, call_next):
-    # 对 /ping 和 /download 路径跳过验证
-    if request.url.path in ["/ping", "/download", "/link", "/invitecodegen", "/invite"]:
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if request.url.path in ["/ping", "/download", "/invitecodegen", "/api/login", "/invite", "/favicon.ico", "/login", "/webchat"]:
+        return await call_next(request)
+    elif is_web_function_enabled and request.url.path in web_paths:
+        return await call_next(request)
+    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat"]:
+        uid = request.headers.get('uid')
+        try:
+            uid = int(uid)
+        except:
+            return PlainTextResponse(status_code=401, content="require key")
+        if not usermanager.is_user_exist(uid):
+            return PlainTextResponse(status_code=401, content="require key")
+        if not usermanager.get_user(uid).verify_token(request.headers.get('token')):
+            return PlainTextResponse(status_code=401, content="require key")
         return await call_next(request)
     key = request.headers.get('key')
     if key != KEY:
-        return PlainTextResponse(content="require key", status_code=403)
+        return PlainTextResponse(content="require key", status_code=401)
     return await call_next(request)
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 @app.get("/ping", response_class=PlainTextResponse)
 def ping():
@@ -65,7 +113,8 @@ def status():
         "bilibili": is_bilibili_enabled,
         "invite": is_invite_enabled,
         "link": is_link_enabled,
-        "version": "3"
+        "webchat": is_webchat_enabled,
+        "version": "4"
     }
 
 # 下载服务，仅内部逻辑使用，不要写入文档
@@ -162,33 +211,15 @@ if is_ocr_enabled:
         result = ocr_service.extract_text_from_data(data)
         return result
 
-if is_usermanager_required:
-    @app.get("/userdata")
-    def get_user(uid: int):
-        return usermanager.get_user(uid)
-
 if is_invite_enabled:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[config["server"]["public_address"]],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        max_age=86400,
-    )
-    templates = Jinja2Templates(directory="assets")
-
-    TURNSTILE_SECRET = config["invite"]["turnstile-secret"]
-    INVITE_CODE_KEY = config["invite"]["invite-code-key"]
-
     class InvitePost(BaseModel):
         challenge: str
         qqid: int
         invite: str
     
-    @app.get("/invite", response_class=HTMLResponse)
-    def invite(request: Request):
-        return templates.TemplateResponse(request, "invite.html", {"turnstile_website_key": config["invite"]["turnstile-website-key"], "server_url": config["server"]["public_address"]})
+    @app.get("/invite")
+    def invite_get():
+        return FileResponse("assets/dist/invite.html")
     
     @app.post("/invite", response_class=PlainTextResponse)
     def invite_post(data: InvitePost = Body(...)):
@@ -216,14 +247,13 @@ if is_invite_enabled:
 if is_link_enabled:
     @app.websocket("/link")
     async def websocket_endpoint(websocket: WebSocket):
-        global websocket_connect
         if websocket.headers.get('key') != KEY:
             await websocket.close(reason="Invalid key")
             return
         if websocket_connect:
             await websocket.close(reason="Only one connection allowed")
             return
-        websocket_connect = websocket
+        set_websocket_connect(websocket)
         await websocket.accept()
         logger.info("websocket connected")
         try:
@@ -242,7 +272,169 @@ if is_link_enabled:
         except WebSocketDisconnect:
             logger.info("websocket disconnected")
         finally:
-            websocket_connect = None
+            set_websocket_connect(None)
+
+if is_webchat_enabled:
+    class LoginPost(BaseModel):
+        uid: int
+        token: str
+    
+    class ChatPost(BaseModel):
+        id: int | None = Field(None)
+        parent: str | None = Field(None)
+        content: list[dict[str, str | dict]] = Field(...)
+        enable_function: bool | None = Field(None)
+        thinking: bool | None = Field(None)
+        model: str | None = Field(None)
+        vmodel: str | None = Field(None)
+
+        @field_validator('content')
+        def validate_content_structure(v):
+            text_elements = [(i, item) for i, item in enumerate(v) if item.get("type") == "text"]
+            image_elements = [item for item in v if item.get("type") == "image_url"]
+            if len(text_elements) > 1:
+                raise ValueError
+            if len(text_elements) == 1:
+                index, item = text_elements[0]
+                if index != len(v) - 1:
+                    raise ValueError
+                text_content = item.get("text", "")
+                if not isinstance(text_content, str):
+                    raise ValueError
+                if len(text_content) > 500_000:
+                    raise ValueError
+            if len(image_elements) > 10:
+                raise ValueError
+            for img_item in image_elements:
+                img_data = img_item.get("image_url", {})
+                if not isinstance(img_data, dict):
+                    raise ValueError
+                url = img_data.get("url", "")
+                # data:image/jpeg;base64,
+                if not url.startswith("data:image/jpeg;base64,"):
+                    raise ValueError
+                try:
+                    _, encoded = url.split(",", 1)
+                    binary_data = base64.b64decode(encoded)
+                    with Image.open(io.BytesIO(binary_data)) as img:
+                        if img.format != "JPEG":
+                            raise ValueError()
+                        width, height = img.size
+                        if width > 1000 or height > 1000:
+                            raise ValueError()
+                except:
+                    raise ValueError
+            return v
+        
+        @field_validator('model')
+        def validate_model(v):
+            if v is None:
+                return v
+            if v not in MODELS:
+                raise ValueError
+            return v
+        
+        @field_validator('vmodel')
+        def validate_vmodel(v):
+            if v is None:
+                return v
+            if v not in MODELS:
+                raise ValueError
+            if not MODELS[v].get("vision", False):
+                raise ValueError
+            return v
+    
+    class DefaultPost(BaseModel):
+        model: str | None = Field(None)
+        vmodel: str | None = Field(None)
+        thinking: bool | None = Field(None)
+        enable_function: bool | None = Field(None)
+
+        @field_validator('model')
+        def validate_model(v):
+            if v is None:
+                return v
+            if v not in MODELS:
+                raise ValueError
+            return v
+        
+        @field_validator('vmodel')
+        def validate_vmodel(v):
+            if v is None:
+                return v
+            if v not in MODELS:
+                raise ValueError
+            if not MODELS[v].get("vision", False):
+                raise ValueError
+            return v
+    
+    @app.get("/login")
+    def login_get():
+        return FileResponse("assets/dist/login.html")
+    
+    @app.get("/webchat")
+    def chat_get():
+        return FileResponse("assets/dist/index.html")
+    
+    @app.get("/gettoken", response_class=PlainTextResponse)
+    def gettoken(uid: int = Query(...)): # register only happens here
+        if not usermanager.is_user_exist(uid):
+            webchat.init_user(uid)
+        return usermanager.get_user(uid).get_web_token()
+    
+    @app.post("/api/login", response_class=PlainTextResponse)
+    def api_login(data: LoginPost = Body(...)):
+        if not usermanager.is_user_exist(data.uid):
+            raise HTTPException(status_code=401, detail="Invalid token")
+        user = usermanager.get_user(data.uid)
+        if not user.verify_token(data.token):
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return "success"
+    
+    @app.get("/api/home", response_class=JSONResponse)
+    def api_home(request: Request):
+        uid = int(request.headers["uid"])
+        return webchat.get_home_data(uid)
+    
+    @app.post("/api/chat", response_class=StreamingResponse)
+    def api_chat(request: Request, data: ChatPost = Body(...)):
+        generator = webchat.chat(int(request.headers["uid"]), data.model_dump())
+        return StreamingResponse(generator, media_type="text/event-stream")
+
+    @app.post("/api/default", response_class=PlainTextResponse)
+    def api_default(request: Request, data: DefaultPost = Body(...)):
+        user = usermanager.get_user(int(request.headers["uid"]))
+        if data.model is not None:
+            user.model = data.model
+        elif data.vmodel is not None:
+            user.vision_model = data.vmodel
+        elif data.thinking is not None:
+            user.thinking = data.thinking
+        elif data.enable_function is not None:
+            user.enable_function = data.enable_function
+        return "success"
+    
+    @app.get("/api/history", response_class=JSONResponse)
+    def api_history(request: Request, before: int = Query(None)):
+        uid = int(request.headers["uid"])
+        history = webchat.get_history(uid, before)
+        return history
+    
+    @app.get("/api/message", response_class=JSONResponse)
+    def api_message(request: Request, id: int = Query(...)):
+        user_id = int(request.headers["uid"])
+        message = webchat.get_message(user_id, id)
+        return message
+    
+    @app.get("/api/models", response_class=JSONResponse)
+    def api_models(request: Request):
+        return webchat.get_models()
+    
+    @app.get("/api/delete", response_class=PlainTextResponse)
+    def api_delete(request: Request, id: int = Query(...)):
+        user_id = int(request.headers["uid"])
+        webchat.delete_chat(user_id, id)
+        return "success"
 
 if __name__ == '__main__':
     if "cert" in config["server"] and "key" in config["server"]:
