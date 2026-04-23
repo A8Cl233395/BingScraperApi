@@ -1,7 +1,6 @@
 @import "tailwindcss";
 
 :root {
-    /* 基于 Light Modern 主题 */
     --bg-main: #FFFFFF;
     --bg-panel: #F8F8F8;
     --bg-hover: #F2F2F2;
@@ -22,7 +21,6 @@
 
 @media (prefers-color-scheme: dark) {
     :root {
-        /* 基于 Dark Modern 主题 */
         --bg-main: #1F1F1F;
         --bg-panel: #181818;
         --bg-hover: #2B2B2B;
@@ -46,7 +44,6 @@
   --radius-md: 6px;
   --radius-lg: 8px;
 
-  /* Semantic Colors */
   --color-bg-main: var(--bg-main);
   --color-bg-panel: var(--bg-panel);
   --color-bg-hover: var(--bg-hover);
@@ -79,27 +76,4 @@
 
 body {
   @apply bg-bg-main text-text-main transition-colors duration-300;
-}
-
-/* Highlight.js Dark Mode Overrides */
-@media (prefers-color-scheme: dark) {
-  .hljs {
-    color: #d4d4d4 !important;
-    background: transparent !important;
-  }
-  .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link { color: #569cd6 !important; }
-  .hljs-function .hljs-keyword { color: #569cd6 !important; }
-  .hljs-literal, .hljs-number { color: #b5cea8 !important; }
-  .hljs-string, .hljs-doctag { color: #ce9178 !important; }
-  .hljs-title, .hljs-section, .hljs-selector-id { color: #dcdcaa !important; }
-  .hljs-template-variable, .hljs-variable { color: #9cdcfe !important; }
-  .hljs-type, .hljs-class .hljs-title { color: #4ec9b0 !important; }
-  .hljs-tag, .hljs-name, .hljs-attribute { color: #569cd6 !important; }
-  .hljs-regexp, .hljs-link { color: #d16969 !important; }
-  .hljs-symbol, .hljs-bullet { color: #d7ba7d !important; }
-  .hljs-built_in, .hljs-builtin-name { color: #4ec9b0 !important; }
-  .hljs-meta { color: #808080 !important; }
-  .hljs-comment { color: #6a9955 !important; }
-  .hljs-emphasis { font-style: italic !important; }
-  .hljs-strong { font-weight: bold !important; }
 }

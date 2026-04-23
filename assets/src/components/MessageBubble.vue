@@ -1,7 +1,9 @@
 <script lang="ts">
 import { marked } from 'marked';
-import markedKatex from 'marked-katex-extension';
-marked.use(markedKatex({ throwOnError: false }));
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
+import hljs from 'highlight.js/lib/common';
+import 'highlight.js/styles/github.css';
 
 marked.use({
   breaks: true,
@@ -9,12 +11,17 @@ marked.use({
   renderer: {
     code(token) {
       const lang = token.lang || 'text';
-      const escapedCode = token.text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+      let highlightedCode;
+      try {
+        if (lang && hljs.getLanguage(lang)) {
+          highlightedCode = hljs.highlight(token.text, { language: lang }).value;
+        } else {
+          highlightedCode = hljs.highlightAuto(token.text).value;
+        }
+      } catch (e) {
+        highlightedCode = token.text;
+      }
+      
       return `
 <div class="code-block-wrapper my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-bg-main">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
@@ -24,18 +31,78 @@ marked.use({
       <span class="text-[10px]">复制</span>
     </button>
   </div>
-  <pre class="!m-0 !p-3 !bg-code-bg overflow-x-auto"><code class="hljs language-${lang}">${escapedCode}</code></pre>
+  <pre class="!m-0 !p-3 !bg-code-bg overflow-x-auto"><code class="hljs language-${lang}">${highlightedCode}</code></pre>
 </div>`;
     }
   }
 });
+
+// Add a custom extension to protect LaTeX from being mangled by marked
+marked.use({
+  extensions: [
+    {
+      name: 'inlineMath',
+      level: 'inline',
+      start(src) { return src.indexOf('$'); },
+      tokenizer(src) {
+        const match = src.match(/^\$((?:[^\$]|\\\$)+)\$/);
+        if (match) return { type: 'inlineMath', raw: match[0], text: match[1] };
+      },
+      renderer(token) {
+        try {
+          return katex.renderToString(token.text, { displayMode: false, throwOnError: false });
+        } catch (e) { return token.raw; }
+      }
+    },
+    {
+      name: 'blockMath',
+      level: 'block',
+      start(src) { return src.indexOf('$$'); },
+      tokenizer(src) {
+        const match = src.match(/^\$\$([\s\S]*?)\$\$/);
+        if (match) return { type: 'blockMath', raw: match[0], text: match[1] };
+      },
+      renderer(token) {
+        try {
+          return `<div class="math-block">${katex.renderToString(token.text, { displayMode: true, throwOnError: false })}</div>`;
+        } catch (e) { return token.raw; }
+      }
+    },
+    {
+      name: 'latexInline',
+      level: 'inline',
+      start(src) { return src.indexOf('\\('); },
+      tokenizer(src) {
+        const match = src.match(/^\\\(([\s\S]*?)\\\)/);
+        if (match) return { type: 'latexInline', raw: match[0], text: match[1] };
+        },
+      renderer(token) {
+        try {
+          return katex.renderToString(token.text, { displayMode: false, throwOnError: false });
+        } catch (e) { return token.raw; }
+      }
+    },
+    {
+      name: 'latexBlock',
+      level: 'block',
+      start(src) { return src.indexOf('\\['); },
+      tokenizer(src) {
+        const match = src.match(/^\\\[([\s\S]*?)\\\]/);
+        if (match) return { type: 'latexBlock', raw: match[0], text: match[1] };
+      },
+      renderer(token) {
+        try {
+          return `<div class="math-block">${katex.renderToString(token.text, { displayMode: true, throwOnError: false })}</div>`;
+        } catch (e) { return token.raw; }
+      }
+    }
+  ]
+});
 </script>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick, onUnmounted } from 'vue';
-import hljs from 'highlight.js/lib/common';
-import 'highlight.js/styles/github.css';
-import 'katex/dist/katex.min.css';
+import { ref, computed, watch, nextTick, reactive } from 'vue';
+import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
 
 
@@ -58,81 +125,68 @@ const isEditing = ref(false);
 const editText = ref('');
 
 // === USER message rendering ===
-const userRenderedHtml = ref('');
 const userTextContent = computed(() => {
   if (!props.isUser) return '';
   return props.message.find((c: any) => c.type === 'text')?.text || '';
 });
 
-watch(userTextContent, async (val) => {
-  if (!val) { userRenderedHtml.value = ''; return; }
-  try {
-    const r = marked.parse(val);
-    userRenderedHtml.value = r instanceof Promise ? await r : r;
-  } catch { userRenderedHtml.value = val; }
-  nextTick(() => highlightAndMath());
-}, { immediate: true });
-
 // === ASSISTANT message rendering (per-segment) ===
-const segmentHtml = ref<Record<number | string, string>>({});
+const segmentHtml = reactive<Record<number | string, string>>({});
 const thinkingContent = ref('');
 
 let pendingUpdate: Record<number, string> | null = null;
 let pendingThinkingUpdate: string | null = null;
 
-const handleSelectionChange = () => {
-  const selection = window.getSelection();
-  const hasSelection = selection && !selection.isCollapsed;
-  if (!hasSelection) {
-    let changed = false;
+watch([() => state.isMouseDown, () => state.isTextSelected], ([mouseDown, textSelected]) => {
+  if (!mouseDown && !textSelected) {
     if (pendingUpdate) {
-      segmentHtml.value = pendingUpdate;
+      Object.assign(segmentHtml, pendingUpdate);
       pendingUpdate = null;
-      changed = true;
     }
     if (pendingThinkingUpdate !== null) {
       thinkingContent.value = pendingThinkingUpdate;
       pendingThinkingUpdate = null;
-      changed = true;
-    }
-    if (changed) {
-      nextTick(() => highlightAndMath());
     }
   }
-};
+});
 
-watch(() => props.isUser ? null : props.message?.assistant, async (arr) => {
+watch(() => props.isUser ? null : props.message?.assistant, (arr) => {
   if (props.isUser || !arr) return;
+  
   const map: Record<number, string> = {};
+  let hasChanges = false;
+
   for (let i = 0; i < arr.length; i++) {
     const item = arr[i];
     if (item.role === 'assistant' && item.content) {
       try {
-        const r = marked.parse(item.content);
-        map[i] = r instanceof Promise ? await r : r;
-      } catch { map[i] = item.content; }
+        const r = marked.parse(item.content) as string;
+        map[i] = r;
+        if (segmentHtml[i] !== r) {
+          hasChanges = true;
+        }
+      } catch { 
+        map[i] = item.content; 
+        if (segmentHtml[i] !== item.content) hasChanges = true;
+      }
     }
   }
   
-  const selection = window.getSelection();
-  const hasSelection = selection && !selection.isCollapsed;
-  
-  if (hasSelection) {
+  if (!hasChanges) return;
+
+  if (state.isTextSelected || state.isMouseDown) {
     pendingUpdate = map;
   } else {
-    segmentHtml.value = map;
+    Object.assign(segmentHtml, map);
     pendingUpdate = null;
-    nextTick(() => highlightAndMath());
   }
 }, { deep: true, immediate: true });
 
 watch(() => props.isUser ? null : props.message?.thinking, (val) => {
   if (props.isUser) return;
   const content = val || '';
-  const selection = window.getSelection();
-  const hasSelection = selection && !selection.isCollapsed;
   
-  if (hasSelection) {
+  if (state.isTextSelected || state.isMouseDown) {
     pendingThinkingUpdate = content;
   } else {
     thinkingContent.value = content;
@@ -216,36 +270,19 @@ const handleCodeCopy = (e: MouseEvent) => {
   }
 };
 
-const highlightAndMath = () => {
-  const container = document.getElementById(`bubble-${props.nodeId}-${props.isUser ? 'user' : 'assistant'}`);
-  if (!container) return;
-  container.querySelectorAll('pre code').forEach((block) => {
-    hljs.highlightElement(block as HTMLElement);
-  });
-};
-
-onMounted(() => {
-  document.addEventListener('selectionchange', handleSelectionChange);
-  nextTick(() => highlightAndMath());
-});
-
-onUnmounted(() => {
-  document.removeEventListener('selectionchange', handleSelectionChange);
-});
 </script>
 
 <template>
   <div class="flex flex-col mb-6" :class="isUser ? 'items-end' : 'items-start'">
-    <div class="flex flex-col transition-all duration-300" :class="isUser ? (isEditing ? 'w-full items-start' : 'max-w-[85%] md:max-w-[75%] items-end self-end') : 'w-full items-start'">
+    <div class="flex flex-col transition-all duration-300" :class="isUser ? (isEditing ? 'w-full items-start' : 'w-fit max-w-[85%] md:max-w-[75%] items-end self-end') : 'w-full items-start'">
 
-      <!-- ====== USER MESSAGE ====== -->
       <template v-if="isUser">
-        <div class="group flex flex-col w-full" :class="isEditing ? 'items-start' : 'items-end'">
+        <div class="group flex flex-col" :class="isEditing ? 'w-full items-start' : 'max-w-full items-end'">
           <div class="relative p-4 rounded-lg shadow-sm bg-bg-panel rounded-tr-none transition-all duration-200" :class="isEditing ? 'w-full' : ''">
             <div v-if="images.length > 0" class="flex flex-wrap gap-2 mb-3">
               <img v-for="(url, idx) in images" :key="idx" :src="url" class="max-w-[200px] max-h-[200px] rounded-md border border-border-main" />
             </div>
-            <div v-if="!isEditing" :id="`bubble-${nodeId}-user`" class="prose prose-sm max-w-none text-text-main break-words" v-html="userRenderedHtml" @click="handleCodeCopy"></div>
+            <div v-if="!isEditing" class="text-text-main break-words whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
             <div v-else class="w-full">
               <textarea ref="editTextareaRef" v-model="editText" class="w-full bg-bg-main border border-border-input rounded-md p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
             </div>

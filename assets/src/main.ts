@@ -1,8 +1,7 @@
 import { createApp } from 'vue'
-import './style.css'
-import App from './App.vue'
-import router from './router'
+import './style-base.css'
+import './style-chat.css'
+import Chat from './views/Chat.vue'
 
-const app = createApp(App)
-app.use(router)
+const app = createApp(Chat)
 app.mount('#app')

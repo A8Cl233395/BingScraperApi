@@ -187,12 +187,8 @@ class Browser:
             finally:
                 self.get_driver().get("about:blank") # clear
 
-class Ncm:
-    def __init__(self):
-        self.cache = LRUCache(100)
-    
     @staticmethod
-    def get_final_url_without_content(short_url):
+    def get_final_url(short_url):
         try:
             # 发送HEAD请求（有些服务器可能不支持HEAD方法）
             try:
@@ -212,6 +208,10 @@ class Ncm:
         except requests.exceptions.RequestException as e:
             logger.error(f"请求失败: {e}")
             return None
+
+class Ncm:
+    def __init__(self):
+        self.cache = LRUCache(100)
 
     def get_details_text(self, song_id, comment_limit=5):
         if self.cache.check(song_id):
@@ -267,52 +267,59 @@ class Bilibili:
     def __init__(self):
         self.cache = LRUCache(200)
 
+    def _extract_bv_from_url(self, url):
+        if not url:
+            return None
+        
+        if "bilibili.com" in url:
+            match = re.search(r'BV[a-zA-Z0-9]+', url)
+            return match.group(0) if match else None
+        
+        if "b23.tv" in url:
+            final_url = Browser.get_final_url(url)
+            if final_url and "bilibili.com" in final_url:
+                match = re.search(r'BV[a-zA-Z0-9]+', final_url)
+                return match.group(0) if match else None
+        
+        return None
+
     def get_bili_text(self, bv=None, url=None):
-        if bv:
-            if self.cache.check(bv):
-                return self.cache.get(bv)
-        elif url:
-            if "bilibili.com" in url:
-                match = re.search(r'BV[a-zA-Z0-9]+', url)
-                if match:
-                    bv = match.group(0)
-                    if self.cache.check(bv):
-                        return self.cache.get(bv)
-            elif "b23.tv" in url:
-                pass # dynamic url, pass
-            else:
-                return 'url is not a bilibili video url', 400
-        header = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
+        bv = bv or self._extract_bv_from_url(url)
+        if not bv:
+            return 'url is not a bilibili video url'
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+            "Referer": f"https://www.bilibili.com/video/{bv}",
+            "Origin": "https://www.bilibili.com",
+            "Host": "api.bilibili.com",
         }
-        html = requests.get(url or f"https://www.bilibili.com/video/{bv}/", headers=header).text
-        pat = r'''window.__INITIAL_STATE__=({.*?});'''
-        res = re.findall(pat, html, re.DOTALL)
-        data = json.loads(res[0])
-        title = data["videoData"]["title"]
-        bv = data["videoData"]["bvid"]
-        if url and self.cache.check(bv):
-            return self.cache.get(bv)
-        tag = ' '.join(data["rcmdTabNames"])
-        desc = data["videoData"]["desc"]
-        pat = r'''window.__playinfo__=({.*?})</script>'''
-        res = re.findall(pat, html, re.DOTALL)
-        data = json.loads(res[0])
-        for i in range(4):
-            try:
-                headers = {"referer": f'https://www.bilibili.com/video/{bv}/', "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0"}
-                audio_url = data["data"]["dash"]["audio"][i]["baseUrl"]
-                audio_data = requests.get(audio_url, headers=headers)
-                if audio_data.status_code == 200 or audio_data.status_code == 206:
-                    audio_data = audio_data.content
-                    break
-            except:
-                pass
-        else:
-            raise Exception("未找到合适的音频流。")
+        view_response = requests.get(f"https://api.bilibili.com/x/web-interface/view?bvid={bv}", headers=headers)
+        if view_response.status_code != 200:
+            return f"B站视频不存在"
+        data = view_response.json()
+        title = data["data"]["title"]
+        desc = data["data"]["desc"]
+        cid = data["data"]["cid"]
+
+        video_url_response = requests.get("https://api.bilibili.com/x/player/wbi/playurl", headers=headers, params={"fnval": 4048, "bvid": bv, "cid": cid})
+        if video_url_response.status_code != 200:
+            return f"B站视频不存在"
+        video_url_data = video_url_response.json()
+        audio_url = video_url_data["data"]["dash"]["audio"][0]["baseUrl"]
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+            "Referer": f"https://www.bilibili.com/video/{bv}",
+            "Origin": "https://www.bilibili.com",
+        }
+        audio_request = requests.get(audio_url, headers=headers)
+        audio_data = audio_request.content
+        if audio_request.status_code != 200:
+            return f"B站视频不存在"
+
         text = vr.transcribe_from_data(audio_data)
-        self.cache.put(bv, f'''标题: {title}\n简介: {desc}\n标签: {tag}\nAI字幕: \n{text}''')
-        return f'''标题: {title}\n简介: {desc}\n标签: {tag}\nAI字幕: \n{text}'''
+        final_text = f'''标题: {title}\n简介: \n```\n{desc}\n```\nAI字幕:\n```\n{text}\n```'''
+        self.cache.put(bv, final_text)
+        return final_text
 
 class VoiceRecognition:
     def __init__(self, services):
@@ -1023,7 +1030,7 @@ class ChatInstance:
         return RAW_PROMPT.format(
             memory_block="\n".join(user.memory or ["暂无记忆"]), 
             task_block="\n".join([f"[{task_name}]: {user.tasks[task_name]['trigger']} {user.tasks[task_name]['schedule']}" for task_name in user.tasks] or ["暂无任务"]), 
-            device="网页", 
+            device="Web端", 
             time=datetime.now().strftime("%Y-%m-%d %H:%M:%S %A"))
 
     @staticmethod
@@ -1036,7 +1043,7 @@ class ChatInstance:
                     song_id = re.search(r"id=(\d+)", url).group(1)
                     return ncm.get_details_text(song_id)
                 case "163cn.tv":
-                    final_url = ncm.get_final_url_without_content(url)
+                    final_url = Browser.get_final_url(url)
                     if final_url and "music.163.com" in final_url:
                         match = re.search(r"id=(\d+)", final_url)
                         if match:
@@ -1047,7 +1054,7 @@ class ChatInstance:
                         raise ValueError("无法获取歌曲ID")
                     return ncm.get_details_text(id)
                 case "b23.tv" | "bilibili.com" | "www.bilibili.com":
-                    return bili.get_bili_text(url)
+                    return bili.get_bili_text(url=url)
                 case _:
                     return browser.read(url)
         except:

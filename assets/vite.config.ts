@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import { resolve } from 'path'
 import vue from '@vitejs/plugin-vue'
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
   build: {
@@ -12,6 +11,21 @@ export default defineConfig({
         login: resolve(__dirname, 'login.html'),
         invite: resolve(__dirname, 'invite.html'),
       },
-    },
-  },
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('vue') || id.includes('vue-router') || id.includes('axios')) {
+              return 'vendor';
+            }
+            if (id.includes('marked') || id.includes('katex') || id.includes('highlight.js')) {
+              return 'markdown';
+            }
+            if (id.includes('@microsoft')) {
+              return 'fetch-event-source';
+            }
+          }
+        }
+      }
+    }
+  }
 })

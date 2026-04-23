@@ -29,6 +29,12 @@ const startNewChat = () => {
 onMounted(() => {
   checkDevice();
   window.addEventListener('resize', checkDevice);
+  window.addEventListener('mousedown', () => state.isMouseDown = true);
+  window.addEventListener('mouseup', () => state.isMouseDown = false);
+  window.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    state.isTextSelected = !!(sel && !sel.isCollapsed);
+  });
   state.fetchHome();
 });
 </script>

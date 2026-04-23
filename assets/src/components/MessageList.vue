@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { shallowRef, ref, watch, onMounted, nextTick, triggerRef, reactive } from 'vue';
+import { shallowRef, ref, watch, onMounted, nextTick, reactive } from 'vue';
 import { state } from '../store';
 import MessageBubble from './MessageBubble.vue';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
@@ -18,7 +18,6 @@ interface ChatNode {
   assistant: AssistantMessage[];
   thinking?: string;
   parent?: string;
-  isStreaming?: boolean;
 }
 
 // Use shallowRef so that triggerRef() correctly forces re-render
@@ -49,7 +48,6 @@ const buildMessageChain = (nodeId: string) => {
     currId = targetNode.parent === 'root' ? null : targetNode.parent;
   }
   messages.value = chain;
-  triggerRef(messages);
   lastNodeId.value = nodeId;
   scrollToBottom(true);
 };
@@ -91,7 +89,6 @@ const handleSend = async (content: any, parent?: string) => {
   // Push into a new array (shallowRef needs a new reference to auto-trigger,
   // but we also call triggerRef explicitly for in-place mutations)
   messages.value = [...messages.value, userMsg];
-  triggerRef(messages);
   scrollToBottom(true);
 
   const body: any = {
@@ -163,12 +160,9 @@ const handleSend = async (content: any, parent?: string) => {
               function: { name: data, arguments: '' }
             }]
           }) as AssistantMessage);
-          triggerRef(messages);
         } else if (eventType === 'node_id') {
           lastNodeId.value = data;
           userMsg.id = data;
-          userMsg.isStreaming = false;
-          triggerRef(messages);
         } else if (eventType === 'error') {
           alert('Error: ' + data);
         } else {
@@ -198,8 +192,6 @@ const handleSend = async (content: any, parent?: string) => {
               currentToolResponseEntry!.content = (currentToolResponseEntry!.content || '') + data;
             }
           }
-          // We can optionally keep triggerRef(messages) but it's not strictly needed for UI updates
-          // since userMsg and its contents are now reactive and will trigger MessageBubble computed props.
         }
         scrollToBottom();
       },
@@ -222,7 +214,6 @@ const handleEdit = (nodeId: string, newText: string) => {
   if (idx >= 0) {
     // Truncate from the edited node onward so the new message replaces it
     messages.value = messages.value.slice(0, idx);
-    triggerRef(messages);
   }
   handleSend([{ type: 'text', text: newText }], node.parent);
 };
@@ -246,7 +237,14 @@ const handleScroll = (e: Event) => {
 const scrollToBottom = (force = false) => {
   nextTick(() => {
     const el = document.getElementById('message-container');
-    if (el && (force || autoScroll.value)) {
+    if (!el) return;
+
+    // Don't auto-scroll if user is selecting text or mouse is down
+    if (!force && (state.isMouseDown || state.isTextSelected)) {
+      return;
+    }
+
+    if (force || autoScroll.value) {
       el.scrollTop = el.scrollHeight;
     }
   });
@@ -261,7 +259,6 @@ watch(() => state.currentChatId, (newId) => {
     fetchChatDetails(newId);
   } else {
     messages.value = [];
-    triggerRef(messages);
     lastNodeId.value = 'root';
   }
 });

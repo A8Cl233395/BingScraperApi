@@ -18,6 +18,8 @@ export const state = reactive({
   },
   hasMoreHistory: true,
   isLoadingHistory: false,
+  isMouseDown: false,
+  isTextSelected: false,
   models: {} as Record<string, { desc: string; vision?: boolean; thinking?: boolean }>,
   
   async fetchHome() {

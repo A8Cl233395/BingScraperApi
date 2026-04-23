@@ -159,7 +159,7 @@ if is_ncm_enabled:
                         else:
                             raise HTTPException(status_code=400, detail="Invalid url")
                     else:
-                        final_url = ncm.get_final_url_without_content(url)
+                        final_url = Browser.get_final_url(url)
                         if final_url and "music.163.com" in final_url:
                             match = re.search(r"id=(\d+)", final_url)
                             if match:
