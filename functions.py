@@ -138,7 +138,7 @@ class Browser:
                         self.get_driver().get(url)
                     except TimeoutException:
                         pass # dont care
-                    self.wait_for_network_idle(i=1)
+                    self.wait_for_network_idle(i=2)
                     results.extend(self.parse_search_page())
                     if not results: # no more results or get blocked
                         break
@@ -166,7 +166,7 @@ class Browser:
                     time.sleep(2)
                 try:
                     self.get_driver().get(url)
-                    self.wait_for_network_idle(i=1)
+                    self.wait_for_network_idle(i=2)
                 except TimeoutException:
                     pass # dont care
                 web_source = self.get_driver().page_source
@@ -779,27 +779,25 @@ class ChatInstance:
         self.system_prompt = self._build_system_message(user)
         self.user = user
         self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "multimodel": False, "iteration": -1}}
-        self.enable_function: bool = user.enable_function
-        self.thinking: bool = user.thinking
 
-    def _ai(self, model, messages):
+    def _ai(self, model, messages, thinking, enable_function):
         params = {
             "model": model,
             "messages": messages,
             "stream": True
         }
-        if self.enable_function:
+        if enable_function:
             params["tools"] = ChatInstance.tools
-        if MODELS[model].get("default-thinking") is not None and self.thinking != MODELS[model]["default-thinking"]:
-            if self.thinking:
-                params["extra_body"] = MODELS[model]["thinking-toggle-extra-body"]["true"]
+        if "thinking-extra-body" in MODELS[model]:
+            if thinking:
+                params["extra_body"] = MODELS[model]["thinking-extra-body"]["true"]
             else:
-                params["extra_body"] = MODELS[model]["thinking-toggle-extra-body"]["false"]
+                params["extra_body"] = MODELS[model]["thinking-extra-body"]["false"]
         client = get_oclient(model)
         completion = client.chat.completions.create(**params)
         return completion
 
-    def __call__(self, parent, content, model=None, vmodel=None, current_messages=None, current_node_assistant_messages=None, _model=None, think_during_tool_calls=False):
+    def __call__(self, parent, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None):
         try: # is it atomic ?
             # 检查多模态
             if not self.chat_tree["root"]["multimodel"]:
@@ -808,12 +806,14 @@ class ChatInstance:
             # 初始化单轮次内容
             parent = parent or self.chat_tree["root"]["current"]
             _model: str = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["multimodel"] else (model or self.user.model))
+            thinking = thinking if thinking is not None else self.user.thinking
+            enable_function = enable_function if enable_function is not None else self.user.enable_function
             if current_messages is None:
                 current_messages: list = self._build_messages(parent)
                 current_messages.append({"role": "user", "content": content})
             current_node_assistant_messages = current_node_assistant_messages or []
             # 开始生成
-            completion = self._ai(_model, current_messages)
+            completion = self._ai(_model, current_messages, thinking, enable_function)
             answering_content = ""
             reasoning_content = ""
             is_thinking = False
@@ -862,10 +862,9 @@ class ChatInstance:
             
             if not tool_calls: # 结束
                 current_node_assistant_messages.append({"role": "assistant", "content": answering_content})
-                if think_during_tool_calls: # 移除deepseek/kimi的reasoning_content
-                    for message in current_node_assistant_messages:
-                        if message["role"] == "assistant" and "reasoning_content" in message:
-                            del message["reasoning_content"]
+                if is_thinking:
+                    current_node_assistant_messages[-1]["reasoning_content"] = reasoning_content
+                    current_messages[-1]["reasoning_content"] = reasoning_content
                 # 更新chat_tree
                 node_id = self._update_tree(parent, content, current_node_assistant_messages)
                 yield self._sse(node_id, "node_id")
@@ -877,9 +876,9 @@ class ChatInstance:
                 yield self._sse(tool_responses[-1]["content"])
                 current_node_assistant_messages.append({"role": "assistant", "content": answering_content, "tool_calls": tool_calls})
                 current_messages.append({"role": "assistant", "content": answering_content, "tool_calls": tool_calls})
-                if is_thinking and MODELS[_model].get("think-during-tool-calls", False):
+                if is_thinking:
+                    current_node_assistant_messages[-1]["reasoning_content"] = reasoning_content
                     current_messages[-1]["reasoning_content"] = reasoning_content
-                    think_during_tool_calls = True
                 current_messages.extend(tool_responses)
                 current_node_assistant_messages.extend(tool_responses)
                 yield from self.__call__(
@@ -887,19 +886,14 @@ class ChatInstance:
                     content,
                     current_messages = current_messages,
                     current_node_assistant_messages = current_node_assistant_messages,
-                    _model = _model,
-                    think_during_tool_calls = think_during_tool_calls,
+                    thinking = thinking,
+                    enable_function = enable_function,
+                    _model = _model
                 ) # 直到ai完成所有操作
         except Exception as e:
             id = os.urandom(4).hex()
             yield self._sse(f"发生错误！Trace ID: {id}", "error")
             logger.error(f"Trace ID {id}\n错误: {e}")
-    
-    def prepare(self, request_body):
-        if "thinking" in request_body and request_body["thinking"] is not None:
-            self.thinking = request_body["thinking"]
-        if "enable_function" in request_body and request_body["enable_function"] is not None:
-            self.enable_function = request_body["enable_function"]
     
     def _handle_tool_call(self, tool_call: dict):
         tool_call_id = tool_call["id"]
@@ -1125,8 +1119,7 @@ class Webchat:
     
     def _generate(self, queue: Queue, request_body: dict, chat_instance: ChatInstance, title_thread: threading.Thread = None):
         try:
-            chat_instance.prepare(request_body)
-            for data in chat_instance(request_body["parent"], request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), ):
+            for data in chat_instance(request_body["parent"], request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), thinking=request_body.get("thinking"), enable_function=request_body.get("enable_function")):
                 queue.put(data)
             if title_thread and title_thread.is_alive():
                 title_thread.join()
@@ -1152,8 +1145,8 @@ class Webchat:
                     "stream": False
                 }
                 # 关闭思考
-                if MODELS[title_model].get("default-thinking") is not None and False != MODELS[title_model]["default-thinking"]:
-                    params["extra_body"] = MODELS[title_model]["thinking-toggle-extra-body"]["false"]
+                if "thinking-extra-body" in MODELS[title_model]:
+                    params["extra_body"] = MODELS[title_model]["thinking-extra-body"]["false"]
                 response = title_client.chat.completions.create(**params)
                 title = response.choices[0].message.content.strip()
                 queue.put(f"event: title\ndata: {title}\n\n")
@@ -1259,8 +1252,6 @@ class Webchat:
             data[model] = {"desc": v["desc"]}
             if "vision" in v:
                 data[model]["vision"] = v["vision"]
-            if "default-thinking" in v:
-                data[model]["thinking"] = v["default-thinking"]
         return data
 
     def save_all(self):

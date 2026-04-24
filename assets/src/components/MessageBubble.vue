@@ -288,6 +288,12 @@ const handleCodeCopy = (e: MouseEvent) => {
             </div>
           </div>
           <div class="mt-2 flex items-center justify-end gap-3 transition-opacity w-full" :class="isEditing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'">
+            <!-- Sibling Navigation -->
+            <div v-if="siblingCount && siblingCount > 1" class="flex items-center gap-2 text-[10px] text-text-placeholder select-none">
+              <button @click="emit('navigate', nodeId, -1)" :disabled="siblingIndex === 0" class="hover:text-text-main disabled:opacity-30"><i class="fas fa-chevron-left"></i></button>
+              <span>{{ (siblingIndex || 0) + 1 }} / {{ siblingCount }}</span>
+              <button @click="emit('navigate', nodeId, 1)" :disabled="siblingIndex === siblingCount! - 1" class="hover:text-text-main disabled:opacity-30"><i class="fas fa-chevron-right"></i></button>
+            </div>
             <template v-if="!isEditing">
               <button @click="handleEdit" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="编辑"><i class="far fa-edit"></i></button>
               <button @click="handleCopy" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="复制"><i class="far fa-copy"></i></button>
@@ -297,12 +303,6 @@ const handleCodeCopy = (e: MouseEvent) => {
               <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1 rounded hover:bg-primary-hover">确认</button>
             </template>
           </div>
-        </div>
-        <!-- Sibling Navigation -->
-        <div v-if="siblingCount && siblingCount > 1" class="mt-2 flex items-center gap-2 text-[10px] text-text-placeholder select-none">
-          <button @click="emit('navigate', nodeId, -1)" :disabled="siblingIndex === 0" class="hover:text-text-main disabled:opacity-30"><i class="fas fa-chevron-left"></i></button>
-          <span>{{ (siblingIndex || 0) + 1 }} / {{ siblingCount }}</span>
-          <button @click="emit('navigate', nodeId, 1)" :disabled="siblingIndex === siblingCount! - 1" class="hover:text-text-main disabled:opacity-30"><i class="fas fa-chevron-right"></i></button>
         </div>
       </template>
 

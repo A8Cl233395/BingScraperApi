@@ -8,6 +8,7 @@ import api from '../utils/api';
 interface AssistantMessage {
   role: 'assistant' | 'tool';
   content?: string;
+  reasoning_content?: string;
   tool_calls?: any[];
   tool_call_id?: string;
 }
@@ -44,7 +45,17 @@ const buildMessageChain = (nodeId: string) => {
   while (currId && currId !== 'root') {
     const targetNode: any = messageTree.value[currId];
     if (!targetNode) break;
-    chain.unshift({ ...targetNode, id: currId });
+    
+    const node: ChatNode = { ...targetNode, id: currId };
+    // Map reasoning_content to thinking property if missing (common in historical messages)
+    if (!node.thinking && node.assistant) {
+      const assistantMsg = node.assistant.find((m: any) => m.reasoning_content);
+      if (assistantMsg) {
+        node.thinking = assistantMsg.reasoning_content;
+      }
+    }
+
+    chain.unshift(node);
     currId = targetNode.parent === 'root' ? null : targetNode.parent;
   }
   messages.value = chain;
@@ -163,6 +174,26 @@ const handleSend = async (content: any, parent?: string) => {
         } else if (eventType === 'node_id') {
           lastNodeId.value = data;
           userMsg.id = data;
+          // Register the new node in the local tree to allow immediate editing/branching
+          messageTree.value[data] = {
+            user: userMsg.user,
+            assistant: userMsg.assistant,
+            parent: parentId || 'root',
+            child: []
+          };
+          // Update parent's reference to this new child
+          const pId = parentId || 'root';
+          const parentNode = pId === 'root' ? messageTree.value.root : messageTree.value[pId];
+          if (parentNode) {
+            if (!parentNode.child) parentNode.child = [];
+            if (!parentNode.child.includes(data)) {
+              parentNode.child.push(data);
+            }
+            // Only the root node maintains a 'current' pointer in the backend schema
+            if (pId === 'root') {
+              parentNode.current = data;
+            }
+          }
         } else if (eventType === 'error') {
           alert('Error: ' + data);
         } else {
@@ -260,6 +291,7 @@ watch(() => state.currentChatId, (newId) => {
   } else {
     messages.value = [];
     lastNodeId.value = 'root';
+    messageTree.value = { root: { child: [], current: null } };
   }
 });
 
@@ -268,6 +300,7 @@ onMounted(() => {
     fetchChatDetails(state.currentChatId);
   } else {
     lastNodeId.value = 'root';
+    messageTree.value = { root: { child: [], current: null } };
   }
 });
 

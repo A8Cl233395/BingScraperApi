@@ -60,30 +60,38 @@ webchat:
 
     ---
   models:
-    deepseek-chat:
-      desc: "Deepseek Chat"
+    deepseek-v4-flash:
+      desc: "Deepseek V4 Flash"
       api_key: sk-xxx
-      default-thinking: false
-      prefix-mark: prefix
-      think-during-tool-calls: true
-      thinking-toggle-extra-body:
+      thinking-extra-body:
         'false':
           thinking:
             type: disabled
         'true':
           thinking:
             type: enabled
-      url: https://api.deepseek.com/beta
-    qwen3.5-plus:
-      desc: "Qwen3.5 Plus"
+      url: https://api.deepseek.com/
+    kimi-k2.6:
+      desc: "Kimi K2.6"
       api_key: sk-xxx
       vision: true
-      default-thinking: true
-      prefix-mark: partial
-      think-during-tool-calls: false
-      thinking-toggle-extra-body:
+      thinking-extra-body:
+        'false':
+          thinking:
+            type: disabled
+        'true':
+          thinking:
+            type: enabled
+            keep: all
+      url: https://api.moonshot.cn/v1
+    qwen3.6-plus:
+      desc: "Qwen3.6 Plus"
+      api_key: sk-xxx
+      vision: true
+      thinking-extra-body:
         'false':
           enable_thinking: false
         'true':
           enable_thinking: true
+          preserve_thinking: true
       url: https://dashscope.aliyuncs.com/compatible-mode/v1
