@@ -280,7 +280,7 @@ if is_webchat_enabled:
     class ChatPost(BaseModel):
         id: int | None = Field(None)
         parent: str | None = Field(None)
-        content: list[dict[str, str | dict]] = Field(...)
+        content: list[dict[str, str | dict[str, str]]] = Field(...)
         enable_function: bool | None = Field(None)
         thinking: bool | None = Field(None)
         model: str | None = Field(None)
@@ -299,7 +299,7 @@ if is_webchat_enabled:
                 text_content = item.get("text", "")
                 if not isinstance(text_content, str):
                     raise ValueError
-                if len(text_content) > 500_000:
+                if text_content and len(text_content) > 500_000:
                     raise ValueError
             if len(image_elements) > 10:
                 raise ValueError

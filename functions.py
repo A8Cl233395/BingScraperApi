@@ -779,6 +779,7 @@ class ChatInstance:
         self.system_prompt = self._build_system_message(user)
         self.user = user
         self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "multimodel": False, "iteration": -1}}
+        self.update_lock = False
 
     def _ai(self, model, messages, thinking, enable_function):
         params = {
@@ -799,6 +800,7 @@ class ChatInstance:
 
     def __call__(self, parent, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None):
         try: # is it atomic ?
+            self.update_lock = True
             # 检查多模态
             if not self.chat_tree["root"]["multimodel"]:
                 if content[0]["type"] == "image_url": # 应该先在网关校验
@@ -980,7 +982,9 @@ class ChatInstance:
         # 更新父节点的child
         self.chat_tree[parent]["child"].append(str(new_node_id))
         # 更新root的current
-        self.chat_tree["root"]["current"] = str(new_node_id)
+        if self.update_lock: # 防止两次生成竞争修改current
+            self.chat_tree["root"]["current"] = str(new_node_id)
+            self.update_lock = False
         # 更新迭代次数
         self.chat_tree["root"]["iteration"] = new_node_id
         return str(new_node_id)
@@ -1026,6 +1030,29 @@ class ChatInstance:
             task_block="\n".join([f"[{task_name}]: {user.tasks[task_name]['trigger']} {user.tasks[task_name]['schedule']}" for task_name in user.tasks] or ["暂无任务"]), 
             device="Web端", 
             time=datetime.now().strftime("%Y-%m-%d %H:%M:%S %A"))
+    
+    def _generate_title(self):
+        try:
+            if "0" not in self.chat_tree:
+                return "新对话"
+            title_model = config["webchat"]["title-model"]
+            t = self.chat_tree["0"]
+            u = t["user"][-1]["text"] if t["user"][-1]["type"] == "text" else "[image]"
+            a = t["assistant"][-1]["content"]
+            text = f"用户：\n{u if len(u)<50 else u[:20]+'\n...\n'+u[-20:]}\nAI：\n{a if len(a)<80 else a[:30]+'...'+a[-30:]}"
+            params = {
+                "model": title_model,
+                "messages": [{"role":"system","content":"根据对话内容生成简短的标题，不包含标点，不超过15个字，只返回标题"},{"role":"user","content":text}],
+                "max_tokens": 30,
+                "stream": False
+            }
+            if "thinking-extra-body" in MODELS[title_model]:
+                params["extra_body"] = MODELS[title_model]["thinking-extra-body"]["false"]
+            r = get_oclient(config["webchat"]["title-model"]).chat.completions.create(**params)
+            return r.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"生成标题失败：{e}")
+            return "新对话"
 
     @staticmethod
     def customize_reader(url):
@@ -1117,53 +1144,25 @@ class Webchat:
         user.chat_cache[chat_id] = [chat_instance, time.time()]
         return chat_instance
     
-    def _generate(self, queue: Queue, request_body: dict, chat_instance: ChatInstance, title_thread: threading.Thread = None):
+    def _generate(self, queue: Queue, request_body: dict, chat_instance: ChatInstance, generate_title: bool = False, user_id: int = None, chat_id: int = None):
         try:
             for data in chat_instance(request_body["parent"], request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), thinking=request_body.get("thinking"), enable_function=request_body.get("enable_function")):
                 queue.put(data)
-            if title_thread and title_thread.is_alive():
-                title_thread.join()
+            if generate_title:
+                self._generate_title(chat_instance, queue, user_id, chat_id)
         except Exception as e:
             logger.error(f"生成对话失败: {e}")
         finally:
             queue.put(None)
     
-    def _generate_title(self, queue: Queue, content, user_id: int, chat_id: int):
-        try:
-            if content[-1]["type"] != "text":
-                return "新对话"
-            title_model = config["webchat"]["title-model"]
-            title_client = get_oclient(title_model)
-            try:
-                params = {
-                    "model": title_model,
-                    "messages": [
-                        {"role": "system", "content": "只输出标题"},
-                        {"role": "user", "content": ("起一个简短的标题\n" + content[-1]["text"][:15] + "..." + content[-1]["text"][-15:]) if len(content[-1]["text"]) > 50 else ("起一个简短的标题：" + content[-1]["text"])}
-                    ],
-                    "max_tokens": 20,
-                    "stream": False
-                }
-                # 关闭思考
-                if "thinking-extra-body" in MODELS[title_model]:
-                    params["extra_body"] = MODELS[title_model]["thinking-extra-body"]["false"]
-                response = title_client.chat.completions.create(**params)
-                title = response.choices[0].message.content.strip()
-                queue.put(f"event: title\ndata: {title}\n\n")
-                with self.conn:
-                    cursor = self.conn.cursor()
-                    cursor.execute(f"UPDATE u{user_id} SET title = ? WHERE id = ?", (title, chat_id))
-                    self.conn.commit()
-            except Exception as e:
-                logger.error(f"生成标题失败: {e}")
-                return "新对话"
-        except ValueError | IndexError:
-            logger.error(f"非法请求：{content}")
-            return "新对话"
-        except Exception as e:
-            logger.error(f"生成标题失败: {e}")
-            return "新对话"
-    
+    def _generate_title(self, chat_instance: ChatInstance, queue: Queue, user_id: int, chat_id: int):
+        title = chat_instance._generate_title()
+        queue.put(f"event: title\ndata: {title}\n\n")
+        with self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute(f"UPDATE u{user_id} SET title = ? WHERE id = ?", (title, chat_id))
+            self.conn.commit()
+        
     def _pusher(self, queue: Queue):
         try:
             while True:
@@ -1221,11 +1220,9 @@ class Webchat:
         if chat_id is None:
             chat_id, chat_instance = self._prepare_new_chat(user_id)
             queue.put(f"event: id\ndata: {chat_id}\n\n")
-            title_thread = threading.Thread(target=self._generate_title, args=(queue, request_body["content"], user_id, chat_id))
-            title_thread.start()
             if request_body["parent"] is not None and request_body["parent"] != "root":
                 raise HTTPException(status_code=400, detail="parent is not allowed in new chat")
-            generate_thread = threading.Thread(target=self._generate, args=(queue, request_body, chat_instance, title_thread))
+            generate_thread = threading.Thread(target=self._generate, args=(queue, request_body, chat_instance, True, user_id, chat_id))
         else:
             chat_instance = self._prepare_chat(user_id, chat_id)
             if request_body["parent"] is not None and request_body["parent"] not in chat_instance.chat_tree:
