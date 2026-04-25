@@ -137,16 +137,28 @@ const thinkingContent = ref('');
 let pendingUpdate: Record<number, string> | null = null;
 let pendingThinkingUpdate: string | null = null;
 
+let resumeTimeout: any = null;
+const applyPendingUpdates = () => {
+  if (pendingUpdate) {
+    Object.assign(segmentHtml, pendingUpdate);
+    pendingUpdate = null;
+  }
+  if (pendingThinkingUpdate !== null) {
+    thinkingContent.value = pendingThinkingUpdate;
+    pendingThinkingUpdate = null;
+  }
+};
+
 watch([() => state.isMouseDown, () => state.isTextSelected], ([mouseDown, textSelected]) => {
+  if (resumeTimeout) clearTimeout(resumeTimeout);
+
   if (!mouseDown && !textSelected) {
-    if (pendingUpdate) {
-      Object.assign(segmentHtml, pendingUpdate);
-      pendingUpdate = null;
-    }
-    if (pendingThinkingUpdate !== null) {
-      thinkingContent.value = pendingThinkingUpdate;
-      pendingThinkingUpdate = null;
-    }
+    // Give some buffer time for selection state to stabilize after mouseup
+    resumeTimeout = setTimeout(() => {
+      if (!state.isMouseDown && !state.isTextSelected) {
+        applyPendingUpdates();
+      }
+    }, 300);
   }
 });
 
@@ -274,7 +286,7 @@ const handleCodeCopy = (e: MouseEvent) => {
 
 <template>
   <div class="flex flex-col mb-6" :class="isUser ? 'items-end' : 'items-start'">
-    <div class="flex flex-col transition-all duration-300" :class="isUser ? (isEditing ? 'w-full items-start' : 'w-fit max-w-[85%] md:max-w-[75%] items-end self-end') : 'w-full items-start'">
+    <div class="flex flex-col" :class="isUser ? (isEditing ? 'w-full items-start' : 'w-fit max-w-[85%] md:max-w-[75%] items-end self-end') : 'w-full items-start'">
 
       <template v-if="isUser">
         <div class="group flex flex-col" :class="isEditing ? 'w-full items-start' : 'max-w-full items-end'">

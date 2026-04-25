@@ -7,6 +7,7 @@ const longPressTimer = ref<number | null>(null);
 const chatListRef = ref<HTMLElement | null>(null);
 const showDeleteConfirm = ref(false);
 const chatToDelete = ref<number | null>(null);
+const pressingChatId = ref<number | null>(null);
 
 const handleChatClick = (id: number) => {
   state.currentChatId = id;
@@ -14,12 +15,14 @@ const handleChatClick = (id: number) => {
 
 const startLongPress = (id: number) => {
   if (state.isMobile) {
+    pressingChatId.value = id;
     longPressTimer.value = window.setTimeout(() => {
       if (navigator.vibrate) {
         navigator.vibrate(50);
       }
       chatToDelete.value = id;
       showDeleteConfirm.value = true;
+      pressingChatId.value = null;
     }, 600);
   }
 };
@@ -29,6 +32,7 @@ const cancelLongPress = () => {
     clearTimeout(longPressTimer.value);
     longPressTimer.value = null;
   }
+  pressingChatId.value = null;
 };
 
 const handleDelete = (id: number) => {
@@ -78,7 +82,7 @@ const handleScroll = () => {
     
     <div 
       ref="chatListRef"
-      class="flex-1 overflow-y-auto px-2 space-y-1 no-scrollbar"
+      class="flex-1 overflow-y-auto px-2 space-y-1"
       @scroll="handleScroll"
     >
       <div 
@@ -88,10 +92,18 @@ const handleScroll = () => {
         @touchstart="startLongPress(chat[0])"
         @touchend="cancelLongPress"
         @touchmove="cancelLongPress"
-        class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors"
-        :class="state.currentChatId === chat[0] ? 'bg-bg-active' : ''"
+        class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors overflow-hidden"
+        :class="[
+          state.currentChatId === chat[0] ? 'bg-bg-active' : '',
+          pressingChatId === chat[0] ? 'scale-[0.98] bg-bg-hover' : ''
+        ]"
       >
-        <span class="truncate text-sm pr-6">{{ chat[1] }}</span>
+        <!-- Long Press Progress Feedback -->
+        <div 
+          v-if="pressingChatId === chat[0]"
+          class="absolute inset-0 bg-primary-main/10 origin-left animate-progress-horizontal z-0"
+        ></div>
+        <span class="relative z-10 truncate text-sm pr-6">{{ chat[1] }}</span>
         <button 
           v-if="!state.isMobile"
           @click.stop="handleDelete(chat[0])"
@@ -130,3 +142,14 @@ const handleScroll = () => {
     @cancel="showDeleteConfirm = false"
   />
 </template>
+
+<style scoped>
+@keyframes progress-horizontal {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.animate-progress-horizontal {
+  animation: progress-horizontal 0.6s linear forwards;
+}
+</style>

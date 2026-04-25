@@ -262,9 +262,7 @@ if is_link_enabled:
                 try:
                     data = json.loads(message)
                     logger.info(f"Received message: {data}")
-                    result = link(data)
-                    if result:
-                        await websocket.send_text(result)
+                    link(data)
                 except json.JSONDecodeError:
                     logger.warning("Received invalid JSON format")
                 except Exception as e:

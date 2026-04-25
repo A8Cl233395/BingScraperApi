@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { shallowRef, ref, watch, onMounted, nextTick, reactive } from 'vue';
+import { shallowRef, ref, watch, onMounted, onUnmounted, nextTick, reactive } from 'vue';
 import { state } from '../store';
 import MessageBubble from './MessageBubble.vue';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
@@ -15,10 +15,12 @@ interface AssistantMessage {
 
 interface ChatNode {
   id: string;
+  clientId: string;
   user: any;
   assistant: AssistantMessage[];
   thinking?: string;
   parent?: string;
+  isStreaming?: boolean;
 }
 
 // Use shallowRef so that triggerRef() correctly forces re-render
@@ -46,7 +48,7 @@ const buildMessageChain = (nodeId: string) => {
     const targetNode: any = messageTree.value[currId];
     if (!targetNode) break;
     
-    const node: ChatNode = { ...targetNode, id: currId };
+    const node: ChatNode = { ...targetNode, id: currId, clientId: currId };
     // Map reasoning_content to thinking property if missing (common in historical messages)
     if (!node.thinking && node.assistant) {
       const assistantMsg = node.assistant.find((m: any) => m.reasoning_content);
@@ -60,7 +62,9 @@ const buildMessageChain = (nodeId: string) => {
   }
   messages.value = chain;
   lastNodeId.value = nodeId;
-  scrollToBottom(true);
+  nextTick(() => {
+    scrollToBottom(true);
+  });
 };
 
 const getSiblingCount = (nodeId: string) => {
@@ -91,16 +95,20 @@ const navigateSiblings = (nodeId: string, direction: number) => {
 const handleSend = async (content: any, parent?: string) => {
   const parentId = parent || lastNodeId.value;
   
+  const tempId = 'temp-' + Date.now();
   const userMsg: ChatNode = reactive({
     user: content,
     assistant: [],
-    id: 'temp-' + Date.now(),
+    id: tempId,
+    clientId: tempId,
     isStreaming: true
   });
   // Push into a new array (shallowRef needs a new reference to auto-trigger,
   // but we also call triggerRef explicitly for in-place mutations)
   messages.value = [...messages.value, userMsg];
-  scrollToBottom(true);
+  nextTick(() => {
+    scrollToBottom(true);
+  });
 
   const body: any = {
     content,
@@ -224,7 +232,6 @@ const handleSend = async (content: any, parent?: string) => {
             }
           }
         }
-        scrollToBottom();
       },
       onerror(err) {
         console.error('SSE Error', err);
@@ -249,37 +256,55 @@ const handleEdit = (nodeId: string, newText: string) => {
   handleSend([{ type: 'text', text: newText }], node.parent);
 };
 
+const containerRef = ref<HTMLElement | null>(null);
+const contentRef = ref<HTMLElement | null>(null);
 const autoScroll = ref(true);
-
-const handleWheel = (e: WheelEvent) => {
-  if (e.deltaY < 0) {
-    // User scrolled up via mouse wheel
-    autoScroll.value = false;
-  }
-};
 
 const handleScroll = (e: Event) => {
   const el = e.target as HTMLElement;
-  // If user scrolls to the absolute bottom (with 2px tolerance for fractional pixels), enable auto scroll
-  // If they scroll up at all, this becomes false, disabling auto scroll.
-  autoScroll.value = Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) <= 2;
+  const isAtBottom = Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) <= 10;
+  
+  // If user scrolls up, disable auto-scroll
+  // If user scrolls back to bottom, re-enable auto-scroll
+  autoScroll.value = isAtBottom;
 };
 
 const scrollToBottom = (force = false) => {
-  nextTick(() => {
-    const el = document.getElementById('message-container');
-    if (!el) return;
+  if (!containerRef.value) return;
 
-    // Don't auto-scroll if user is selecting text or mouse is down
-    if (!force && (state.isMouseDown || state.isTextSelected)) {
-      return;
-    }
+  // Don't auto-scroll if user is selecting text or mouse is down
+  if (!force && (state.isMouseDown || state.isTextSelected)) {
+    return;
+  }
 
-    if (force || autoScroll.value) {
-      el.scrollTop = el.scrollHeight;
+  if (force) {
+    autoScroll.value = true;
+  }
+
+  if (autoScroll.value) {
+    containerRef.value.scrollTop = containerRef.value.scrollHeight;
+  }
+};
+
+// Use ResizeObserver to handle content size changes (e.g. during streaming)
+let observer: ResizeObserver | null = null;
+onMounted(() => {
+  observer = new ResizeObserver(() => {
+    if (autoScroll.value) {
+      scrollToBottom();
     }
   });
-};
+  
+  if (contentRef.value) {
+    observer.observe(contentRef.value);
+  }
+});
+
+onUnmounted(() => {
+  if (observer) {
+    observer.disconnect();
+  }
+});
 
 watch(() => state.currentChatId, (newId) => {
   // Skip if we're currently streaming — the SSE handler sets currentChatId
@@ -308,9 +333,14 @@ defineExpose({ handleSend, messages });
 </script>
 
 <template>
-  <div id="message-container" class="overflow-y-auto p-4 no-scrollbar layout-transition scroll-smooth" @wheel="handleWheel" @scroll="handleScroll">
-    <div class="max-w-4xl mx-auto py-8">
-      <template v-for="node in messages" :key="node.id">
+  <div 
+    ref="containerRef"
+    id="message-container" 
+    class="overflow-y-auto p-4" 
+    @scroll="handleScroll"
+  >
+    <div ref="contentRef" class="max-w-4xl mx-auto py-8">
+      <template v-for="node in messages" :key="node.clientId">
         <!-- User part of the node -->
         <MessageBubble 
           :message="node.user" 

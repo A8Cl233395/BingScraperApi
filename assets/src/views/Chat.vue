@@ -30,7 +30,12 @@ onMounted(() => {
   checkDevice();
   window.addEventListener('resize', checkDevice);
   window.addEventListener('mousedown', () => state.isMouseDown = true);
-  window.addEventListener('mouseup', () => state.isMouseDown = false);
+  window.addEventListener('mouseup', () => {
+    state.isMouseDown = false;
+    // Immediate check after mouseup to catch the selection state
+    const sel = window.getSelection();
+    state.isTextSelected = !!(sel && !sel.isCollapsed);
+  });
   window.addEventListener('selectionchange', () => {
     const sel = window.getSelection();
     state.isTextSelected = !!(sel && !sel.isCollapsed);
