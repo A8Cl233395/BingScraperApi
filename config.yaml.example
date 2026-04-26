@@ -10,6 +10,8 @@ bing_crawler:
   use_jina_reader: false
   # 需要手动下载geckodriver
   geckodriver: geckodriver.exe
+  bing_idle_time: 3
+  web_idle_time: 4
 
 ncm:
 

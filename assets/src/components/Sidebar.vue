@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import ConfirmModal from './ConfirmModal.vue';
 
 const longPressTimer = ref<number | null>(null);
+const preLongPressTimer = ref<number | null>(null);
 const chatListRef = ref<HTMLElement | null>(null);
 const showDeleteConfirm = ref(false);
 const chatToDelete = ref<number | null>(null);
@@ -15,19 +16,26 @@ const handleChatClick = (id: number) => {
 
 const startLongPress = (id: number) => {
   if (state.isMobile) {
-    pressingChatId.value = id;
-    longPressTimer.value = window.setTimeout(() => {
-      if (navigator.vibrate) {
-        navigator.vibrate(50);
-      }
-      chatToDelete.value = id;
-      showDeleteConfirm.value = true;
-      pressingChatId.value = null;
-    }, 600);
+    cancelLongPress();
+    preLongPressTimer.value = window.setTimeout(() => {
+      pressingChatId.value = id;
+      longPressTimer.value = window.setTimeout(() => {
+        if (navigator.vibrate) {
+          navigator.vibrate(50);
+        }
+        chatToDelete.value = id;
+        showDeleteConfirm.value = true;
+        pressingChatId.value = null;
+      }, 600);
+    }, 150); // Delay before starting long-press animation and timer
   }
 };
 
 const cancelLongPress = () => {
+  if (preLongPressTimer.value) {
+    clearTimeout(preLongPressTimer.value);
+    preLongPressTimer.value = null;
+  }
   if (longPressTimer.value) {
     clearTimeout(longPressTimer.value);
     longPressTimer.value = null;
@@ -92,6 +100,7 @@ const handleScroll = () => {
         @touchstart="startLongPress(chat[0])"
         @touchend="cancelLongPress"
         @touchmove="cancelLongPress"
+        @contextmenu.prevent
         class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors overflow-hidden"
         :class="[
           state.currentChatId === chat[0] ? 'bg-bg-active' : '',

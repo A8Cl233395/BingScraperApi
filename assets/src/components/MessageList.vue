@@ -30,6 +30,7 @@ const messageTree = ref<any>({});
 const lastNodeId = ref<string | null>(null);
 // Guard flag to prevent the currentChatId watch from firing during streaming
 const isStreaming = ref(false);
+const abortController = ref<AbortController | null>(null);
 
 const fetchChatDetails = async (id: number) => {
   try {
@@ -49,13 +50,6 @@ const buildMessageChain = (nodeId: string) => {
     if (!targetNode) break;
     
     const node: ChatNode = { ...targetNode, id: currId, clientId: currId };
-    // Map reasoning_content to thinking property if missing (common in historical messages)
-    if (!node.thinking && node.assistant) {
-      const assistantMsg = node.assistant.find((m: any) => m.reasoning_content);
-      if (assistantMsg) {
-        node.thinking = assistantMsg.reasoning_content;
-      }
-    }
 
     chain.unshift(node);
     currId = targetNode.parent === 'root' ? null : targetNode.parent;
@@ -123,12 +117,16 @@ const handleSend = async (content: any, parent?: string) => {
   let currentSignal = 'answering';
   let currentToolCallId = '';
   let currentToolResponseEntry: AssistantMessage | null = null;
-  let currentAnsweringEntry: AssistantMessage | null = null;
+  let currentAssistantEntry: AssistantMessage | null = null;
   
   const token = localStorage.getItem('token');
   const uid = localStorage.getItem('uid');
 
-  // Set streaming flag BEFORE starting, so the watch on currentChatId is suppressed
+  if (abortController.value) {
+    abortController.value.abort();
+  }
+  const currentController = new AbortController();
+  abortController.value = currentController;
   isStreaming.value = true;
 
   try {
@@ -140,6 +138,7 @@ const handleSend = async (content: any, parent?: string) => {
         'uid': uid || ''
       },
       body: JSON.stringify(body),
+      signal: currentController.signal,
       openWhenHidden: true,
       onmessage(ev) {
         const eventType = ev.event;
@@ -161,24 +160,25 @@ const handleSend = async (content: any, parent?: string) => {
           else state.chats.unshift([state.currentChatId!, data]);
         } else if (eventType === 'signal') {
           currentSignal = data;
-          if (currentSignal === 'answering') {
-            currentAnsweringEntry = null;
-          } else if (currentSignal === 'tool_call') {
+          if (currentSignal === 'tool_response') {
             currentToolResponseEntry = null;
-          } else if (currentSignal === 'tool_response') {
-            currentToolResponseEntry = null;
+            currentAssistantEntry = null; // next action needs a new assistant block
           }
         } else if (eventType === 'tool_name') {
           const callId = 'tc-' + Date.now();
           currentToolCallId = callId;
-          userMsg.assistant.push(reactive<AssistantMessage>({
-            role: 'assistant',
-            tool_calls: [{
-              type: 'function',
-              id: callId,
-              function: { name: data, arguments: '' }
-            }]
-          }) as AssistantMessage);
+          if (!currentAssistantEntry) {
+            currentAssistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
+            userMsg.assistant.push(currentAssistantEntry as AssistantMessage);
+          }
+          if (!currentAssistantEntry.tool_calls) {
+            currentAssistantEntry.tool_calls = [];
+          }
+          currentAssistantEntry.tool_calls.push({
+            type: 'function',
+            id: callId,
+            function: { name: data, arguments: '' }
+          });
         } else if (eventType === 'node_id') {
           lastNodeId.value = data;
           userMsg.id = data;
@@ -207,17 +207,21 @@ const handleSend = async (content: any, parent?: string) => {
         } else {
           // Default data — route based on current signal
           if (currentSignal === 'thinking') {
-            userMsg.thinking = (userMsg.thinking || '') + data;
-          } else if (currentSignal === 'answering') {
-            if (!currentAnsweringEntry) {
-              currentAnsweringEntry = reactive<AssistantMessage>({ role: 'assistant', content: '' });
-              userMsg.assistant.push(currentAnsweringEntry as AssistantMessage);
+            if (!currentAssistantEntry) {
+              currentAssistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
+              userMsg.assistant.push(currentAssistantEntry as AssistantMessage);
             }
-            currentAnsweringEntry!.content = (currentAnsweringEntry!.content || '') + data;
+            currentAssistantEntry.reasoning_content = (currentAssistantEntry.reasoning_content || '') + data;
+          } else if (currentSignal === 'answering') {
+            if (!currentAssistantEntry) {
+              currentAssistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
+              userMsg.assistant.push(currentAssistantEntry as AssistantMessage);
+            }
+            currentAssistantEntry.content = (currentAssistantEntry.content || '') + data;
           } else if (currentSignal === 'tool_call') {
-            const lastPart = userMsg.assistant[userMsg.assistant.length - 1];
-            if (lastPart && lastPart.tool_calls && lastPart.tool_calls.length > 0) {
-              lastPart.tool_calls[0].function.arguments += data;
+            if (currentAssistantEntry && currentAssistantEntry.tool_calls && currentAssistantEntry.tool_calls.length > 0) {
+              const lastTool = currentAssistantEntry.tool_calls[currentAssistantEntry.tool_calls.length - 1];
+              lastTool.function.arguments += data;
             }
           } else if (currentSignal === 'tool_response') {
             if (!currentToolResponseEntry) {
@@ -234,15 +238,22 @@ const handleSend = async (content: any, parent?: string) => {
         }
       },
       onerror(err) {
+        if (currentController.signal.aborted) return;
         console.error('SSE Error', err);
         throw err; // Stop retrying
       }
     });
-  } catch (e) {
-    console.error('Failed to send message', e);
+  } catch (e: any) {
+    if (e.name === 'AbortError' || currentController.signal.aborted) {
+      console.log('Request aborted');
+    } else {
+      console.error('Failed to send message', e);
+    }
   } finally {
-    // Clear streaming flag so the watch works normally again
-    isStreaming.value = false;
+    if (abortController.value === currentController) {
+      isStreaming.value = false;
+      abortController.value = null;
+    }
   }
 };
 
@@ -254,6 +265,16 @@ const handleEdit = (nodeId: string, newText: string) => {
     messages.value = messages.value.slice(0, idx);
   }
   handleSend([{ type: 'text', text: newText }], node.parent);
+};
+
+const handleRegenerate = (nodeId: string) => {
+  const node = messageTree.value[nodeId];
+  const idx = messages.value.findIndex(m => m.id === nodeId);
+  if (idx >= 0) {
+    // Truncate from the node onward
+    messages.value = messages.value.slice(0, idx);
+  }
+  handleSend(node.user, node.parent);
 };
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -357,6 +378,7 @@ defineExpose({ handleSend, messages });
           :message="node" 
           :isUser="false" 
           :nodeId="node.id"
+          @regenerate="handleRegenerate"
         />
       </template>
     </div>

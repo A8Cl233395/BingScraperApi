@@ -42,6 +42,8 @@ class Browser:
         self.life_thread: threading.Thread = None
         self.lock = threading.Lock()
         self.use_jina_reader = use_jina_reader
+        self.bing_idle_time = config['bing_crawler']['bing_idle_time']
+        self.web_idle_time = config['bing_crawler']['web_idle_time']
 
     def parse_search_page(self):
         """解析当前页面的搜索结果"""
@@ -130,7 +132,7 @@ class Browser:
                     if self.driver is None:
                         try:
                             self.get_driver().get("https://www.bing.com/search?q=bing")
-                            self.wait_for_network_idle(i=3)
+                            self.wait_for_network_idle(i=self.bing_idle_time)
                         except TimeoutException:
                             pass # dont care
                     url = f'https://www.bing.com/search?q={quote_plus(query)}{"&first="+str(len(results)+1) if results else ""}'
@@ -138,7 +140,7 @@ class Browser:
                         self.get_driver().get(url)
                     except TimeoutException:
                         pass # dont care
-                    self.wait_for_network_idle(i=2)
+                    self.wait_for_network_idle(i=self.bing_idle_time)
                     results.extend(self.parse_search_page())
                     if not results: # no more results or get blocked
                         break
@@ -163,10 +165,10 @@ class Browser:
                     return 'Invalid host'
                 if self.driver is None:
                     self.get_driver().get("about:blank")
-                    time.sleep(2)
+                    self.wait_for_network_idle(i=self.web_idle_time)
                 try:
                     self.get_driver().get(url)
-                    self.wait_for_network_idle(i=2)
+                    self.wait_for_network_idle(i=self.web_idle_time)
                 except TimeoutException:
                     pass # dont care
                 web_source = self.get_driver().page_source
@@ -203,7 +205,7 @@ class Browser:
                     redirect_url = response.headers.get('Location')
                     if redirect_url:
                         # 可能需要递归处理多次重定向
-                        return Ncm.get_final_url_without_content(redirect_url)
+                        return Browser.get_final_url(redirect_url)
                 return response.url
         except requests.exceptions.RequestException as e:
             logger.error(f"请求失败: {e}")
@@ -1157,7 +1159,7 @@ class Webchat:
     
     def _generate_title(self, chat_instance: ChatInstance, queue: Queue, user_id: int, chat_id: int):
         title = chat_instance._generate_title()
-        queue.put(f"event: title\ndata: {title}\n\n")
+        queue.put(f"event: title\ndata: {json.dumps(title, ensure_ascii=False)}\n\n")
         with self.conn:
             cursor = self.conn.cursor()
             cursor.execute(f"UPDATE u{user_id} SET title = ? WHERE id = ?", (title, chat_id))

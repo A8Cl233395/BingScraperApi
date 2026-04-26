@@ -7,6 +7,7 @@ export const state = reactive({
   chats: [] as [number, string][],
   currentChatId: null as number | null,
   currentModel: '',
+  previewImageUrl: null as string | null,
   currentVModel: '',
   isThinking: false,
   isEnableFunction: true,
@@ -20,6 +21,8 @@ export const state = reactive({
   isLoadingHistory: false,
   isMouseDown: false,
   isTextSelected: false,
+  selectionText: '',
+  showSelectionOverlay: false,
   models: {} as Record<string, { desc: string; vision?: boolean; thinking?: boolean }>,
   
   async fetchHome() {

@@ -6,6 +6,8 @@ import Sidebar from '../components/Sidebar.vue';
 import ModelSelector from '../components/ModelSelector.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MessageList from '../components/MessageList.vue';
+import ImagePreview from '../components/ImagePreview.vue';
+import TextSelectionOverlay from '../components/TextSelectionOverlay.vue';
 
 const messageListRef = ref<any>(null);
 
@@ -49,7 +51,7 @@ onMounted(() => {
     <Sidebar />
 
     <main class="flex-1 flex flex-col h-full relative min-w-0 bg-bg-main w-full">
-      <header class="h-14 flex items-center px-4 justify-between flex-shrink-0 z-10 w-full bg-bg-main border-b border-border-main">
+      <header class="h-14 flex items-center px-4 justify-between flex-shrink-0 z-30 w-full bg-bg-main border-b border-border-main">
         <div class="flex items-center gap-3">
           <button 
             @click="state.isSidebarOpen = !state.isSidebarOpen" 
@@ -81,5 +83,8 @@ onMounted(() => {
         <ChatInput :isChatStarted="isChatStarted" @send="handleSend" />
       </div>
     </main>
+    
+    <ImagePreview />
+    <TextSelectionOverlay />
   </div>
 </template>

@@ -114,15 +114,127 @@ const props = defineProps<{
   siblingIndex?: number;
 }>();
 
-const emit = defineEmits(['navigate', 'edit']);
+const emit = defineEmits(['navigate', 'edit', 'regenerate']);
 
 const isThinkingExpanded = ref(false);
+const expandedThinkingSegments = ref<Record<number | string, boolean>>({});
 const expandedTools = ref<Record<string, boolean>>({});
+const toggleThinkingSegment = (idx: number | string) => {
+  expandedThinkingSegments.value[idx] = !expandedThinkingSegments.value[idx];
+};
 const toggleTool = (id: string) => {
   expandedTools.value[id] = !expandedTools.value[id];
 };
 const isEditing = ref(false);
 const editText = ref('');
+
+// === MOBILE LONG PRESS & MENU ===
+const showMobileMenu = ref(false);
+const longPressTimer = ref<number | null>(null);
+const preLongPressTimer = ref<number | null>(null);
+const isPressing = ref(false);
+
+const menuPosition = ref({ x: 0, y: 0 });
+
+const startLongPress = (e: TouchEvent) => {
+  if (!state.isMobile || isEditing.value) return;
+  
+  const target = e.target as HTMLElement;
+  // If both text and image exist, long press on image has no effect
+  if (props.isUser) {
+    if (userTextContent.value && target.closest('img')) return;
+  } else {
+    const hasAssistantText = props.message.assistant?.some((m: any) => m.content && m.content.trim());
+    const hasThinkingText = thinkingContent.value || Object.values(segmentThinking).some(s => s && s.trim());
+    if ((hasAssistantText || hasThinkingText) && target.closest('img')) return;
+  }
+  
+  const touch = e.touches[0];
+  // Capture coordinates for menu positioning
+  menuPosition.value = { x: touch.clientX, y: touch.clientY };
+  
+  cancelLongPress();
+  preLongPressTimer.value = window.setTimeout(() => {
+    isPressing.value = true;
+    longPressTimer.value = window.setTimeout(() => {
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+      showMobileMenu.value = true;
+      isPressing.value = false;
+    }, 600);
+  }, 150);
+};
+
+const cancelLongPress = () => {
+  if (preLongPressTimer.value) {
+    clearTimeout(preLongPressTimer.value);
+    preLongPressTimer.value = null;
+  }
+  if (longPressTimer.value) {
+    clearTimeout(longPressTimer.value);
+    longPressTimer.value = null;
+  }
+  isPressing.value = false;
+};
+
+const handleCopyAction = () => {
+  if (props.isUser) handleCopy();
+  else handleCopyAssistant();
+  showMobileMenu.value = false;
+};
+
+const handleSelectTextAction = () => {
+  let text = '';
+  if (props.isUser) {
+    text = userTextContent.value;
+  } else {
+    text = props.message.assistant
+      .filter((m: any) => m.role === 'assistant' && m.content)
+      .map((m: any) => m.content)
+      .join('');
+  }
+  state.selectionText = text;
+  state.showSelectionOverlay = true;
+  showMobileMenu.value = false;
+};
+
+const handleEditAction = () => {
+  handleEdit();
+  showMobileMenu.value = false;
+};
+
+const handleRegenerateAction = () => {
+  emit('regenerate', props.nodeId);
+  showMobileMenu.value = false;
+};
+
+const menuStyle = computed(() => {
+  if (!showMobileMenu.value) return {};
+  
+  const x = menuPosition.value.x;
+  const y = menuPosition.value.y;
+  const screenWidth = window.innerWidth;
+  const screenHeight = window.innerHeight;
+  
+  const menuWidth = 160; 
+  const menuHeight = 200; 
+  
+  let left = x - 20;
+  let top = y - 20;
+  
+  // Keep on screen
+  if (left + menuWidth > screenWidth - 10) left = screenWidth - menuWidth - 10;
+  if (left < 10) left = 10;
+  if (top + menuHeight > screenHeight - 10) top = screenHeight - menuHeight - 10;
+  if (top < 10) top = 10;
+  
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${menuWidth}px`
+  };
+});
 
 // === USER message rendering ===
 const userTextContent = computed(() => {
@@ -132,9 +244,11 @@ const userTextContent = computed(() => {
 
 // === ASSISTANT message rendering (per-segment) ===
 const segmentHtml = reactive<Record<number | string, string>>({});
+const segmentThinking = reactive<Record<number | string, string>>({});
 const thinkingContent = ref('');
 
 let pendingUpdate: Record<number, string> | null = null;
+let pendingThinkingSegmentsUpdate: Record<number, string> | null = null;
 let pendingThinkingUpdate: string | null = null;
 
 let resumeTimeout: any = null;
@@ -142,6 +256,10 @@ const applyPendingUpdates = () => {
   if (pendingUpdate) {
     Object.assign(segmentHtml, pendingUpdate);
     pendingUpdate = null;
+  }
+  if (pendingThinkingSegmentsUpdate) {
+    Object.assign(segmentThinking, pendingThinkingSegmentsUpdate);
+    pendingThinkingSegmentsUpdate = null;
   }
   if (pendingThinkingUpdate !== null) {
     thinkingContent.value = pendingThinkingUpdate;
@@ -166,7 +284,9 @@ watch(() => props.isUser ? null : props.message?.assistant, (arr) => {
   if (props.isUser || !arr) return;
   
   const map: Record<number, string> = {};
+  const thinkingMap: Record<number, string> = {};
   let hasChanges = false;
+  let hasThinkingChanges = false;
 
   for (let i = 0; i < arr.length; i++) {
     const item = arr[i];
@@ -182,15 +302,29 @@ watch(() => props.isUser ? null : props.message?.assistant, (arr) => {
         if (segmentHtml[i] !== item.content) hasChanges = true;
       }
     }
+    if (item.role === 'assistant' && item.reasoning_content) {
+      thinkingMap[i] = item.reasoning_content;
+      if (segmentThinking[i] !== item.reasoning_content) {
+        hasThinkingChanges = true;
+      }
+    }
   }
   
-  if (!hasChanges) return;
-
-  if (state.isTextSelected || state.isMouseDown) {
-    pendingUpdate = map;
-  } else {
-    Object.assign(segmentHtml, map);
-    pendingUpdate = null;
+  if (hasChanges) {
+    if (state.isTextSelected || state.isMouseDown) {
+      pendingUpdate = map;
+    } else {
+      Object.assign(segmentHtml, map);
+      pendingUpdate = null;
+    }
+  }
+  if (hasThinkingChanges) {
+    if (state.isTextSelected || state.isMouseDown) {
+      pendingThinkingSegmentsUpdate = thinkingMap;
+    } else {
+      Object.assign(segmentThinking, thinkingMap);
+      pendingThinkingSegmentsUpdate = null;
+    }
   }
 }, { deep: true, immediate: true });
 
@@ -282,6 +416,18 @@ const handleCodeCopy = (e: MouseEvent) => {
   }
 };
 
+const handleContentClick = (e: MouseEvent) => {
+  const target = e.target as HTMLElement;
+  if (target.tagName === 'IMG') {
+    const src = (target as HTMLImageElement).src;
+    if (src) {
+      state.previewImageUrl = src;
+    }
+    return;
+  }
+  handleCodeCopy(e);
+};
+
 </script>
 
 <template>
@@ -290,27 +436,61 @@ const handleCodeCopy = (e: MouseEvent) => {
 
       <template v-if="isUser">
         <div class="group flex flex-col" :class="isEditing ? 'w-full items-start' : 'max-w-full items-end'">
-          <div class="relative p-4 rounded-lg shadow-sm bg-bg-panel rounded-tr-none transition-all duration-200" :class="isEditing ? 'w-full' : ''">
-            <div v-if="images.length > 0" class="flex flex-wrap gap-2 mb-3">
-              <img v-for="(url, idx) in images" :key="idx" :src="url" class="max-w-[200px] max-h-[200px] rounded-md border border-border-main" />
-            </div>
-            <div v-if="!isEditing" class="text-text-main break-words whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
+          
+          <!-- Image Content (Outside bubble if there is text) -->
+          <div 
+            v-if="images.length > 0" 
+            class="relative flex flex-wrap gap-2"
+            :class="[
+              userTextContent || isEditing ? 'mb-3' : 'p-1 rounded-lg overflow-hidden',
+              !userTextContent && !isEditing && state.isMobile ? 'user-select-none' : ''
+            ]"
+            @touchstart="(!userTextContent && !isEditing) ? startLongPress($event) : null"
+            @touchend="(!userTextContent && !isEditing) ? cancelLongPress() : null"
+            @touchmove="(!userTextContent && !isEditing) ? cancelLongPress() : null"
+            @contextmenu="(!userTextContent && !isEditing) ? $event.preventDefault() : null"
+          >
+            <!-- Long Press Progress Feedback for image-only messages -->
+            <div 
+              v-if="!userTextContent && !isEditing && isPressing"
+              class="absolute inset-0 bg-primary-main/10 origin-left animate-progress-horizontal z-0"
+            ></div>
+            <img v-for="(url, idx) in images" :key="idx" :src="url" @click="state.previewImageUrl = url" class="relative z-10 max-w-[200px] max-h-[200px] rounded-md border border-border-main cursor-pointer" />
+          </div>
+
+          <!-- Text Bubble Section -->
+          <div 
+            v-if="userTextContent || isEditing"
+            class="relative p-4 rounded-lg shadow-sm bg-bg-panel rounded-tr-none transition-all duration-200 overflow-hidden" 
+            :class="[isEditing ? 'w-full' : '', state.isMobile ? 'user-select-none' : '']"
+            @touchstart="startLongPress"
+            @touchend="cancelLongPress"
+            @touchmove="cancelLongPress"
+            @contextmenu.prevent
+          >
+            <!-- Long Press Progress Feedback for text bubble -->
+            <div 
+              v-if="isPressing"
+              class="absolute inset-0 bg-primary-main/10 origin-left animate-progress-horizontal z-0"
+            ></div>
+            
+            <div v-if="!isEditing" class="relative z-10 text-text-main break-words whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
             <div v-else class="w-full">
               <textarea ref="editTextareaRef" v-model="editText" class="w-full bg-bg-main border border-border-input rounded-md p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
             </div>
           </div>
-          <div class="mt-2 flex items-center justify-end gap-3 transition-opacity w-full" :class="isEditing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'">
+          <div class="mt-2 flex items-center justify-end gap-3 transition-opacity w-full" :class="[isEditing ? 'opacity-100' : (state.isMobile ? (siblingCount && siblingCount > 1 ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden') : 'opacity-0 group-hover:opacity-100')]">
             <!-- Sibling Navigation -->
             <div v-if="siblingCount && siblingCount > 1" class="flex items-center gap-2 text-[10px] text-text-placeholder select-none">
-              <button @click="emit('navigate', nodeId, -1)" :disabled="siblingIndex === 0" class="hover:text-text-main disabled:opacity-30"><i class="fas fa-chevron-left"></i></button>
+              <button @click="emit('navigate', nodeId, -1)" :disabled="siblingIndex === 0" class="hover:text-text-main disabled:opacity-30 p-1"><i class="fas fa-chevron-left"></i></button>
               <span>{{ (siblingIndex || 0) + 1 }} / {{ siblingCount }}</span>
-              <button @click="emit('navigate', nodeId, 1)" :disabled="siblingIndex === siblingCount! - 1" class="hover:text-text-main disabled:opacity-30"><i class="fas fa-chevron-right"></i></button>
+              <button @click="emit('navigate', nodeId, 1)" :disabled="siblingIndex === siblingCount! - 1" class="hover:text-text-main disabled:opacity-30 p-1"><i class="fas fa-chevron-right"></i></button>
             </div>
-            <template v-if="!isEditing">
+            <template v-if="!isEditing && !state.isMobile">
               <button @click="handleEdit" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="编辑"><i class="far fa-edit"></i></button>
               <button @click="handleCopy" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="复制"><i class="far fa-copy"></i></button>
             </template>
-            <template v-else>
+            <template v-else-if="isEditing">
               <button @click="isEditing = false" class="text-xs text-text-muted hover:text-text-main">取消</button>
               <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1 rounded hover:bg-primary-hover">确认</button>
             </template>
@@ -322,29 +502,51 @@ const handleCodeCopy = (e: MouseEvent) => {
       <template v-else>
         <div class="group flex flex-col items-start w-full">
           <!-- Thinking -->
-          <div v-if="thinkingContent" class="mb-4 w-full">
-            <div @click="isThinkingExpanded = !isThinkingExpanded" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors mb-2">
-              <i class="fas fa-brain"></i><span>思考过程</span>
-              <i class="fas fa-chevron-down transition-transform" :class="isThinkingExpanded ? 'rotate-180' : ''"></i>
+          <div v-if="thinkingContent" class="my-2 w-full">
+            <div @click="isThinkingExpanded = !isThinkingExpanded" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
+              <i class="fas fa-brain text-[10px] w-3 text-center"></i><span>思考过程</span>
+              <i class="fas fa-chevron-right text-[10px] transition-transform duration-200" :class="isThinkingExpanded ? 'rotate-90' : ''"></i>
             </div>
-            <div v-if="isThinkingExpanded" class="p-4 bg-bg-panel rounded-lg text-xs text-text-muted border-l-2 border-border-main leading-relaxed italic whitespace-pre-wrap shadow-sm">{{ thinkingContent }}</div>
+            <div v-if="isThinkingExpanded" class="mt-2 p-4 bg-bg-panel rounded-lg text-xs text-text-muted border-l-2 border-border-main leading-relaxed italic whitespace-pre-wrap shadow-sm">{{ thinkingContent }}</div>
           </div>
 
           <!-- Assistant content -->
-          <div :id="`bubble-${nodeId}-assistant`" class="w-full">
+          <div 
+            :id="`bubble-${nodeId}-assistant`" 
+            class="w-full relative overflow-hidden p-1 -m-1 rounded-lg"
+            :class="state.isMobile ? 'user-select-none' : ''"
+            @touchstart="startLongPress"
+            @touchend="cancelLongPress"
+            @touchmove="cancelLongPress"
+            @contextmenu.prevent
+          >
+            <!-- Long Press Progress Feedback -->
+            <div 
+              v-if="isPressing"
+              class="absolute inset-0 bg-primary-main/10 origin-left animate-progress-horizontal z-0"
+            ></div>
             <template v-for="(item, idx) in message.assistant" :key="idx">
+              <!-- Reasoning content (per-segment) -->
+              <div v-if="item.role === 'assistant' && segmentThinking[idx]" class="relative z-10 my-2 w-full">
+                <div @click="toggleThinkingSegment(idx)" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
+                  <i class="fas fa-brain text-[10px] w-3 text-center"></i><span>思考过程</span>
+                  <i class="fas fa-chevron-right text-[10px] transition-transform duration-200" :class="expandedThinkingSegments[idx] ? 'rotate-90' : ''"></i>
+                </div>
+                <div v-if="expandedThinkingSegments[idx]" class="mt-2 p-4 bg-bg-panel rounded-lg text-xs text-text-muted border-l-2 border-border-main leading-relaxed italic whitespace-pre-wrap shadow-sm">{{ segmentThinking[idx] }}</div>
+              </div>
+
               <!-- Text content -->
-              <div v-if="item.role === 'assistant' && item.content && segmentHtml[idx]" class="prose prose-sm max-w-none text-text-main break-words" v-html="segmentHtml[idx]" @click="handleCodeCopy"></div>
+              <div v-if="item.role === 'assistant' && item.content && segmentHtml[idx]" class="relative z-10 prose prose-sm max-w-none text-text-main break-words" v-html="segmentHtml[idx]" @click="handleContentClick"></div>
 
               <!-- Tool calls -->
               <template v-if="item.role === 'assistant' && item.tool_calls">
-                <div v-for="call in item.tool_calls" :key="call.id" class="my-2">
+                <div v-for="call in item.tool_calls" :key="call.id" class="relative z-10 my-2 w-full">
                   <div @click="toggleTool(call.id)" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
-                    <i class="fas fa-wrench text-[10px]"></i>
+                    <i class="fas fa-wrench text-[10px] w-3 text-center"></i>
                     <span>调用 {{ call.function.name }}</span>
                     <i class="fas fa-chevron-right text-[10px] transition-transform duration-200" :class="expandedTools[call.id] ? 'rotate-90' : ''"></i>
                   </div>
-                  <div v-if="expandedTools[call.id]" class="pl-5 pb-1">
+                  <div v-if="expandedTools[call.id]" class="pl-5 pb-1 mt-1">
                     <div class="text-[11px] font-mono text-text-placeholder break-all whitespace-pre-wrap bg-bg-panel p-2 rounded">{{ call.function.arguments }}</div>
                     <div v-for="resp in getToolResponses(call.id)" :key="resp.tool_call_id" class="mt-1 text-[11px] text-text-placeholder whitespace-pre-wrap break-all bg-bg-panel p-2 rounded">
                       <span class="text-text-muted font-medium">返回：</span>{{ resp.content }}
@@ -356,12 +558,39 @@ const handleCodeCopy = (e: MouseEvent) => {
           </div>
           
           <!-- Assistant Actions -->
-          <div class="mt-2 flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div class="mt-2 flex items-center gap-3 transition-opacity" :class="state.isMobile ? 'opacity-0 h-0 overflow-hidden' : 'opacity-0 group-hover:opacity-100'">
             <button @click="handleCopyAssistant" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="复制"><i class="far fa-copy"></i></button>
           </div>
         </div>
       </template>
 
+    </div>
+
+    <!-- Mobile Context Menu -->
+    <div v-if="showMobileMenu" class="fixed inset-0 z-[1100]" @click="showMobileMenu = false" @contextmenu.prevent>
+      <div class="fixed inset-0 bg-black/5"></div>
+      <div 
+        class="absolute bg-bg-panel border border-border-main rounded-lg shadow-xl overflow-hidden animate-in fade-in zoom-in duration-150 py-1" 
+        :style="menuStyle"
+        @click.stop
+      >
+        <button @click="handleCopyAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+          <i class="far fa-copy w-4 text-center text-text-muted"></i>
+          <span>复制</span>
+        </button>
+        <button @click="handleSelectTextAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+          <i class="fas fa-i-cursor w-4 text-center text-text-muted"></i>
+          <span>选择文本</span>
+        </button>
+        <button v-if="isUser" @click="handleEditAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+          <i class="far fa-edit w-4 text-center text-text-muted"></i>
+          <span>修改</span>
+        </button>
+        <button v-else @click="handleRegenerateAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+          <i class="fas fa-rotate-right w-4 text-center text-text-muted"></i>
+          <span>重新生成</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -453,8 +682,27 @@ const handleCodeCopy = (e: MouseEvent) => {
   @apply italic;
 }
 
+.prose img {
+  @apply cursor-pointer rounded-md;
+}
+
 /* Code block wrapper adjustments */
 .code-block-wrapper pre code.hljs {
   @apply bg-transparent p-0;
+}
+
+.user-select-none {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+@keyframes progress-horizontal {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.animate-progress-horizontal {
+  animation: progress-horizontal 0.6s linear forwards;
 }
 </style>
