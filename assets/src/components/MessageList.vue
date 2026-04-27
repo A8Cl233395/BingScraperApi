@@ -252,6 +252,7 @@ const handleSend = async (content: any, parent?: string) => {
   } finally {
     if (abortController.value === currentController) {
       isStreaming.value = false;
+      userMsg.isStreaming = false;
       abortController.value = null;
     }
   }

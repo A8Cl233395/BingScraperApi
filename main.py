@@ -435,6 +435,7 @@ if is_webchat_enabled:
         return "success"
 
 if __name__ == '__main__':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     if "cert" in config["server"] and "key" in config["server"]:
         if os.path.exists(config["server"]["cert"]) and os.path.exists(config["server"]["key"]):
             uvicorn.run(

@@ -1417,7 +1417,10 @@ if __name__ != "__main__":
         def send_to_websocket(message: dict):
             logger.debug(f"Sending message to websocket: {message}")
             if websocket_connect:
-                asyncio.run_coroutine_threadsafe(websocket_connect.send_text(json.dumps(message, ensure_ascii=False)), event_loop)
+                try:
+                    asyncio.run_coroutine_threadsafe(websocket_connect.send_text(json.dumps(message, ensure_ascii=False)), event_loop)
+                except Exception:
+                    pass
                 return True
             else:
                 logger.error("Failed to send message to websocket, websocket not connected")

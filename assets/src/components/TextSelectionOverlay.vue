@@ -34,6 +34,5 @@ const close = () => {
 
 pre {
   user-select: text !important;
-  -webkit-user-select: text !important;
 }
 </style>

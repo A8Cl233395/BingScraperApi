@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { state } from '../store';
-import { ref } from 'vue';
+import { ref, onBeforeUnmount } from 'vue';
 import ConfirmModal from './ConfirmModal.vue';
 
 const longPressTimer = ref<number | null>(null);
@@ -20,9 +20,6 @@ const startLongPress = (id: number) => {
     preLongPressTimer.value = window.setTimeout(() => {
       pressingChatId.value = id;
       longPressTimer.value = window.setTimeout(() => {
-        if (navigator.vibrate) {
-          navigator.vibrate(50);
-        }
         chatToDelete.value = id;
         showDeleteConfirm.value = true;
         pressingChatId.value = null;
@@ -42,6 +39,10 @@ const cancelLongPress = () => {
   }
   pressingChatId.value = null;
 };
+
+onBeforeUnmount(() => {
+  cancelLongPress();
+});
 
 const handleDelete = (id: number) => {
   chatToDelete.value = id;
@@ -100,6 +101,7 @@ const handleScroll = () => {
         @touchstart="startLongPress(chat[0])"
         @touchend="cancelLongPress"
         @touchmove="cancelLongPress"
+        @touchcancel="cancelLongPress"
         @contextmenu.prevent
         class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors overflow-hidden"
         :class="[

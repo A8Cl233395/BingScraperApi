@@ -92,3 +92,6 @@ python main.py
 ## 开源协议
 
 [MIT License](LICENSE)
+
+## 注
+曾被某人盗用 API key 进行 AI 编程，编辑config.yaml.example的时候务必小心 (╬▔皿▔)╯

@@ -101,7 +101,7 @@ marked.use({
 </script>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, reactive } from 'vue';
+import { ref, computed, watch, nextTick, reactive, onBeforeUnmount } from 'vue';
 import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
 
@@ -139,6 +139,15 @@ const menuPosition = ref({ x: 0, y: 0 });
 const startLongPress = (e: TouchEvent) => {
   if (!state.isMobile || isEditing.value) return;
   
+  // Disable long press while streaming to avoid issues with DOM updates and auto-scrolling
+  if (props.isUser) {
+    // For user messages, we don't have an easy isStreaming prop here 
+    // but usually they don't change. However, if we want to be safe:
+    // if (props.message.isStreaming) return; 
+  } else {
+    if (props.message.isStreaming) return;
+  }
+  
   const target = e.target as HTMLElement;
   // If both text and image exist, long press on image has no effect
   if (props.isUser) {
@@ -157,9 +166,6 @@ const startLongPress = (e: TouchEvent) => {
   preLongPressTimer.value = window.setTimeout(() => {
     isPressing.value = true;
     longPressTimer.value = window.setTimeout(() => {
-      if (navigator.vibrate) {
-        navigator.vibrate(50);
-      }
       showMobileMenu.value = true;
       isPressing.value = false;
     }, 600);
@@ -177,6 +183,10 @@ const cancelLongPress = () => {
   }
   isPressing.value = false;
 };
+
+onBeforeUnmount(() => {
+  cancelLongPress();
+});
 
 const handleCopyAction = () => {
   if (props.isUser) handleCopy();
@@ -448,6 +458,7 @@ const handleContentClick = (e: MouseEvent) => {
             @touchstart="(!userTextContent && !isEditing) ? startLongPress($event) : null"
             @touchend="(!userTextContent && !isEditing) ? cancelLongPress() : null"
             @touchmove="(!userTextContent && !isEditing) ? cancelLongPress() : null"
+            @touchcancel="(!userTextContent && !isEditing) ? cancelLongPress() : null"
             @contextmenu="(!userTextContent && !isEditing) ? $event.preventDefault() : null"
           >
             <!-- Long Press Progress Feedback for image-only messages -->
@@ -466,6 +477,7 @@ const handleContentClick = (e: MouseEvent) => {
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
             @touchmove="cancelLongPress"
+            @touchcancel="cancelLongPress"
             @contextmenu.prevent
           >
             <!-- Long Press Progress Feedback for text bubble -->
@@ -518,6 +530,7 @@ const handleContentClick = (e: MouseEvent) => {
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
             @touchmove="cancelLongPress"
+            @touchcancel="cancelLongPress"
             @contextmenu.prevent
           >
             <!-- Long Press Progress Feedback -->
@@ -598,6 +611,20 @@ const handleContentClick = (e: MouseEvent) => {
 <style>
 @reference "tailwindcss";
 
+.math-block {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+  margin: 0.5rem 0;
+}
+
+.math-block .katex-display {
+  margin: 0;
+  text-align: center;
+  min-width: 100%;
+}
+
 .prose pre { @apply bg-transparent p-0 m-0 border-none rounded-none overflow-visible; }
 .prose code { @apply text-[0.85em] font-mono; }
 .prose :not(pre) > code {
@@ -636,7 +663,7 @@ const handleContentClick = (e: MouseEvent) => {
 }
 
 .prose table {
-  @apply w-full border-collapse my-4 text-sm overflow-hidden rounded-md block md:table overflow-x-auto;
+  @apply w-full border-collapse my-4 text-sm overflow-hidden rounded-md table;
   border: 1px solid var(--border-color);
 }
 .prose thead {
@@ -693,8 +720,6 @@ const handleContentClick = (e: MouseEvent) => {
 
 .user-select-none {
   user-select: none !important;
-  -webkit-user-select: none !important;
-  -webkit-touch-callout: none !important;
 }
 
 @keyframes progress-horizontal {
