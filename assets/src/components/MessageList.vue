@@ -258,14 +258,14 @@ const handleSend = async (content: any, parent?: string) => {
   }
 };
 
-const handleEdit = (nodeId: string, newText: string) => {
+const handleEdit = (nodeId: string, newContent: any) => {
   const node = messageTree.value[nodeId];
   const idx = messages.value.findIndex(m => m.id === nodeId);
   if (idx >= 0) {
     // Truncate from the edited node onward so the new message replaces it
     messages.value = messages.value.slice(0, idx);
   }
-  handleSend([{ type: 'text', text: newText }], node.parent);
+  handleSend(newContent, node.parent);
 };
 
 const handleRegenerate = (nodeId: string) => {

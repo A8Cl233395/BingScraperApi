@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue';
+import { onMounted, ref, computed, watch } from 'vue';
 import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
 import Sidebar from '../components/Sidebar.vue';
@@ -28,9 +28,32 @@ const startNewChat = () => {
   state.currentChatId = null;
 };
 
+const handlePopState = () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const idFromUrl = urlParams.get('id');
+  if (idFromUrl) {
+    const parsedId = parseInt(idFromUrl, 10);
+    if (!isNaN(parsedId)) {
+      state.currentChatId = parsedId;
+    }
+  } else {
+    state.currentChatId = null;
+  }
+};
+
 onMounted(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const idFromUrl = urlParams.get('id');
+  if (idFromUrl) {
+    const parsedId = parseInt(idFromUrl, 10);
+    if (!isNaN(parsedId)) {
+      state.currentChatId = parsedId;
+    }
+  }
+
   checkDevice();
   window.addEventListener('resize', checkDevice);
+  window.addEventListener('popstate', handlePopState);
   window.addEventListener('mousedown', () => state.isMouseDown = true);
   window.addEventListener('mouseup', () => {
     state.isMouseDown = false;
@@ -43,6 +66,21 @@ onMounted(() => {
     state.isTextSelected = !!(sel && !sel.isCollapsed);
   });
   state.fetchHome();
+});
+
+watch(() => state.currentChatId, (newId) => {
+  const url = new URL(window.location.href);
+  const oldId = url.searchParams.get('id');
+  const newIdStr = newId !== null ? newId.toString() : null;
+  
+  if (oldId !== newIdStr) {
+    if (newId) {
+      url.searchParams.set('id', newId.toString());
+    } else {
+      url.searchParams.delete('id');
+    }
+    window.history.pushState({}, '', url);
+  }
 });
 </script>
 

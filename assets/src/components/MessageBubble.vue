@@ -3,7 +3,7 @@ import { marked } from 'marked';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import hljs from 'highlight.js/lib/common';
-import 'highlight.js/styles/github.css';
+import '../hljs-theme.css';
 
 marked.use({
   breaks: true,
@@ -104,6 +104,7 @@ marked.use({
 import { ref, computed, watch, nextTick, reactive, onBeforeUnmount } from 'vue';
 import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
+import { processImage } from '../utils/image';
 
 
 const props = defineProps<{
@@ -127,6 +128,8 @@ const toggleTool = (id: string) => {
 };
 const isEditing = ref(false);
 const editText = ref('');
+const editImages = ref<string[]>([]);
+const editFileInput = ref<HTMLInputElement | null>(null);
 
 // === MOBILE LONG PRESS & MENU ===
 const showMobileMenu = ref(false);
@@ -369,8 +372,67 @@ const handleCopyAssistant = () => {
     .join('');
   navigator.clipboard.writeText(text);
 };
-const handleEdit = () => { isEditing.value = true; editText.value = userTextContent.value; nextTick(adjustEditHeight); };
-const submitEdit = () => { emit('edit', props.nodeId, editText.value); isEditing.value = false; };
+const handleEdit = () => { 
+  isEditing.value = true; 
+  editText.value = userTextContent.value; 
+  editImages.value = [...images.value];
+  nextTick(adjustEditHeight); 
+};
+
+const addEditFiles = async (files: File[]) => {
+  for (const file of files) {
+    if (editImages.value.length >= 10) break;
+    if (file.type.startsWith('image/')) {
+      const base64 = await processImage(file);
+      editImages.value.push(base64);
+    }
+  }
+};
+
+const handleEditFileUpload = async (e: Event) => {
+  const files = (e.target as HTMLInputElement).files;
+  if (files) {
+    await addEditFiles(Array.from(files));
+  }
+};
+
+const handleEditPaste = async (e: ClipboardEvent) => {
+  const items = e.clipboardData?.items;
+  if (items) {
+    const files = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    await addEditFiles(files);
+  }
+};
+
+const handleEditDrop = async (e: DragEvent) => {
+  e.preventDefault();
+  const files = e.dataTransfer?.files;
+  if (files) {
+    await addEditFiles(Array.from(files));
+  }
+};
+
+const removeEditImage = (index: number) => {
+  editImages.value.splice(index, 1);
+};
+
+const submitEdit = () => { 
+  const content = [];
+  editImages.value.forEach(url => {
+    content.push({ type: 'image_url', image_url: { url } });
+  });
+  if (editText.value.trim()) {
+    content.push({ type: 'text', text: editText.value.trim() });
+  }
+  emit('edit', props.nodeId, content); 
+  isEditing.value = false; 
+};
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter') {
     if (!isMobileDevice() && !e.ctrlKey && !e.shiftKey) {
@@ -449,7 +511,7 @@ const handleContentClick = (e: MouseEvent) => {
           
           <!-- Image Content (Outside bubble if there is text) -->
           <div 
-            v-if="images.length > 0" 
+            v-if="images.length > 0 && !isEditing" 
             class="relative flex flex-wrap gap-2"
             :class="[
               userTextContent || isEditing ? 'mb-3' : 'p-1 rounded-lg overflow-hidden',
@@ -487,8 +549,21 @@ const handleContentClick = (e: MouseEvent) => {
             ></div>
             
             <div v-if="!isEditing" class="relative z-10 text-text-main break-words whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
-            <div v-else class="w-full">
+            <div v-else class="w-full" @paste="handleEditPaste" @drop="handleEditDrop" @dragover.prevent>
+              <!-- Edit Image Previews -->
+              <div v-if="editImages.length > 0" class="flex flex-wrap gap-2 mb-3">
+                <div v-for="(img, index) in editImages" :key="index" class="relative group w-16 h-16 rounded-md overflow-hidden border border-border-main">
+                  <img :src="img" class="w-full h-full object-cover" />
+                  <button 
+                    @click="removeEditImage(index)"
+                    class="absolute top-0 right-0 bg-black/50 text-white w-5 h-5 flex items-center justify-center rounded-bl-md opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <i class="fas fa-times text-[10px]"></i>
+                  </button>
+                </div>
+              </div>
               <textarea ref="editTextareaRef" v-model="editText" class="w-full bg-bg-main border border-border-input rounded-md p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
+              <input type="file" ref="editFileInput" class="hidden" multiple accept="image/*" @change="handleEditFileUpload" />
             </div>
           </div>
           <div class="mt-2 flex items-center justify-end gap-3 transition-opacity w-full" :class="[isEditing ? 'opacity-100' : (state.isMobile ? (siblingCount && siblingCount > 1 ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden') : 'opacity-0 group-hover:opacity-100')]">
@@ -503,6 +578,7 @@ const handleContentClick = (e: MouseEvent) => {
               <button @click="handleCopy" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="复制"><i class="far fa-copy"></i></button>
             </template>
             <template v-else-if="isEditing">
+              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center rounded-md hover:bg-bg-hover" title="上传图片"><i class="far fa-image text-base"></i></button>
               <button @click="isEditing = false" class="text-xs text-text-muted hover:text-text-main">取消</button>
               <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1 rounded hover:bg-primary-hover">确认</button>
             </template>

@@ -108,6 +108,16 @@ const removeImage = (index: number) => {
   images.value.splice(index, 1);
 };
 
+const handleFocus = () => {
+  if (isMobileDevice()) {
+    window.scrollTo(0, 0);
+    nextTick(() => {
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    });
+  }
+};
+
 const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boolean) => {
   try {
     const payload: any = {};
@@ -130,8 +140,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
 
 <template>
   <div 
-    class="w-full max-w-4xl mx-auto px-4 layout-transition flex flex-col flex-shrink-0"
-    :class="props.isChatStarted ? 'pb-6 pt-2' : 'pb-[15vh] pt-4'"
+    class="w-full max-w-4xl mx-auto px-4 layout-transition flex flex-col flex-shrink-0 pb-6 pt-2"
   >
     <div 
       class="transition-all duration-500 ease-in-out overflow-hidden flex flex-col justify-end" 
@@ -168,7 +177,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         class="w-full resize-none outline-none border-none bg-transparent p-1 text-sm no-scrollbar text-text-main placeholder-text-placeholder min-h-[24px]"
         :placeholder="isMobileDevice() ? '输入消息...' : '输入消息，Shift+Enter 或 Ctrl+Enter 换行，Enter 发送...'"
         @keydown="handleKeydown"
-
+        @focus="handleFocus"
       ></textarea>
     </div>
 
