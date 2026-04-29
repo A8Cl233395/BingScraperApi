@@ -59,6 +59,150 @@ const buildMessageChain = (nodeId: string) => {
   nextTick(() => {
     scrollToBottom(true);
   });
+
+  // Auto-reconnect: leaf node has user content but no assistant response
+  const lastNode = chain[chain.length - 1];
+  if (lastNode && lastNode.user && (!lastNode.assistant || lastNode.assistant.length === 0)) {
+    handleReconnect(state.currentChatId!, lastNode.id);
+  }
+};
+
+/** Shared SSE event processor — mutates targetMsg in-place */
+const processSSEEvent = (
+  ev: { event: string; data: string },
+  targetMsg: ChatNode,
+  sseState: { signal: string; toolCallId: string; toolEntry: AssistantMessage | null; assistantEntry: AssistantMessage | null },
+  parentId?: string | null
+) => {
+  const eventType = ev.event;
+  let data: any = ev.data;
+  try { if (data) data = JSON.parse(data); } catch (_) { /* ignore */ }
+
+  if (eventType === 'id') {
+    const newId = parseInt(data);
+    state.currentChatId = newId;
+    // Add placeholder if not already in list
+    if (!state.chats.find(c => c[0] === newId)) {
+      state.chats.unshift([newId, '新对话']);
+    }
+  } else if (eventType === 'title') {
+    const chat = state.chats.find(c => c[0] === state.currentChatId);
+    if (chat) chat[1] = data;
+    else state.chats.unshift([state.currentChatId!, data]);
+  } else if (eventType === 'signal') {
+    sseState.signal = data;
+    if (sseState.signal === 'tool_response') {
+      sseState.toolEntry = null;
+      sseState.assistantEntry = null;
+    }
+  } else if (eventType === 'tool_name') {
+    const callId = 'tc-' + Date.now();
+    sseState.toolCallId = callId;
+    if (!sseState.assistantEntry) {
+      sseState.assistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
+      targetMsg.assistant.push(sseState.assistantEntry as AssistantMessage);
+    }
+    if (!sseState.assistantEntry.tool_calls) sseState.assistantEntry.tool_calls = [];
+    sseState.assistantEntry.tool_calls.push({ type: 'function', id: callId, function: { name: data, arguments: '' } });
+  } else if (eventType === 'node_id') {
+    lastNodeId.value = data;
+    targetMsg.id = data;
+    messageTree.value[data] = {
+      user: targetMsg.user,
+      assistant: targetMsg.assistant,
+      parent: parentId || 'root',
+      child: []
+    };
+    const pId = parentId || 'root';
+    const parentNode = pId === 'root' ? messageTree.value.root : messageTree.value[pId];
+    if (parentNode) {
+      if (!parentNode.child) parentNode.child = [];
+      if (!parentNode.child.includes(data)) parentNode.child.push(data);
+      if (pId === 'root') parentNode.current = data;
+    }
+  } else if (eventType === 'error') {
+    alert('Error: ' + data);
+  } else {
+    if (sseState.signal === 'thinking') {
+      if (!sseState.assistantEntry) {
+        sseState.assistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
+        targetMsg.assistant.push(sseState.assistantEntry as AssistantMessage);
+      }
+      sseState.assistantEntry.reasoning_content = (sseState.assistantEntry.reasoning_content || '') + data;
+    } else if (sseState.signal === 'answering') {
+      if (!sseState.assistantEntry) {
+        sseState.assistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
+        targetMsg.assistant.push(sseState.assistantEntry as AssistantMessage);
+      }
+      sseState.assistantEntry.content = (sseState.assistantEntry.content || '') + data;
+    } else if (sseState.signal === 'tool_call') {
+      if (sseState.assistantEntry?.tool_calls?.length) {
+        const lastTool = sseState.assistantEntry.tool_calls[sseState.assistantEntry.tool_calls.length - 1];
+        lastTool.function.arguments += data;
+      }
+    } else if (sseState.signal === 'tool_response') {
+      if (!sseState.toolEntry) {
+        sseState.toolEntry = reactive<AssistantMessage>({ role: 'tool', content: data, tool_call_id: sseState.toolCallId });
+        targetMsg.assistant.push(sseState.toolEntry as AssistantMessage);
+      } else {
+        sseState.toolEntry!.content = (sseState.toolEntry!.content || '') + data;
+      }
+    }
+  }
+};
+
+/** Reconnect to a node's SSE stream (full replay). Handles both initial-load and mid-stream disconnect. */
+const handleReconnect = async (chatId: number, nodeId: string) => {
+  const targetMsg = messages.value.find(m => m.id === nodeId);
+  if (!targetMsg) return;
+
+  // Reset assistant content — reconnect returns full payload, not incremental
+  targetMsg.assistant.splice(0, targetMsg.assistant.length);
+  targetMsg.isStreaming = true;
+  // Trigger reactivity for shallowRef
+  messages.value = [...messages.value];
+
+  const sseState = { signal: 'answering', toolCallId: '', toolEntry: null as AssistantMessage | null, assistantEntry: null as AssistantMessage | null };
+  const token = localStorage.getItem('token');
+  const uid = localStorage.getItem('uid');
+
+  if (abortController.value) abortController.value.abort();
+  const currentController = new AbortController();
+  abortController.value = currentController;
+  isStreaming.value = true;
+
+  try {
+    await fetchEventSource(
+      `${import.meta.env.VITE_API_BASE}/api/reconnect?id=${chatId}&node_id=${nodeId}`,
+      {
+        method: 'GET',
+        headers: {
+          'token': token || '',
+          'uid': uid || ''
+        },
+        signal: currentController.signal,
+        openWhenHidden: true,
+        onmessage(ev) {
+          processSSEEvent(ev, targetMsg, sseState);
+        },
+        onerror(err) {
+          if (currentController.signal.aborted) return;
+          console.error('Reconnect SSE Error', err);
+          throw err;
+        }
+      }
+    );
+  } catch (e: any) {
+    if (e.name !== 'AbortError' && !currentController.signal.aborted) {
+      console.error('Reconnect failed', e);
+    }
+  } finally {
+    if (abortController.value === currentController) {
+      isStreaming.value = false;
+      targetMsg.isStreaming = false;
+      abortController.value = null;
+    }
+  }
 };
 
 const getSiblingCount = (nodeId: string) => {
@@ -114,11 +258,7 @@ const handleSend = async (content: any, parent?: string) => {
   if (state.isThinking !== state.defaultSettings.thinking) body.thinking = state.isThinking;
   if (state.isEnableFunction !== state.defaultSettings.enable_function) body.enable_function = state.isEnableFunction;
 
-  let currentSignal = 'answering';
-  let currentToolCallId = '';
-  let currentToolResponseEntry: AssistantMessage | null = null;
-  let currentAssistantEntry: AssistantMessage | null = null;
-  
+  const sseState = { signal: 'answering', toolCallId: '', toolEntry: null as AssistantMessage | null, assistantEntry: null as AssistantMessage | null };
   const token = localStorage.getItem('token');
   const uid = localStorage.getItem('uid');
 
@@ -128,6 +268,10 @@ const handleSend = async (content: any, parent?: string) => {
   const currentController = new AbortController();
   abortController.value = currentController;
   isStreaming.value = true;
+
+  // Track whether we received a node_id (needed for disconnect reconnect)
+  let receivedNodeId: string | null = null;
+  let disconnectedDuringStream = false;
 
   try {
     await fetchEventSource(`${import.meta.env.VITE_API_BASE}/api/chat`, {
@@ -141,106 +285,19 @@ const handleSend = async (content: any, parent?: string) => {
       signal: currentController.signal,
       openWhenHidden: true,
       onmessage(ev) {
-        const eventType = ev.event;
-        let data = ev.data;
-        try {
-          if (data) {
-            data = JSON.parse(data);
-          }
-        } catch (e) {
-          // ignore
-        }
-
-        if (eventType === 'id') {
-          // Set currentChatId but the watch is guarded by isStreaming flag
-          state.currentChatId = parseInt(data);
-        } else if (eventType === 'title') {
-          const chat = state.chats.find(c => c[0] === state.currentChatId);
-          if (chat) chat[1] = data;
-          else state.chats.unshift([state.currentChatId!, data]);
-        } else if (eventType === 'signal') {
-          currentSignal = data;
-          if (currentSignal === 'tool_response') {
-            currentToolResponseEntry = null;
-            currentAssistantEntry = null; // next action needs a new assistant block
-          }
-        } else if (eventType === 'tool_name') {
-          const callId = 'tc-' + Date.now();
-          currentToolCallId = callId;
-          if (!currentAssistantEntry) {
-            currentAssistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
-            userMsg.assistant.push(currentAssistantEntry as AssistantMessage);
-          }
-          if (!currentAssistantEntry.tool_calls) {
-            currentAssistantEntry.tool_calls = [];
-          }
-          currentAssistantEntry.tool_calls.push({
-            type: 'function',
-            id: callId,
-            function: { name: data, arguments: '' }
-          });
-        } else if (eventType === 'node_id') {
-          lastNodeId.value = data;
-          userMsg.id = data;
-          // Register the new node in the local tree to allow immediate editing/branching
-          messageTree.value[data] = {
-            user: userMsg.user,
-            assistant: userMsg.assistant,
-            parent: parentId || 'root',
-            child: []
-          };
-          // Update parent's reference to this new child
-          const pId = parentId || 'root';
-          const parentNode = pId === 'root' ? messageTree.value.root : messageTree.value[pId];
-          if (parentNode) {
-            if (!parentNode.child) parentNode.child = [];
-            if (!parentNode.child.includes(data)) {
-              parentNode.child.push(data);
-            }
-            // Only the root node maintains a 'current' pointer in the backend schema
-            if (pId === 'root') {
-              parentNode.current = data;
-            }
-          }
-        } else if (eventType === 'error') {
-          alert('Error: ' + data);
-        } else {
-          // Default data — route based on current signal
-          if (currentSignal === 'thinking') {
-            if (!currentAssistantEntry) {
-              currentAssistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
-              userMsg.assistant.push(currentAssistantEntry as AssistantMessage);
-            }
-            currentAssistantEntry.reasoning_content = (currentAssistantEntry.reasoning_content || '') + data;
-          } else if (currentSignal === 'answering') {
-            if (!currentAssistantEntry) {
-              currentAssistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
-              userMsg.assistant.push(currentAssistantEntry as AssistantMessage);
-            }
-            currentAssistantEntry.content = (currentAssistantEntry.content || '') + data;
-          } else if (currentSignal === 'tool_call') {
-            if (currentAssistantEntry && currentAssistantEntry.tool_calls && currentAssistantEntry.tool_calls.length > 0) {
-              const lastTool = currentAssistantEntry.tool_calls[currentAssistantEntry.tool_calls.length - 1];
-              lastTool.function.arguments += data;
-            }
-          } else if (currentSignal === 'tool_response') {
-            if (!currentToolResponseEntry) {
-              currentToolResponseEntry = reactive<AssistantMessage>({
-                role: 'tool',
-                content: data,
-                tool_call_id: currentToolCallId
-              });
-              userMsg.assistant.push(currentToolResponseEntry as AssistantMessage);
-            } else {
-              currentToolResponseEntry!.content = (currentToolResponseEntry!.content || '') + data;
-            }
-          }
+        processSSEEvent(ev, userMsg, sseState, parentId);
+        if (ev.event === 'node_id') {
+          try { receivedNodeId = JSON.parse(ev.data); } catch (_) { receivedNodeId = ev.data; }
         }
       },
       onerror(err) {
         if (currentController.signal.aborted) return;
         console.error('SSE Error', err);
-        throw err; // Stop retrying
+        // Mark for reconnect instead of giving up
+        if (receivedNodeId && state.currentChatId) {
+          disconnectedDuringStream = true;
+        }
+        throw err; // Stop the current fetchEventSource retry loop
       }
     });
   } catch (e: any) {
@@ -255,6 +312,11 @@ const handleSend = async (content: any, parent?: string) => {
       userMsg.isStreaming = false;
       abortController.value = null;
     }
+  }
+
+  // If the SSE stream disconnected mid-generation, attempt reconnect
+  if (disconnectedDuringStream && receivedNodeId && state.currentChatId) {
+    handleReconnect(state.currentChatId, receivedNodeId);
   }
 };
 

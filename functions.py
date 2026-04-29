@@ -1,6 +1,6 @@
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime
-from queue import Queue
 import re
 import sqlite3
 from urllib.parse import quote_plus, urlparse
@@ -519,6 +519,11 @@ class Link:
             case _:
                 raise Exception(f"unknown type: {data['type']}")
 
+@dataclass
+class StreamingCache:
+    data: list
+    condition: threading.Condition
+
 class User:
     def __init__(self, user_id: int):
         self.user_id: int = user_id
@@ -548,6 +553,8 @@ class User:
                     self.token = data.get("token", None)
                     self.expire = data.get("expire", 0)
         self.chat_cache: dict[int, list[ChatInstance, float]] = {}
+        # tuple: (chat_id, node_id)
+        self.streaming_cache: dict[tuple[int, str], StreamingCache] = {}
     
     @property
     def data(self) -> dict:
@@ -639,7 +646,7 @@ class User:
             return False
         self.memory.remove(memory)
         return True
-
+    
     def verify_token(self, token: str):
         if time.time() > self.expire:
             return False
@@ -781,7 +788,6 @@ class ChatInstance:
         self.system_prompt = self._build_system_message(user)
         self.user = user
         self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "multimodel": False, "iteration": -1}}
-        self.update_lock = False
 
     def _ai(self, model, messages, thinking, enable_function):
         params = {
@@ -800,22 +806,22 @@ class ChatInstance:
         completion = client.chat.completions.create(**params)
         return completion
 
-    def __call__(self, parent, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None):
-        try: # is it atomic ?
-            self.update_lock = True
+    def __call__(self, parent, content, model=None, vmodel=None, thinking=None, enable_function=None, node_id=None, current_messages=None, current_node_assistant_messages=None, _model=None):
+        try:
             # 检查多模态
             if not self.chat_tree["root"]["multimodel"]:
                 if content[0]["type"] == "image_url": # 应该先在网关校验
                     self.chat_tree["root"]["multimodel"] = True
             # 初始化单轮次内容
-            parent = parent or self.chat_tree["root"]["current"]
-            _model: str = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["multimodel"] else (model or self.user.model))
-            thinking = thinking if thinking is not None else self.user.thinking
-            enable_function = enable_function if enable_function is not None else self.user.enable_function
-            if current_messages is None:
+            parent = parent or self.chat_tree["root"]["current"] # 锁定父节点
+            node_id = node_id or self._create_placehold_node(parent, content)
+            _model: str = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["multimodel"] else (model or self.user.model)) # 锁定模型
+            thinking = thinking if thinking is not None else self.user.thinking # 锁定思考
+            enable_function = enable_function if enable_function is not None else self.user.enable_function # 锁定是否启用函数
+            if current_messages is None: # 初始化或继承当前消息
                 current_messages: list = self._build_messages(parent)
                 current_messages.append({"role": "user", "content": content})
-            current_node_assistant_messages = current_node_assistant_messages or []
+            current_node_assistant_messages = current_node_assistant_messages or [] # 初始化或继承当前节点助手消息
             # 开始生成
             completion = self._ai(_model, current_messages, thinking, enable_function)
             answering_content = ""
@@ -832,7 +838,7 @@ class ChatInstance:
                         yield self._sse("thinking", "signal")
                     reasoning_content += delta.reasoning_content
                     yield self._sse(delta.reasoning_content)
-                if hasattr(delta, "content") and delta.content: # WHY QWEN SENDS THIS WITH REASONING_CONTENT WTF
+                if hasattr(delta, "content") and delta.content: # WHY ALIBABA SENDS THIS WITH REASONING_CONTENT WTF
                     if not is_answering:
                         yield self._sse("answering", "signal")
                         is_answering = True
@@ -862,16 +868,13 @@ class ChatInstance:
                             else: # 兼容gemini。gemini只有一个tool call并且index = None
                                 tool_calls[-1]["function"]["arguments"] += tool_call.function.arguments
             
-            # TODO: add billing logic
-            
             if not tool_calls: # 结束
+                # 丢弃current_messages
                 current_node_assistant_messages.append({"role": "assistant", "content": answering_content})
                 if is_thinking:
                     current_node_assistant_messages[-1]["reasoning_content"] = reasoning_content
-                    current_messages[-1]["reasoning_content"] = reasoning_content
                 # 更新chat_tree
-                node_id = self._update_tree(parent, content, current_node_assistant_messages)
-                yield self._sse(node_id, "node_id")
+                node_id = self._update_node(parent, node_id, current_node_assistant_messages)
             else:
                 # 处理最后一个tool call
                 yield self._sse(self._tool_call_json_parser(tool_calls[-1]))
@@ -888,6 +891,7 @@ class ChatInstance:
                 yield from self.__call__(
                     parent,
                     content,
+                    node_id = node_id,
                     current_messages = current_messages,
                     current_node_assistant_messages = current_node_assistant_messages,
                     thinking = thinking,
@@ -895,6 +899,8 @@ class ChatInstance:
                     _model = _model
                 ) # 直到ai完成所有操作
         except Exception as e:
+            # 删除当前节点
+            del self.chat_tree[node_id]
             id = os.urandom(4).hex()
             yield self._sse(f"发生错误！Trace ID: {id}", "error")
             logger.error(f"Trace ID {id}\n错误: {e}")
@@ -940,7 +946,7 @@ class ChatInstance:
                     content = f"Error: Unknown function name: {tool_call['function']['name']}!"
         except json.JSONDecodeError:
             content = f"Error: Not a valid JSON string!"
-        except ValueError:
+        except KeyError:
             content = f"Error: Invalid arguments!"
         return {
             "role": "tool",
@@ -966,30 +972,34 @@ class ChatInstance:
                     return f"错误：未知的函数名：{tool_call['function']['name']}！"
         except json.JSONDecodeError:
             return f"错误：不是一个有效的JSON字符串！"
-        except ValueError:
+        except KeyError:
             return f"错误：无效的参数！"
     
-    def _update_tree(self, parent, user_content, assistant_content):
+    def _update_node(self, parent, node_id, assistant_content):
         '''
-        更新对话树
+        更新对话节点
         '''
-        new_node_id = self.chat_tree["root"]["iteration"] + 1
-        # 新的节点
-        self.chat_tree[str(new_node_id)] = {
-            "user": user_content,
-            "assistant": assistant_content,
+        # 更新节点内容
+        self.chat_tree[node_id]["assistant"] = assistant_content
+        # 更新父节点的child
+        self.chat_tree[parent]["child"].append(node_id)
+    
+    def _create_placehold_node(self, parent: str, content: list):
+        '''
+        创建占位节点
+        '''
+        node_id_int = self.chat_tree["root"]["iteration"] + 1
+        self.chat_tree["root"]["iteration"] = node_id_int
+        node_id = str(node_id_int)
+        self.chat_tree[node_id] = {
+            "user": content,
+            "assistant": [],
             "parent": parent,
             "child": []
         }
-        # 更新父节点的child
-        self.chat_tree[parent]["child"].append(str(new_node_id))
         # 更新root的current
-        if self.update_lock: # 防止两次生成竞争修改current
-            self.chat_tree["root"]["current"] = str(new_node_id)
-            self.update_lock = False
-        # 更新迭代次数
-        self.chat_tree["root"]["iteration"] = new_node_id
-        return str(new_node_id)
+        self.chat_tree["root"]["current"] = node_id
+        return node_id
     
     def _sse(self, data: str, event: str = None) -> str:
         """
@@ -1055,6 +1065,17 @@ class ChatInstance:
         except Exception as e:
             logger.error(f"生成标题失败：{e}")
             return "新对话"
+    
+    def verify_parent(self, parent: str) -> bool:
+        if parent in self.chat_tree:
+            if parent == "root":
+                return True
+            elif self.chat_tree[parent]["assistant"]:
+                return True
+            else:
+                return False
+        else:
+            return False
 
     @staticmethod
     def customize_reader(url):
@@ -1101,9 +1122,14 @@ class Webchat:
         while True:
             time.sleep(60)
             for user in usermanager.get_all_users():
-                for chat_id, k in user.chat_cache.items():
+                chat_cache_copy = user.chat_cache.copy()
+                for chat_id, k in chat_cache_copy.items():
                     if time.time() - k[1] > 60 * 5: # 5min
                         self._save_chat(user, chat_id)
+                        try:
+                            del user.chat_cache[chat_id]
+                        except:
+                            pass
     
     def _init_user_table(self, user_id: int):
         with self.conn:
@@ -1120,24 +1146,22 @@ class Webchat:
         data = json.loads(data.decode("utf-8"))
         return data
     
-    def _prepare_new_chat(self, user_id: int):
-        chat_instance = ChatInstance(usermanager.get_user(user_id))
+    def _prepare_new_chat(self, user: User):
+        chat_instance = ChatInstance(user)
         with self.conn:
             cursor = self.conn.cursor()
-            cursor.execute(f"INSERT INTO u{user_id} (title, compressed_message) VALUES (?, ?)", ("新对话", None))
+            cursor.execute(f"INSERT INTO u{user.user_id} (title, compressed_message) VALUES (?, ?)", ("新对话", None))
             id = cursor.lastrowid
-        user = usermanager.get_user(user_id)
         user.chat_cache[id] = [chat_instance, time.time()]
         return (id, chat_instance)
     
-    def _prepare_chat(self, user_id: int, chat_id: int):
-        user = usermanager.get_user(user_id)
+    def _prepare_chat(self, user: User, chat_id: int):
         if chat_id in user.chat_cache: # 缓存中存在
             user.chat_cache[chat_id][1] = time.time() # 更新缓存时间
             return user.chat_cache[chat_id][0]
         with self.conn:
             cursor = self.conn.cursor()
-            cursor.execute(f"SELECT compressed_message FROM u{user_id} WHERE id = ?", (chat_id,))
+            cursor.execute(f"SELECT compressed_message FROM u{user.user_id} WHERE id = ?", (chat_id,))
             compressed = cursor.fetchone()
             if compressed is None:
                 raise HTTPException(status_code=400, detail="Bad Chat ID")
@@ -1146,34 +1170,46 @@ class Webchat:
         user.chat_cache[chat_id] = [chat_instance, time.time()]
         return chat_instance
     
-    def _generate(self, queue: Queue, request_body: dict, chat_instance: ChatInstance, generate_title: bool = False, user_id: int = None, chat_id: int = None):
+    def _generate(self, streaming_cache: StreamingCache, request_body: dict, chat_instance: ChatInstance, node_id: str, generate_title: bool = False, user: User = None, chat_id: int = None):
         try:
-            for data in chat_instance(request_body["parent"], request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), thinking=request_body.get("thinking"), enable_function=request_body.get("enable_function")):
-                queue.put(data)
+            for data in chat_instance(request_body["parent"], request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), thinking=request_body.get("thinking"), enable_function=request_body.get("enable_function"), node_id=node_id):
+                with streaming_cache.condition:
+                    streaming_cache.data.append(data)
+                    streaming_cache.condition.notify_all()
             if generate_title:
-                self._generate_title(chat_instance, queue, user_id, chat_id)
+                title = self._generate_title(chat_instance, user.user_id, chat_id)
+                with streaming_cache.condition:
+                    streaming_cache.data.append(f"event: title\ndata: {json.dumps(title, ensure_ascii=False)}\n\n")
+                    streaming_cache.condition.notify_all()
         except Exception as e:
             logger.error(f"生成对话失败: {e}")
         finally:
-            queue.put(None)
+            with streaming_cache.condition:
+                streaming_cache.data.append(None)
+                streaming_cache.condition.notify_all()
+            time.sleep(10)
+            del user.streaming_cache[(chat_id, node_id)]
     
-    def _generate_title(self, chat_instance: ChatInstance, queue: Queue, user_id: int, chat_id: int):
+    def _generate_title(self, chat_instance: ChatInstance, user_id: int, chat_id: int):
         title = chat_instance._generate_title()
-        queue.put(f"event: title\ndata: {json.dumps(title, ensure_ascii=False)}\n\n")
         with self.conn:
             cursor = self.conn.cursor()
             cursor.execute(f"UPDATE u{user_id} SET title = ? WHERE id = ?", (title, chat_id))
             self.conn.commit()
+        return title
         
-    def _pusher(self, queue: Queue):
-        try:
-            while True:
-                message = queue.get()
-                if message is None:
+    def _pusher(self, streaming_cache: StreamingCache):
+        current_index = 0
+        while True:
+            with streaming_cache.condition:
+                while current_index == len(streaming_cache.data):
+                    streaming_cache.condition.wait()
+                data = streaming_cache.data[current_index]
+                if data is None:
                     break
-                yield message
-        except GeneratorExit:
-            pass
+                current_index += 1
+
+            yield data
     
     def init_user(self, user_id: int):
         # add more login in the future?
@@ -1217,27 +1253,42 @@ class Webchat:
         return self._decompress(compressed[0])
     
     def chat(self, user_id: int, request_body: dict):
+        user = usermanager.get_user(user_id)
         chat_id = request_body.get("id")
-        queue = Queue()
         if chat_id is None:
-            chat_id, chat_instance = self._prepare_new_chat(user_id)
-            queue.put(f"event: id\ndata: {chat_id}\n\n")
             if request_body["parent"] is not None and request_body["parent"] != "root":
                 raise HTTPException(status_code=400, detail="parent is not allowed in new chat")
-            generate_thread = threading.Thread(target=self._generate, args=(queue, request_body, chat_instance, True, user_id, chat_id))
+            chat_id, chat_instance = self._prepare_new_chat(user)
+            node_id = chat_instance._create_placehold_node("root", request_body["content"])
+            streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], threading.Condition())
+            with streaming_cache.condition:
+                streaming_cache.data.append(f"event: id\ndata: {chat_id}\n\n")
+                streaming_cache.data.append(f"event: node_id\ndata: \"{node_id}\"\n\n")
+            generate_thread = threading.Thread(target=self._generate, args=(streaming_cache, request_body, chat_instance, node_id, True, user, chat_id))
         else:
-            chat_instance = self._prepare_chat(user_id, chat_id)
-            if request_body["parent"] is not None and request_body["parent"] not in chat_instance.chat_tree:
-                raise HTTPException(status_code=400, detail="invalid parent id")
-            generate_thread = threading.Thread(target=self._generate, args=(queue, request_body, chat_instance))
+            chat_instance = self._prepare_chat(user, chat_id)
+            if request_body["parent"] is not None and not chat_instance.verify_parent(request_body["parent"]):
+                raise HTTPException(status_code=400, detail="bad parent")
+            node_id = chat_instance._create_placehold_node(request_body["parent"], request_body["content"])
+            streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], threading.Condition())
+            with streaming_cache.condition:
+                streaming_cache.data.append(f"event: node_id\ndata: \"{node_id}\"\n\n")
+            generate_thread = threading.Thread(target=self._generate, args=(streaming_cache, request_body, chat_instance, node_id, False, user, chat_id))
         generate_thread.start()
-        return self._pusher(queue)
+        return self._pusher(streaming_cache)
+
+    def reconnect(self, user_id: int, id: int, node_id: int):
+        user = usermanager.get_user(user_id)
+        if (id, node_id) not in user.streaming_cache:
+            raise HTTPException(status_code=404, detail="bad reconnect id")
+        return self._pusher(user.streaming_cache[(id, node_id)])
     
     def verify(self, user_id: int, token: str) -> bool:
         user = usermanager.get_user(user_id)
         return user.verify_token(token)
     
     def _save_chat(self, user: User, chat_id: int):
+        logger.debug(f"Saving chat {chat_id} for user {user.user_id}")
         chat_instance = user.chat_cache[chat_id][0]
         compressed = self._compress(chat_instance.chat_tree)
         with self.conn:

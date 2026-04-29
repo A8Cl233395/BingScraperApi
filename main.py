@@ -80,7 +80,7 @@ async def verify_key_middleware(request: Request, call_next):
         return await call_next(request)
     elif is_web_function_enabled and request.url.path in web_paths:
         return await call_next(request)
-    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat"]:
+    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat", "/api/reconnect"]:
         uid = request.headers.get('uid')
         try:
             uid = int(uid)
@@ -397,6 +397,11 @@ if is_webchat_enabled:
     @app.post("/api/chat", response_class=StreamingResponse)
     def api_chat(request: Request, data: ChatPost = Body(...)):
         generator = webchat.chat(int(request.headers["uid"]), data.model_dump())
+        return StreamingResponse(generator, media_type="text/event-stream")
+
+    @app.get("/api/reconnect", response_class=StreamingResponse)
+    def api_reconnect(request: Request, id: int = Query(...), node_id: str = Query(...)):
+        generator = webchat.reconnect(int(request.headers["uid"]), id, node_id)
         return StreamingResponse(generator, media_type="text/event-stream")
 
     @app.post("/api/default", response_class=PlainTextResponse)

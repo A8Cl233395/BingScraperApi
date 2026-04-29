@@ -61,6 +61,13 @@ onMounted(() => {
     const sel = window.getSelection();
     state.isTextSelected = !!(sel && !sel.isCollapsed);
   });
+  window.addEventListener('touchstart', () => { state.isMouseDown = true; }, { passive: true });
+  window.addEventListener('touchend', () => { 
+    state.isMouseDown = false; 
+    const sel = window.getSelection();
+    state.isTextSelected = !!(sel && !sel.isCollapsed);
+  }, { passive: true });
+  window.addEventListener('touchcancel', () => { state.isMouseDown = false; }, { passive: true });
   window.addEventListener('selectionchange', () => {
     const sel = window.getSelection();
     state.isTextSelected = !!(sel && !sel.isCollapsed);

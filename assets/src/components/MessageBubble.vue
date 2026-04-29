@@ -8,6 +8,13 @@ import '../hljs-theme.css';
 marked.use({
   breaks: true,
   gfm: true,
+  hooks: {
+    postprocess(html) {
+      // Wrap tables with a scrollable div for mobile compatibility
+      return html.replace(/<table/g, '<div class="table-wrapper"><table')
+                 .replace(/<\/table>/g, '</table></div>');
+    }
+  },
   renderer: {
     code(token) {
       const lang = token.lang || 'text';
@@ -23,7 +30,7 @@ marked.use({
       }
       
       return `
-<div class="code-block-wrapper my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-bg-main">
+<div class="code-block-wrapper my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-bg-main" style="touch-action: pan-x pan-y;">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${lang}</span>
     <button class="copy-code-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
@@ -31,7 +38,7 @@ marked.use({
       <span class="text-[10px]">复制</span>
     </button>
   </div>
-  <pre class="!m-0 !p-3 !bg-code-bg overflow-x-auto"><code class="hljs language-${lang}">${highlightedCode}</code></pre>
+  <pre class="!m-0 !p-3 !bg-code-bg overflow-x-auto" style="touch-action: pan-x pan-y;"><code class="hljs language-${lang}">${highlightedCode}</code></pre>
 </div>`;
     }
   }
@@ -101,11 +108,10 @@ marked.use({
 </script>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, reactive, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, nextTick, reactive, onBeforeUnmount, onBeforeUpdate, onUpdated } from 'vue';
 import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
 import { processImage } from '../utils/image';
-
 
 const props = defineProps<{
   message: any;
@@ -116,6 +122,41 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits(['navigate', 'edit', 'regenerate']);
+
+const preScrollPositions = new Map<number, number[]>();
+
+onBeforeUpdate(() => {
+  if (!state.isMobile) return;
+  const container = document.getElementById(`bubble-${props.nodeId}-assistant`);
+  if (container) {
+    const segments = container.querySelectorAll('.prose');
+    segments.forEach((seg, sIdx) => {
+      const pres = seg.querySelectorAll('pre');
+      const positions: number[] = [];
+      pres.forEach(pre => positions.push(pre.scrollLeft));
+      preScrollPositions.set(sIdx, positions);
+    });
+  }
+});
+
+onUpdated(() => {
+  if (!state.isMobile) return;
+  const container = document.getElementById(`bubble-${props.nodeId}-assistant`);
+  if (container) {
+    const segments = container.querySelectorAll('.prose');
+    segments.forEach((seg, sIdx) => {
+      if (preScrollPositions.has(sIdx)) {
+        const positions = preScrollPositions.get(sIdx)!;
+        const pres = seg.querySelectorAll('pre');
+        pres.forEach((pre, pIdx) => {
+          if (positions[pIdx] !== undefined) {
+            pre.scrollLeft = positions[pIdx];
+          }
+        });
+      }
+    });
+  }
+});
 
 const isThinkingExpanded = ref(false);
 const expandedThinkingSegments = ref<Record<number | string, boolean>>({});
@@ -189,6 +230,7 @@ const cancelLongPress = () => {
 
 onBeforeUnmount(() => {
   cancelLongPress();
+  preScrollPositions.clear();
 });
 
 const handleCopyAction = () => {
@@ -515,7 +557,7 @@ const handleContentClick = (e: MouseEvent) => {
             class="relative flex flex-wrap gap-2"
             :class="[
               userTextContent || isEditing ? 'mb-3' : 'p-1 rounded-lg overflow-hidden',
-              !userTextContent && !isEditing && state.isMobile ? 'user-select-none' : ''
+              !userTextContent && !isEditing && state.isMobile ? '' : ''
             ]"
             @touchstart="(!userTextContent && !isEditing) ? startLongPress($event) : null"
             @touchend="(!userTextContent && !isEditing) ? cancelLongPress() : null"
@@ -535,7 +577,7 @@ const handleContentClick = (e: MouseEvent) => {
           <div 
             v-if="userTextContent || isEditing"
             class="relative p-4 rounded-lg shadow-sm bg-bg-panel rounded-tr-none transition-all duration-200 overflow-hidden" 
-            :class="[isEditing ? 'w-full' : '', state.isMobile ? 'user-select-none' : '']"
+            :class="[isEditing ? 'w-full' : '', state.isMobile ? '' : '']"
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
             @touchmove="cancelLongPress"
@@ -602,7 +644,7 @@ const handleContentClick = (e: MouseEvent) => {
           <div 
             :id="`bubble-${nodeId}-assistant`" 
             class="w-full relative overflow-hidden p-1 -m-1 rounded-lg"
-            :class="state.isMobile ? 'user-select-none' : ''"
+            style="touch-action: pan-y;"
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
             @touchmove="cancelLongPress"
@@ -701,7 +743,7 @@ const handleContentClick = (e: MouseEvent) => {
   min-width: 100%;
 }
 
-.prose pre { @apply bg-transparent p-0 m-0 border-none rounded-none overflow-visible; }
+.prose pre { @apply bg-transparent p-0 m-0 border-none rounded-none overflow-x-auto; }
 .prose code { @apply text-[0.85em] font-mono; }
 .prose :not(pre) > code {
   background-color: var(--bg-panel);
@@ -738,9 +780,14 @@ const handleContentClick = (e: MouseEvent) => {
   @apply pl-4 py-1 my-4 italic rounded-r-sm;
 }
 
+.table-wrapper {
+  @apply my-4 border rounded-md overflow-x-auto w-full;
+  border-color: var(--border-color);
+}
+
 .prose table {
-  @apply w-full border-collapse my-4 text-sm overflow-hidden rounded-md table;
-  border: 1px solid var(--border-color);
+  @apply w-full border-collapse text-sm table;
+  min-width: max-content;
 }
 .prose thead {
   background-color: var(--bg-panel);
@@ -792,10 +839,6 @@ const handleContentClick = (e: MouseEvent) => {
 /* Code block wrapper adjustments */
 .code-block-wrapper pre code.hljs {
   @apply bg-transparent p-0;
-}
-
-.user-select-none {
-  user-select: none !important;
 }
 
 @keyframes progress-horizontal {
