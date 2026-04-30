@@ -45,12 +45,18 @@ if is_web_function_enabled:
         allow_headers=["*"],
         max_age=86400,
     )
-
-    app.mount("/assets", StaticFiles(directory="assets/dist/assets"))
+    
+    class CachedStaticFiles(StaticFiles):
+        def file_response(self, *args, **kwargs) -> FileResponse:
+            resp = super().file_response(*args, **kwargs)
+            resp.headers["Cache-Control"] = "public, max-age=2592000" # 30天缓存，允许CDN缓存
+            return resp
+    
+    app.mount("/assets", CachedStaticFiles(directory="assets/dist/assets"))
 
     @app.get("/favicon.ico")
     async def get_favicon(request: Request):
-        return FileResponse("assets/dist/favicon.ico")
+        return FileResponse("assets/dist/favicon.ico", headers={"Cache-Control": "public, max-age=2592000"})
     
     web_paths = [f"/assets/{filename}" for filename in os.listdir("assets/dist/assets")] 
 

@@ -45,17 +45,36 @@ const fetchChatDetails = async (id: number) => {
 const buildMessageChain = (nodeId: string) => {
   const chain: ChatNode[] = [];
   let currId: string | null = nodeId;
+  
+  // 1. Build UP to the root from the selected nodeId
   while (currId && currId !== 'root') {
     const targetNode: any = messageTree.value[currId];
     if (!targetNode) break;
     
     const node: ChatNode = { ...targetNode, id: currId, clientId: currId };
-
     chain.unshift(node);
     currId = targetNode.parent === 'root' ? null : targetNode.parent;
   }
+
+  // 2. Build DOWN to the leaf following the 'current' path
+  let downId = messageTree.value[nodeId]?.current;
+  while (downId) {
+    const targetNode = messageTree.value[downId];
+    if (!targetNode) break;
+    const node: ChatNode = { ...targetNode, id: downId, clientId: downId };
+    chain.push(node);
+    downId = targetNode.current;
+  }
+
   messages.value = chain;
-  lastNodeId.value = nodeId;
+  
+  // Update lastNodeId to the actual leaf of this branch
+  if (chain.length > 0) {
+    lastNodeId.value = chain[chain.length - 1].id;
+  } else {
+    lastNodeId.value = nodeId;
+  }
+
   nextTick(() => {
     scrollToBottom(true);
   });
@@ -79,11 +98,11 @@ const processSSEEvent = (
   try { if (data) data = JSON.parse(data); } catch (_) { /* ignore */ }
 
   if (eventType === 'id') {
-    const newId = parseInt(data);
-    state.currentChatId = newId;
-    // Add placeholder if not already in list
-    if (!state.chats.find(c => c[0] === newId)) {
-      state.chats.unshift([newId, '新对话']);
+    const chatId = parseInt(data);
+    state.currentChatId = chatId;
+    // Add a placeholder for new chats in the sidebar
+    if (!state.chats.some(c => c[0] === chatId)) {
+      state.chats.unshift([chatId, '新对话']);
     }
   } else if (eventType === 'title') {
     const chat = state.chats.find(c => c[0] === state.currentChatId);
@@ -105,20 +124,26 @@ const processSSEEvent = (
     if (!sseState.assistantEntry.tool_calls) sseState.assistantEntry.tool_calls = [];
     sseState.assistantEntry.tool_calls.push({ type: 'function', id: callId, function: { name: data, arguments: '' } });
   } else if (eventType === 'node_id') {
-    lastNodeId.value = data;
+    // Only update lastNodeId if we are still on this branch or it was a temporary node
+    if (lastNodeId.value === targetMsg.clientId || lastNodeId.value === parentId) {
+      lastNodeId.value = data;
+    }
+    
     targetMsg.id = data;
+    const existingNode = messageTree.value[data];
     messageTree.value[data] = {
       user: targetMsg.user,
       assistant: targetMsg.assistant,
       parent: parentId || 'root',
-      child: []
+      child: existingNode?.child || [],
+      current: existingNode?.current
     };
     const pId = parentId || 'root';
     const parentNode = pId === 'root' ? messageTree.value.root : messageTree.value[pId];
     if (parentNode) {
       if (!parentNode.child) parentNode.child = [];
       if (!parentNode.child.includes(data)) parentNode.child.push(data);
-      if (pId === 'root') parentNode.current = data;
+      parentNode.current = data; // Update current pointer to this new node
     }
   } else if (eventType === 'error') {
     alert('Error: ' + data);
@@ -156,6 +181,8 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
   const targetMsg = messages.value.find(m => m.id === nodeId);
   if (!targetMsg) return;
 
+  const parentId = messageTree.value[nodeId]?.parent || null;
+
   // Reset assistant content — reconnect returns full payload, not incremental
   targetMsg.assistant.splice(0, targetMsg.assistant.length);
   targetMsg.isStreaming = true;
@@ -176,24 +203,29 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
       `${import.meta.env.VITE_API_BASE}/api/reconnect?id=${chatId}&node_id=${nodeId}`,
       {
         method: 'GET',
-        headers: {
-          'token': token || '',
-          'uid': uid || ''
-        },
+        headers: { 'token': token || '', 'uid': uid || '' },
         signal: currentController.signal,
         openWhenHidden: true,
+        async onopen(response) {
+          if (response.status === 404) {
+            await fetchChatDetails(chatId);
+            throw new Error('404_NOT_FOUND');
+          }
+        },
         onmessage(ev) {
-          processSSEEvent(ev, targetMsg, sseState);
+          processSSEEvent(ev, targetMsg, sseState, parentId);
         },
         onerror(err) {
-          if (currentController.signal.aborted) return;
+          if (currentController.signal.aborted || err.message === '404_NOT_FOUND') {
+            throw err; // Stop retrying
+          }
           console.error('Reconnect SSE Error', err);
           throw err;
         }
       }
     );
   } catch (e: any) {
-    if (e.name !== 'AbortError' && !currentController.signal.aborted) {
+    if (e.name !== 'AbortError' && !currentController.signal.aborted && e.message !== '404_NOT_FOUND') {
       console.error('Reconnect failed', e);
     }
   } finally {
@@ -221,12 +253,16 @@ const getSiblingIndex = (nodeId: string) => {
 
 const navigateSiblings = (nodeId: string, direction: number) => {
   const node = messageTree.value[nodeId];
-  const parentNode = node.parent === 'root' ? messageTree.value.root : messageTree.value[node.parent];
+  const pId = node.parent || 'root';
+  const parentNode = pId === 'root' ? messageTree.value.root : messageTree.value[pId];
   const siblings = parentNode.child || [];
   const index = siblings.indexOf(nodeId);
   const nextIndex = index + direction;
   if (nextIndex >= 0 && nextIndex < siblings.length) {
-    buildMessageChain(siblings[nextIndex]);
+    const nextNodeId = siblings[nextIndex];
+    // Update the parent's current pointer to the selected sibling
+    parentNode.current = nextNodeId;
+    buildMessageChain(nextNodeId);
   }
 };
 

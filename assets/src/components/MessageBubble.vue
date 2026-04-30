@@ -132,8 +132,10 @@ onBeforeUpdate(() => {
     const segments = container.querySelectorAll('.prose');
     segments.forEach((seg, sIdx) => {
       const pres = seg.querySelectorAll('pre');
+      const wrappers = seg.querySelectorAll('.table-wrapper');
       const positions: number[] = [];
       pres.forEach(pre => positions.push(pre.scrollLeft));
+      wrappers.forEach(w => positions.push(w.scrollLeft));
       preScrollPositions.set(sIdx, positions);
     });
   }
@@ -148,9 +150,17 @@ onUpdated(() => {
       if (preScrollPositions.has(sIdx)) {
         const positions = preScrollPositions.get(sIdx)!;
         const pres = seg.querySelectorAll('pre');
+        const preCount = pres.length;
         pres.forEach((pre, pIdx) => {
           if (positions[pIdx] !== undefined) {
             pre.scrollLeft = positions[pIdx];
+          }
+        });
+        const wrappers = seg.querySelectorAll('.table-wrapper');
+        wrappers.forEach((w, wIdx) => {
+          const idx = preCount + wIdx;
+          if (positions[idx] !== undefined) {
+            w.scrollLeft = positions[idx];
           }
         });
       }
@@ -777,12 +787,13 @@ const handleContentClick = (e: MouseEvent) => {
   border-left: 4px solid var(--border-color);
   background-color: var(--bg-panel);
   color: var(--text-muted);
-  @apply pl-4 py-1 my-4 italic rounded-r-sm;
+  @apply pl-4 py-1 my-4 rounded-r-sm;
 }
 
 .table-wrapper {
   @apply my-4 border rounded-md overflow-x-auto w-full;
   border-color: var(--border-color);
+  touch-action: pan-x pan-y;
 }
 
 .prose table {

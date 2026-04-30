@@ -103,7 +103,7 @@ const handleScroll = () => {
         @touchmove="cancelLongPress"
         @touchcancel="cancelLongPress"
         @contextmenu.prevent
-        class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors overflow-hidden"
+        class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors"
         :class="[
           state.currentChatId === chat[0] ? 'bg-bg-active' : '',
           pressingChatId === chat[0] ? 'scale-[0.98] bg-bg-hover' : ''

@@ -806,20 +806,18 @@ class ChatInstance:
         completion = client.chat.completions.create(**params)
         return completion
 
-    def __call__(self, parent, content, model=None, vmodel=None, thinking=None, enable_function=None, node_id=None, current_messages=None, current_node_assistant_messages=None, _model=None):
+    def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None):
         try:
             # 检查多模态
             if not self.chat_tree["root"]["multimodel"]:
                 if content[0]["type"] == "image_url": # 应该先在网关校验
                     self.chat_tree["root"]["multimodel"] = True
             # 初始化单轮次内容
-            parent = parent or self.chat_tree["root"]["current"] # 锁定父节点
-            node_id = node_id or self._create_placehold_node(parent, content)
             _model: str = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["multimodel"] else (model or self.user.model)) # 锁定模型
             thinking = thinking if thinking is not None else self.user.thinking # 锁定思考
             enable_function = enable_function if enable_function is not None else self.user.enable_function # 锁定是否启用函数
             if current_messages is None: # 初始化或继承当前消息
-                current_messages: list = self._build_messages(parent)
+                current_messages: list = self._build_messages(self.chat_tree[node_id]["parent"])
                 current_messages.append({"role": "user", "content": content})
             current_node_assistant_messages = current_node_assistant_messages or [] # 初始化或继承当前节点助手消息
             # 开始生成
@@ -874,7 +872,7 @@ class ChatInstance:
                 if is_thinking:
                     current_node_assistant_messages[-1]["reasoning_content"] = reasoning_content
                 # 更新chat_tree
-                node_id = self._update_node(parent, node_id, current_node_assistant_messages)
+                node_id = self._update_node(node_id, current_node_assistant_messages)
             else:
                 # 处理最后一个tool call
                 yield self._sse(self._tool_call_json_parser(tool_calls[-1]))
@@ -889,9 +887,8 @@ class ChatInstance:
                 current_messages.extend(tool_responses)
                 current_node_assistant_messages.extend(tool_responses)
                 yield from self.__call__(
-                    parent,
+                    node_id,
                     content,
-                    node_id = node_id,
                     current_messages = current_messages,
                     current_node_assistant_messages = current_node_assistant_messages,
                     thinking = thinking,
@@ -901,6 +898,8 @@ class ChatInstance:
         except Exception as e:
             # 删除当前节点
             del self.chat_tree[node_id]
+            # 更新父节点的child
+            self.chat_tree[self.chat_tree[node_id]["parent"]]["child"].remove(node_id)
             id = os.urandom(4).hex()
             yield self._sse(f"发生错误！Trace ID: {id}", "error")
             logger.error(f"Trace ID {id}\n错误: {e}")
@@ -975,16 +974,14 @@ class ChatInstance:
         except KeyError:
             return f"错误：无效的参数！"
     
-    def _update_node(self, parent, node_id, assistant_content):
+    def _update_node(self, node_id, assistant_content):
         '''
         更新对话节点
         '''
         # 更新节点内容
         self.chat_tree[node_id]["assistant"] = assistant_content
-        # 更新父节点的child
-        self.chat_tree[parent]["child"].append(node_id)
     
-    def _create_placehold_node(self, parent: str, content: list):
+    def create_placehold_node(self, parent: str, content: list):
         '''
         创建占位节点
         '''
@@ -999,6 +996,8 @@ class ChatInstance:
         }
         # 更新root的current
         self.chat_tree["root"]["current"] = node_id
+        # 更新父节点的child
+        self.chat_tree[parent]["child"].append(node_id)
         return node_id
     
     def _sse(self, data: str, event: str = None) -> str:
@@ -1043,7 +1042,7 @@ class ChatInstance:
             device="Web端", 
             time=datetime.now().strftime("%Y-%m-%d %H:%M:%S %A"))
     
-    def _generate_title(self):
+    def generate_title(self):
         try:
             if "0" not in self.chat_tree:
                 return "新对话"
@@ -1172,7 +1171,7 @@ class Webchat:
     
     def _generate(self, streaming_cache: StreamingCache, request_body: dict, chat_instance: ChatInstance, node_id: str, generate_title: bool = False, user: User = None, chat_id: int = None):
         try:
-            for data in chat_instance(request_body["parent"], request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), thinking=request_body.get("thinking"), enable_function=request_body.get("enable_function"), node_id=node_id):
+            for data in chat_instance(node_id, request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), thinking=request_body.get("thinking"), enable_function=request_body.get("enable_function")):
                 with streaming_cache.condition:
                     streaming_cache.data.append(data)
                     streaming_cache.condition.notify_all()
@@ -1191,7 +1190,7 @@ class Webchat:
             del user.streaming_cache[(chat_id, node_id)]
     
     def _generate_title(self, chat_instance: ChatInstance, user_id: int, chat_id: int):
-        title = chat_instance._generate_title()
+        title = chat_instance.generate_title()
         with self.conn:
             cursor = self.conn.cursor()
             cursor.execute(f"UPDATE u{user_id} SET title = ? WHERE id = ?", (title, chat_id))
@@ -1259,7 +1258,7 @@ class Webchat:
             if request_body["parent"] is not None and request_body["parent"] != "root":
                 raise HTTPException(status_code=400, detail="parent is not allowed in new chat")
             chat_id, chat_instance = self._prepare_new_chat(user)
-            node_id = chat_instance._create_placehold_node("root", request_body["content"])
+            node_id = chat_instance.create_placehold_node("root", request_body["content"])
             streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], threading.Condition())
             with streaming_cache.condition:
                 streaming_cache.data.append(f"event: id\ndata: {chat_id}\n\n")
@@ -1269,7 +1268,7 @@ class Webchat:
             chat_instance = self._prepare_chat(user, chat_id)
             if request_body["parent"] is not None and not chat_instance.verify_parent(request_body["parent"]):
                 raise HTTPException(status_code=400, detail="bad parent")
-            node_id = chat_instance._create_placehold_node(request_body["parent"], request_body["content"])
+            node_id = chat_instance.create_placehold_node(request_body["parent"], request_body["content"])
             streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], threading.Condition())
             with streaming_cache.condition:
                 streaming_cache.data.append(f"event: node_id\ndata: \"{node_id}\"\n\n")
