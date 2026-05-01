@@ -829,6 +829,8 @@ class ChatInstance:
             tool_calls = []
             tool_responses = []
             for chunk in completion:
+                if not chunk.choices: # 兼容mimo
+                    continue
                 delta = chunk.choices[0].delta
                 if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                     if not is_thinking:
@@ -896,10 +898,9 @@ class ChatInstance:
                     _model = _model
                 ) # 直到ai完成所有操作
         except Exception as e:
-            # 删除当前节点
+            parent_id = self.chat_tree[node_id]["parent"]
             del self.chat_tree[node_id]
-            # 更新父节点的child
-            self.chat_tree[self.chat_tree[node_id]["parent"]]["child"].remove(node_id)
+            self.chat_tree[parent_id]["child"].remove(node_id)
             id = os.urandom(4).hex()
             yield self._sse(f"发生错误！Trace ID: {id}", "error")
             logger.error(f"Trace ID {id}\n错误: {e}")

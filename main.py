@@ -37,6 +37,7 @@ if is_web_function_enabled:
     INVITE_CODE_KEY = config["invite"]["invite-code-key"]
     SERVER_ADDRESS = config["server"]["public_address"]
 
+    # 第三个中间件，用于处理 CORS 请求，允许所有来源
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -47,10 +48,23 @@ if is_web_function_enabled:
     )
     
     class CachedStaticFiles(StaticFiles):
-        def file_response(self, *args, **kwargs) -> FileResponse:
-            resp = super().file_response(*args, **kwargs)
-            resp.headers["Cache-Control"] = "public, max-age=2592000" # 30天缓存，允许CDN缓存
-            return resp
+        ASSETS_DIR = "assets/dist/assets"
+        ENCODING_MAP = [(".br", "br"), (".gz", "gzip")]
+        async def __call__(self, scope, receive, send):
+            accept = dict(scope.get("headers", [])).get(b"accept-encoding", b"").decode()
+            filename = os.path.basename(scope["path"])
+            original = os.path.join(self.ASSETS_DIR, filename)
+            for ext, encoding in self.ENCODING_MAP:
+                if encoding in accept:
+                    compressed = original + ext
+                    resp = FileResponse(compressed, headers={
+                        "Content-Encoding": encoding,
+                        "Vary": "Accept-Encoding",
+                        "Cache-Control": "public, max-age=2592000",
+                    })
+                    await resp(scope, receive, send)
+                    return
+            await super().__call__(scope, receive, send)
     
     app.mount("/assets", CachedStaticFiles(directory="assets/dist/assets"))
 
@@ -78,6 +92,10 @@ async def internal_error_handler(request: Request, exc: Exception):
 async def http_exception_handler(request: Request, exc: HTTPException):
     return PlainTextResponse(content=exc.detail, status_code=exc.status_code)
 
+# 第二个中间件，用于压缩响应
+app.add_middleware(GZipMiddleware, minimum_size=10000)
+
+# 第一个中间件，用于验证 key
 @app.middleware("http")
 async def verify_key_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
@@ -101,8 +119,6 @@ async def verify_key_middleware(request: Request, call_next):
     if key != KEY:
         return PlainTextResponse(content="require key", status_code=401)
     return await call_next(request)
-
-app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 @app.get("/ping", response_class=PlainTextResponse)
 def ping():
