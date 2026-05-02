@@ -78,8 +78,7 @@ const handleSubmit = async () => {
   showResultContainer.value = false;
 
   try {
-    const apiBase = import.meta.env.VITE_API_BASE || '';
-    const response = await fetch(`${apiBase}/invite`, {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE}/invite`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

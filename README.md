@@ -5,7 +5,7 @@
 
 ## 功能特性
 
-- **网页搜索** - 基于 Bing 的搜索，使用 Selenium
+- **网页搜索** - 基于 Bing 的搜索，使用 Playwright
 - **页面阅读** - 提取任意 URL 的内容
 - **网易云音乐歌词** - 获取歌词和评论
 - **B 站视频** - AI 驱动的视频字幕转录
@@ -20,6 +20,7 @@
 
 ```bash
 pip install -r requirements.txt
+playwright install firefox
 cd assets && npm install
 ```
 
@@ -60,7 +61,7 @@ python main.py
 |--------|------|
 | `server.auth_key` | API 认证密钥 |
 | `server.port` | 服务端口（默认：5212） |
-| `bing_crawler` | 启用网页搜索（需要 geckodriver） |
+| `bing_crawler` | 启用网页搜索（需要 Playwright Firefox） |
 | `ncm` | 启用网易云音乐歌词 |
 | `bilibili` | 启用 B 站视频支持 |
 | `VoiceRecognition` | 音频转录服务 |
@@ -85,7 +86,7 @@ python main.py
 
 ## 技术栈
 
-- **后端**：FastAPI、Selenium、SQLite
+- **后端**：FastAPI、Playwright、SQLite
 - **前端**：Vue 3、TailwindCSS、Vite、TypeScript
 - **AI**：OpenAI 兼容 API
 

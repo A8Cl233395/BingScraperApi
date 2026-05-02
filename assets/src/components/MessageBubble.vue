@@ -256,8 +256,9 @@ const handleSelectTextAction = () => {
   } else {
     text = props.message.assistant
       .filter((m: any) => m.role === 'assistant' && m.content)
-      .map((m: any) => m.content)
-      .join('');
+      .map((m: any) => m.content.trim())
+      .filter((c: string) => c.length > 0)
+      .join('\n\n');
   }
   state.selectionText = text;
   state.showSelectionOverlay = true;
@@ -420,8 +421,9 @@ const handleCopyAssistant = () => {
   if (props.isUser || !props.message?.assistant) return;
   const text = props.message.assistant
     .filter((m: any) => m.role === 'assistant' && m.content)
-    .map((m: any) => m.content)
-    .join('');
+    .map((m: any) => m.content.trim())
+    .filter((c: string) => c.length > 0)
+    .join('\n\n');
   navigator.clipboard.writeText(text);
 };
 const handleEdit = () => { 
@@ -575,11 +577,13 @@ const handleContentClick = (e: MouseEvent) => {
             @touchcancel="(!userTextContent && !isEditing) ? cancelLongPress() : null"
             @contextmenu="(!userTextContent && !isEditing) ? $event.preventDefault() : null"
           >
-            <!-- Long Press Progress Feedback for image-only messages -->
-            <div 
-              v-if="!userTextContent && !isEditing && isPressing"
-              class="absolute inset-0 bg-primary-main/10 origin-left animate-progress-horizontal z-0"
-            ></div>
+            <!-- Selected effect for image-only messages -->
+            <Transition name="fade">
+              <div 
+                v-if="!userTextContent && !isEditing && isPressing"
+                class="absolute inset-0 bg-white/20 z-0"
+              ></div>
+            </Transition>
             <img v-for="(url, idx) in images" :key="idx" :src="url" @click="state.previewImageUrl = url" class="relative z-10 max-w-[200px] max-h-[200px] rounded-md border border-border-main cursor-pointer" />
           </div>
 
@@ -594,11 +598,13 @@ const handleContentClick = (e: MouseEvent) => {
             @touchcancel="cancelLongPress"
             @contextmenu.prevent
           >
-            <!-- Long Press Progress Feedback for text bubble -->
-            <div 
-              v-if="isPressing"
-              class="absolute inset-0 bg-primary-main/10 origin-left animate-progress-horizontal z-0"
-            ></div>
+            <!-- Selected effect for text bubble -->
+            <Transition name="fade">
+              <div 
+                v-if="isPressing"
+                class="absolute inset-0 bg-white/20 z-0"
+              ></div>
+            </Transition>
             
             <div v-if="!isEditing" class="relative z-10 text-text-main break-words whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
             <div v-else class="w-full" @paste="handleEditPaste" @drop="handleEditDrop" @dragover.prevent>
@@ -661,11 +667,13 @@ const handleContentClick = (e: MouseEvent) => {
             @touchcancel="cancelLongPress"
             @contextmenu.prevent
           >
-            <!-- Long Press Progress Feedback -->
-            <div 
-              v-if="isPressing"
-              class="absolute inset-0 bg-primary-main/10 origin-left animate-progress-horizontal z-0"
-            ></div>
+            <!-- Selected effect -->
+            <Transition name="fade">
+              <div 
+                v-if="isPressing"
+                class="absolute inset-0 bg-white/20 z-0"
+              ></div>
+            </Transition>
             <template v-for="(item, idx) in message.assistant" :key="idx">
               <!-- Reasoning content (per-segment) -->
               <div v-if="item.role === 'assistant' && segmentThinking[idx]" class="relative z-10 my-2 w-full">
@@ -852,12 +860,13 @@ const handleContentClick = (e: MouseEvent) => {
   @apply bg-transparent p-0;
 }
 
-@keyframes progress-horizontal {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
 }
 
-.animate-progress-horizontal {
-  animation: progress-horizontal 0.6s linear forwards;
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

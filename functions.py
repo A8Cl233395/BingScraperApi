@@ -4,12 +4,7 @@ from datetime import datetime
 import re
 import sqlite3
 from urllib.parse import quote_plus, urlparse
-from selenium.common.exceptions import TimeoutException
-from selenium import webdriver
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.firefox.service import Service
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
+from playwright.async_api import async_playwright, Browser, TimeoutError as PwTimeoutError
 from collections import OrderedDict
 from fastapi import HTTPException
 from openai import OpenAI
@@ -25,169 +20,222 @@ import logging
 import lz4.frame
 from hashlib import sha256
 
-class Browser:
-    def __init__(self, use_jina_reader=False, geckodriver=None):
-        self.options = Options()
-        self.options.add_argument('-headless')
-        self.options.set_preference("dom.webdriver.enabled", False)
-        self.options.set_preference("useAutomationExtension", False)
-        self.options.page_load_strategy = 'eager'
-        if geckodriver:
-            self.service = Service(executable_path=geckodriver)
-        else:
-            logger.warning("geckodriver not found! selenium will download automatically.")
-            logger.warning("FAIL IS COMMON IF YOU ARE IN CHINA MAINLAND.")
-            self.service = Service()
-        self.driver: webdriver.Firefox = None
-        self.life_thread: threading.Thread = None
-        self.lock = threading.Lock()
-        self.use_jina_reader = use_jina_reader
-        self.bing_idle_time = config['bing_crawler']['bing_idle_time']
-        self.web_idle_time = config['bing_crawler']['web_idle_time']
-
-    def parse_search_page(self):
-        """解析当前页面的搜索结果"""
-        page_results = []
-        items = self.driver.find_elements(By.CSS_SELECTOR, 'li.b_algo')
-        
-        for item in items:
-            try:
-                title_elem = item.find_element(By.CSS_SELECTOR, 'h2 a')
-                title = title_elem.text.strip()
-                url = title_elem.get_attribute('href')
-                
-                if title and url:
-                    page_results.append({
-                        'title': title,
-                        'url': url
-                    })
-            except NoSuchElementException:
-                continue
-        return page_results
-
-    def wait_for_network_idle(self, t=5, i=3):
-        st = time.time(); ist = None
-        while time.time() - st < t:
-            r = self.driver.execute_script("var r=performance.getEntriesByType('resource').filter(x=>!x.responseEnd||x.responseEnd===0).length,n=performance.getEntriesByType('navigation')[0];return{p:r,n:n&&!n.domComplete};")
-            ds = self.driver.execute_script("return{r:document.readyState,j:typeof jQuery!=='undefined',a:typeof jQuery!=='undefined'?jQuery.active:0,l:!!document.querySelector('.loading,.spinner,[data-loading]')};")
-            if r is None or ds is None:
-                time.sleep(0.5)
-                continue
-            idle = r['p']==0 and not r['n'] and ds['r']=='complete' and (not ds['j'] or ds['a']==0)
-            if idle:
-                if ist is None: ist = time.time()
-                elif time.time() - ist >= i: return True
-            else: ist = None
-            time.sleep(0.5)
-        return False
+class AsyncCrawler:
+    def __init__(self, dom_timeout=5000, bing_idle_time=3, web_idle_time=5):
+        self.dom_timeout = dom_timeout
+        self.bing_idle_time = bing_idle_time
+        self.web_idle_time = web_idle_time
+        self._browser: Browser = None
+        self._context = None
+        self._page_semaphore: asyncio.Semaphore = None
+        self._loop: asyncio.AbstractEventLoop = None
+        self._thread: threading.Thread = None
+        self._warmed_up = False
     
-    def get_driver(self):
-        if self.driver is not None:
-            self.timer = time.time()
-            return self.driver
-        else:
-            self.driver = webdriver.Firefox(options=self.options, service=self.service)
-            self.driver.set_page_load_timeout(10)
-            self.timer = time.time()
-            if self.life_thread is not None and self.life_thread.is_alive():
-                pass
-            else:
-                self.life_thread = threading.Thread(target=self.life_control, daemon=True)
-                self.life_thread.start()
-            return self.driver
-    
-    def life_control(self):
-        while True:
-            if time.time() - self.timer > 1200:
-                logger.debug('driver life expired')
-                try:
-                    self.driver.quit()
-                except:
-                    logger.error("driver quit failed")
-                self.driver = None
-                self.timer = None
-                return
-            time.sleep(10)
+    def start(self):
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+        logger.info("浏览器已启动")
     
     def stop(self):
-        with self.lock:
-            if self.driver:
-                logger.info("Stopping browser driver...")
-                try:
-                    self.driver.quit()
-                except Exception as e:
-                    logger.error(f"Error quitting driver: {e}")
-                finally:
-                    self.driver = None
-                    self.timer = None
-    
-    def search(self, query: str, limit: int = None) -> tuple[list[dict[str, str]], int]:
-        with self.lock:
+        """关闭浏览器和事件循环（同步方法）"""
+        if self._loop is not None and self._browser is not None:
+            future = asyncio.run_coroutine_threadsafe(self._shutdown(), self._loop)
             try:
-                if not query:
-                    return 'require query'
-                results = []
-                while True:
-                    # warm up driver
-                    if self.driver is None:
-                        try:
-                            self.get_driver().get("https://www.bing.com/search?q=bing")
-                            self.wait_for_network_idle(i=self.bing_idle_time)
-                        except TimeoutException:
-                            pass # dont care
-                    url = f'https://www.bing.com/search?q={quote_plus(query)}{"&first="+str(len(results)+1) if results else ""}'
-                    try:
-                        self.get_driver().get(url)
-                    except TimeoutException:
-                        pass # dont care
-                    self.wait_for_network_idle(i=self.bing_idle_time)
-                    results.extend(self.parse_search_page())
-                    if not results: # no more results or get blocked
-                        break
-                    if limit is None or len(results) >= limit: # enough results
-                        break
-                return "\n".join([f"{item['title']}: {item['url']}" for item in results[:limit]])
-            except:
-                return 'Internal Server Error, this is not your fault ヽ(*。>Д<)o゜'
-            finally:
-                self.get_driver().get("about:blank") # clear
+                future.result(timeout=10)
+            except Exception:
+                pass
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        logger.info("浏览器已关闭")
     
-    def read(self, url):
-        with self.lock:
+    def _run_loop(self):
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_until_complete(self._init_browser())
+        self._loop.run_forever()
+    
+    async def _init_browser(self):
+        pw = await async_playwright().start()
+        self._browser = await pw.firefox.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+            ],
+            firefox_user_prefs={
+                "dom.webdriver.enabled": False,
+                "useAutomationExtension": False,
+            }
+        )
+        self._context = await self._browser.new_context()
+        self._page_semaphore = asyncio.Semaphore(20)  # 限制并发 tab 数
+
+    async def _shutdown(self):
+        if self._context:
+            await self._context.close()
+        if self._browser:
+            await self._browser.close()
+
+    def _run_coro(self, coro, timeout=60):
+        """将协程投递到事件循环，阻塞等待结果"""
+        if self._loop is None:
+            raise RuntimeError("Crawler not started")
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result(timeout=timeout)
+
+    def search(self, query: str, limit: int = None) -> str:
+        """同步搜索（多线程安全）"""
+        return self._run_coro(self._search(query, limit))
+
+    def read(self, url: str) -> str:
+        """同步读取网页文本（多线程安全）"""
+        return self._run_coro(self._read(url))
+
+    async def _get_page(self):
+        """获取一个 page，受信号量限制"""
+        await self._page_semaphore.acquire()
+        page = await self._context.new_page()
+        page.set_default_timeout(self.dom_timeout)
+        return page
+
+    async def _release_page(self, page):
+        try:
+            await page.close()
+        except Exception:
+            pass
+        self._page_semaphore.release()
+
+    async def _wait_for_network_idle(self, page, t=5, i=3):
+        st = time.time()
+        ist = None
+        while time.time() - st < t:
             try:
-                if not url:
-                    return 'require url'
-                # warm up driver
-                parsed = urlparse(url)
-                if parsed.scheme not in ['http', 'https']:
-                    return 'Invalid protocol'
-                if parsed.hostname.split('.')[0] in ['localhost', '127', '192', '172', '127']:
-                    return 'Invalid host'
-                if self.driver is None:
-                    self.get_driver().get("about:blank")
-                    self.wait_for_network_idle(i=self.web_idle_time)
+                r = await page.evaluate("""
+                    () => {
+                        var p = performance.getEntriesByType('resource')
+                            .filter(x => !x.responseEnd || x.responseEnd === 0).length;
+                        var n = performance.getEntriesByType('navigation')[0];
+                        return {p: p, n: n && !n.domComplete};
+                    }
+                """)
+                ds = await page.evaluate("""
+                    () => {
+                        return {
+                            r: document.readyState,
+                            j: typeof jQuery !== 'undefined',
+                            a: typeof jQuery !== 'undefined' ? jQuery.active : 0,
+                            l: !!document.querySelector('.loading,.spinner,[data-loading]')
+                        };
+                    }
+                """)
+            except Exception:
+                await asyncio.sleep(0.5)
+                continue
+
+            idle = (
+                r["p"] == 0
+                and not r["n"]
+                and ds["r"] == "complete"
+                and (not ds["j"] or ds["a"] == 0)
+            )
+            if idle:
+                if ist is None:
+                    ist = time.time()
+                elif time.time() - ist >= i:
+                    return True
+            else:
+                ist = None
+            await asyncio.sleep(0.5)
+        return False
+
+    async def _search(self, query: str, limit: int = None) -> str:
+        if not query:
+            return "require query"
+
+        page = await self._get_page()
+        try:
+            results = []
+
+            if not self._warmed_up:
                 try:
-                    self.get_driver().get(url)
-                    self.wait_for_network_idle(i=self.web_idle_time)
-                except TimeoutException:
-                    pass # dont care
-                web_source = self.get_driver().page_source
-                if not web_source:
-                    return 'Timeout! But this is not your fault ヽ(*。>Д<)o゜'
+                    await page.goto(
+                        "https://www.bing.com/search?q=bing",
+                        wait_until="domcontentloaded"
+                    )
+                    await self._wait_for_network_idle(page, i=self.bing_idle_time)
+                except PwTimeoutError:
+                    pass
+                self._warmed_up = True
+
+            while True:
+                first = len(results) + 1 if results else ""
+                url = (
+                    f"https://www.bing.com/search?q={quote_plus(query)}"
+                    + (f"&first={first}" if first else "")
+                )
                 try:
-                    if self.use_jina_reader:
-                        return requests.post(f"https://r.jina.ai/", headers={"X-Retain-Images": "none", "X-Md-Link-Style": "discarded"}, data={"url": self.get_driver().current_url, "html": web_source}, timeout=20).text
-                    else:
-                        body_text = self.get_driver().find_element(By.TAG_NAME, 'body').text
-                        return re.sub(r'\n{2,}', '\n', body_text) # remove extra newlines
-                except requests.exceptions.Timeout:
-                    return "Internal Server Timeout! But this is not your fault ヽ(*。>Д<)o゜"
-                except Exception as e:
-                    return f"Internal Server Error: {e}! But this is not your fault ヽ(*。>Д<)o゜"
-            except:
-                return 'Internal Server Error, this is not your fault ヽ(*。>Д<)o゜'
-            finally:
-                self.get_driver().get("about:blank") # clear
+                    await page.goto(url, wait_until="domcontentloaded")
+                except PwTimeoutError:
+                    pass
+
+                await self._wait_for_network_idle(page, i=self.bing_idle_time)
+
+                page_results = await page.evaluate("""
+                    () => {
+                        return [...document.querySelectorAll('li.b_algo')].map(item => {
+                            const a = item.querySelector('h2 a');
+                            return a ? {title: a.innerText.trim(), url: a.href} : null;
+                        }).filter(Boolean);
+                    }
+                """)
+
+                if not page_results:
+                    break
+                results.extend(page_results)
+                if limit is None or len(results) >= limit: # enough results
+                    break
+
+            return "\n".join([
+                f"{item['title']}: {item['url']}"
+                for item in results[:limit]
+            ])
+        except Exception:
+            return "Internal Server Error, this is not your fault ヽ(*。>Д<)o゜"
+        finally:
+            await self._release_page(page)
+
+    async def _read(self, url: str) -> str:
+        if not url:
+            return "require url"
+        parsed = urlparse(url)
+        if parsed.scheme not in ["http", "https"]:
+            return "Invalid protocol"
+        if parsed.hostname and parsed.hostname.split(".")[0] in [
+            "localhost", "127", "192", "172", "10",
+        ]:
+            return "Invalid host"
+
+        page = await self._get_page()
+        try:
+            try:
+                await page.goto(url, wait_until="domcontentloaded")
+                await self._wait_for_network_idle(page, i=self.web_idle_time)
+            except PwTimeoutError:
+                pass
+
+            web_source = await page.content()
+            if not web_source:
+                return "Timeout! But this is not your fault ヽ(*。>Д<)o゜"
+
+            try:
+                body_text = await page.evaluate("() => document.body.innerText")
+                return re.sub(r"\n{2,}", "\n", body_text)
+            except Exception as e:
+                return f"Internal Server Error: {e}! But this is not your fault ヽ(*。>Д<)o゜"
+        except Exception:
+            return "Internal Server Error, this is not your fault ヽ(*。>Д<)o゜"
+        finally:
+            await self._release_page(page)
 
     @staticmethod
     def get_final_url(short_url):
@@ -1414,7 +1462,7 @@ if __name__ != "__main__":
         usermanager = UserManager()
 
     if is_bing_crawler_enabled:
-        browser = Browser(config["bing_crawler"].get("use_jina_reader", False), config["bing_crawler"].get("geckodriver", None))
+        browser = AsyncCrawler(config["bing_crawler"].get("dom_timeout", 5000), config["bing_crawler"].get("bing_idle_time", 3), config["bing_crawler"].get("web_idle_time", 4))
 
     if is_ncm_enabled:
         ncm = Ncm()

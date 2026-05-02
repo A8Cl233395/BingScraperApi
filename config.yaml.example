@@ -7,11 +7,9 @@ server:
   log_level: DEBUG
 
 bing_crawler:
-  use_jina_reader: false
-  # 需要手动下载geckodriver
-  geckodriver: geckodriver.exe
-  bing_idle_time: 3
-  web_idle_time: 4
+  dom_timeout: 5000 # base timeout
+  bing_idle_time: 3 # extra timeout
+  web_idle_time: 4 # extra timeout
 
 ncm:
 

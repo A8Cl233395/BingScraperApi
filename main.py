@@ -15,6 +15,8 @@ from functions import *
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     set_event_loop(asyncio.get_event_loop())
+    if is_bing_crawler_enabled:
+        browser.start()
     yield
     if is_usermanager_required:
         logger.info("Saving user data...")
@@ -462,7 +464,6 @@ if is_webchat_enabled:
         return "success"
 
 if __name__ == '__main__':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     if "cert" in config["server"] and "key" in config["server"]:
         if os.path.exists(config["server"]["cert"]) and os.path.exists(config["server"]["key"]):
             uvicorn.run(

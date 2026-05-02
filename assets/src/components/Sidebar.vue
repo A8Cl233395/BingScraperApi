@@ -109,16 +109,18 @@ const handleScroll = () => {
           pressingChatId === chat[0] ? 'scale-[0.98] bg-bg-hover' : ''
         ]"
       >
-        <!-- Long Press Progress Feedback -->
-        <div 
-          v-if="pressingChatId === chat[0]"
-          class="absolute inset-0 bg-primary-main/10 origin-left animate-progress-horizontal z-0"
-        ></div>
+        <!-- Selected effect -->
+        <Transition name="fade">
+          <div 
+            v-if="pressingChatId === chat[0]"
+            class="absolute inset-0 bg-white/20 z-0"
+          ></div>
+        </Transition>
         <span class="relative z-10 truncate text-sm pr-6">{{ chat[1] }}</span>
         <button 
           v-if="!state.isMobile"
           @click.stop="handleDelete(chat[0])"
-          class="hidden group-hover:block text-text-placeholder hover:text-danger-main absolute right-2 transition-colors"
+          class="hidden group-hover:block text-text-placeholder hover:text-danger-main absolute right-2 z-20 transition-colors p-1"
         >
           <i class="fas fa-trash-alt text-xs"></i>
         </button>
@@ -155,12 +157,13 @@ const handleScroll = () => {
 </template>
 
 <style scoped>
-@keyframes progress-horizontal {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
 }
 
-.animate-progress-horizontal {
-  animation: progress-horizontal 0.6s linear forwards;
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

@@ -57,8 +57,7 @@ const handleSubmit = async () => {
   errorMessage.value = '';
 
   try {
-    const apiBase = import.meta.env.VITE_API_BASE || '';
-    const response = await fetch(`${apiBase}/api/login`, {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uidVal, token: tokenVal })
