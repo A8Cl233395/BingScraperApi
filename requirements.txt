@@ -3,3 +3,4 @@ uvicorn[standard]
 playwright
 requests
 lz4
+trafilatura

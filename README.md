@@ -6,7 +6,7 @@
 ## 功能特性
 
 - **网页搜索** - 基于 Bing 的搜索，使用 Playwright
-- **页面阅读** - 提取任意 URL 的内容
+- **页面阅读** - 提取任意 URL 的内容，使用 trafilatura
 - **网易云音乐歌词** - 获取歌词和评论
 - **B 站视频** - AI 驱动的视频字幕转录
 - **语音识别** - 通过阿里云/Azure 进行音频转录
@@ -18,6 +18,7 @@
 
 ### 1. 安装依赖
 
+安装python包，下载Playwright浏览器，安装node依赖
 ```bash
 pip install -r requirements.txt
 playwright install firefox

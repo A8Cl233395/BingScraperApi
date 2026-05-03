@@ -19,6 +19,7 @@ import base64
 import logging
 import lz4.frame
 from hashlib import sha256
+import trafilatura
 
 class AsyncCrawler:
     def __init__(self, dom_timeout=5000, bing_idle_time=3, web_idle_time=5):
@@ -33,7 +34,7 @@ class AsyncCrawler:
         self._warmed_up = False
     
     def start(self):
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread = threading.Thread(target=self._run_loop, daemon=True) # 启动事件循环线程并初始化浏览器
         self._thread.start()
         logger.info("浏览器已启动")
     
@@ -96,6 +97,7 @@ class AsyncCrawler:
         await self._page_semaphore.acquire()
         page = await self._context.new_page()
         page.set_default_timeout(self.dom_timeout)
+        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return page
 
     async def _release_page(self, page):
@@ -228,6 +230,10 @@ class AsyncCrawler:
                 return "Timeout! But this is not your fault ヽ(*。>Д<)o゜"
 
             try:
+                text = await asyncio.to_thread(trafilatura.extract, web_source, url=url)
+                if text:
+                    return text
+                # Fallback: get body innerText
                 body_text = await page.evaluate("() => document.body.innerText")
                 return re.sub(r"\n{2,}", "\n", body_text)
             except Exception as e:
@@ -1089,7 +1095,7 @@ class ChatInstance:
             memory_block="\n".join(user.memory or ["暂无记忆"]), 
             task_block="\n".join([f"[{task_name}]: {user.tasks[task_name]['trigger']} {user.tasks[task_name]['schedule']}" for task_name in user.tasks] or ["暂无任务"]), 
             device="Web端", 
-            time=datetime.now().strftime("%Y-%m-%d %H:%M:%S %A"))
+            time=datetime.now().strftime("%Y-%m-%d %A"))
     
     def generate_title(self):
         try:

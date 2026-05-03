@@ -32,7 +32,8 @@ link:
 invite:
   # https://developers.cloudflare.com/turnstile/get-started/?preferred-color-scheme=dark#existing-sites
   turnstile-secret: ""
-  invite-code-key: super_duper_SECRET_key_do_not_share
+  # 无header保护，尽可能复杂
+  invite-code-key: ur_key
 
 webchat:
   default-model: "deepseek-chat"

@@ -558,10 +558,10 @@ const handleContentClick = (e: MouseEvent) => {
 
 <template>
   <div class="flex flex-col mb-6" :class="isUser ? 'items-end' : 'items-start'">
-    <div class="flex flex-col" :class="isUser ? (isEditing ? 'w-full items-start' : 'w-fit max-w-[85%] md:max-w-[75%] items-end self-end') : 'w-full items-start'">
+    <div class="flex flex-col min-w-0" :class="isUser ? (isEditing ? 'w-full items-start' : 'w-fit max-w-[85%] md:max-w-[75%] items-end self-end') : 'w-full items-start'">
 
       <template v-if="isUser">
-        <div class="group flex flex-col" :class="isEditing ? 'w-full items-start' : 'max-w-full items-end'">
+        <div class="group flex flex-col min-w-0" :class="isEditing ? 'w-full items-start' : 'max-w-full items-end'">
           
           <!-- Image Content (Outside bubble if there is text) -->
           <div 
@@ -606,7 +606,7 @@ const handleContentClick = (e: MouseEvent) => {
               ></div>
             </Transition>
             
-            <div v-if="!isEditing" class="relative z-10 text-text-main break-words whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
+            <div v-if="!isEditing" class="relative z-10 text-text-main break-all whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
             <div v-else class="w-full" @paste="handleEditPaste" @drop="handleEditDrop" @dragover.prevent>
               <!-- Edit Image Previews -->
               <div v-if="editImages.length > 0" class="flex flex-wrap gap-2 mb-3">
@@ -659,7 +659,7 @@ const handleContentClick = (e: MouseEvent) => {
           <!-- Assistant content -->
           <div 
             :id="`bubble-${nodeId}-assistant`" 
-            class="w-full relative overflow-hidden p-1 -m-1 rounded-lg"
+            class="w-full relative overflow-hidden p-1 -m-1 rounded-lg min-w-0"
             style="touch-action: pan-y;"
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
@@ -685,7 +685,7 @@ const handleContentClick = (e: MouseEvent) => {
               </div>
 
               <!-- Text content -->
-              <div v-if="item.role === 'assistant' && item.content && segmentHtml[idx]" class="relative z-10 prose prose-sm max-w-none text-text-main break-words" v-html="segmentHtml[idx]" @click="handleContentClick"></div>
+              <div v-if="item.role === 'assistant' && item.content && segmentHtml[idx]" class="relative z-10 prose prose-sm max-w-none text-text-main break-all" v-html="segmentHtml[idx]" @click="handleContentClick"></div>
 
               <!-- Tool calls -->
               <template v-if="item.role === 'assistant' && item.tool_calls">
