@@ -10,7 +10,7 @@ const props = defineProps<{
   isChatStarted: boolean;
 }>();
 
-const emit = defineEmits(['send']);
+const emit = defineEmits(['send', 'mobile-focus', 'mobile-blur']);
 
 const textInput = ref('');
 const images = ref<string[]>([]);
@@ -30,6 +30,7 @@ watch(textInput, () => {
 });
 
 const handleSend = () => {
+  if (state.isStreaming) return;
   if (textInput.value.trim() || images.value.length > 0) {
     const content = [];
     // Images before text
@@ -110,11 +111,18 @@ const removeImage = (index: number) => {
 
 const handleFocus = () => {
   if (isMobileDevice()) {
+    emit('mobile-focus');
     window.scrollTo(0, 0);
     nextTick(() => {
       document.documentElement.scrollTop = 0;
       document.body.scrollTop = 0;
     });
+  }
+};
+
+const handleBlur = () => {
+  if (isMobileDevice()) {
+    emit('mobile-blur');
   }
 };
 
@@ -178,6 +186,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         :placeholder="isMobileDevice() ? '输入消息...' : '输入消息，Shift+Enter 或 Ctrl+Enter 换行，Enter 发送...'"
         @keydown="handleKeydown"
         @focus="handleFocus"
+        @blur="handleBlur"
       ></textarea>
     </div>
 
@@ -269,9 +278,11 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         </button>
         <button 
           @click="handleSend"
-          class="bg-primary-main text-primary-text hover:bg-primary-hover w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          class="bg-primary-main text-primary-text hover:bg-primary-hover w-8 h-8 flex items-center justify-center rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="state.isStreaming"
         >
-          <i class="fas fa-paper-plane text-sm"></i>
+          <i v-if="state.isStreaming" class="fas fa-spinner fa-spin text-sm"></i>
+          <i v-else class="fas fa-paper-plane text-sm"></i>
         </button>
       </div>
 

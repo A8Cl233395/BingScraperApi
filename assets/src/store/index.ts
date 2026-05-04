@@ -10,6 +10,7 @@ export const state = reactive({
   previewImageUrl: null as string | null,
   currentVModel: '',
   isThinking: false,
+  isStreaming: false,
   isEnableFunction: true,
   defaultSettings: {
     model: '',

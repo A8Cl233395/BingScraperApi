@@ -7,11 +7,11 @@ const isOpen = ref(false);
 const expandedModel = ref<string | null>(null);
 const containerRef = ref<HTMLElement | null>(null);
 
-const toggleDropdown = () => {
-  isOpen.value = !isOpen.value;
-  if (isOpen.value && Object.keys(state.models).length === 0) {
-    state.fetchModels();
+const toggleDropdown = async () => {
+  if (!isOpen.value && Object.keys(state.models).length === 0) {
+    await state.fetchModels();
   }
+  isOpen.value = !isOpen.value;
 };
 
 const toggleModelDetails = (name: string) => {
@@ -54,7 +54,7 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
 </script>
 
 <template>
-  <div ref="containerRef" class="relative ml-2">
+  <div ref="containerRef" class="relative ml-2" @dblclick.stop>
     <button
       @click="toggleDropdown()"
       class="flex items-center gap-2 border border-border-input rounded-md px-3 py-1.5 hover:bg-bg-hover bg-bg-main transition-colors"
@@ -67,17 +67,14 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
     </button>
 
     <transition
-      enter-active-class="transition duration-300 ease-out"
-      enter-from-class="transform scale-y-0 opacity-0"
-      enter-to-class="transform scale-y-100 opacity-100"
-      leave-active-class="transition duration-200 ease-in"
-      leave-from-class="transform scale-y-100 opacity-100"
-      leave-to-class="transform scale-y-0 opacity-0"
+      @enter="(el: any) => { el.style.height = '0px'; el.offsetHeight; el.style.height = el.scrollHeight + 'px'; }"
+      @after-enter="(el: any) => { el.style.height = 'auto'; }"
+      @leave="(el: any) => { el.style.height = el.scrollHeight + 'px'; el.offsetHeight; el.style.height = '0px'; }"
     >
       <!-- Dropdown -->
       <div
         v-if="isOpen"
-        class="absolute left-0 mt-2 w-64 bg-bg-main border border-border-main rounded-lg shadow-xl z-50 py-1 overflow-hidden origin-top-left"
+        class="absolute left-0 mt-2 w-64 bg-bg-main border border-border-main rounded-lg shadow-xl z-50 py-1 overflow-hidden origin-top-left transition-all duration-300 ease-in-out"
       >
         <template v-for="(info, name) in state.models" :key="name">
           <div

@@ -234,7 +234,7 @@ class AsyncCrawler:
                 if text:
                     return text
                 # Fallback: get body innerText
-                body_text = await page.evaluate("() => document.body.innerText")
+                body_text = await page.text_content('body')
                 return re.sub(r"\n{2,}", "\n", body_text)
             except Exception as e:
                 return f"Internal Server Error: {e}! But this is not your fault ヽ(*。>Д<)o゜"

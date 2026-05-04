@@ -51,21 +51,23 @@ if is_web_function_enabled:
     
     class CachedStaticFiles(StaticFiles):
         ASSETS_DIR = "assets/dist/assets"
+        COMPRESSED_FILES = [i[:-3] for i in os.listdir(ASSETS_DIR) if i.endswith('.br')] # 假设所有.br压缩的文件都有.gz压缩的版本，DANGEROUS！
         ENCODING_MAP = [(".br", "br"), (".gz", "gzip")]
         async def __call__(self, scope, receive, send):
             accept = dict(scope.get("headers", [])).get(b"accept-encoding", b"").decode()
             filename = os.path.basename(scope["path"])
             original = os.path.join(self.ASSETS_DIR, filename)
-            for ext, encoding in self.ENCODING_MAP:
-                if encoding in accept:
-                    compressed = original + ext
-                    resp = FileResponse(compressed, headers={
-                        "Content-Encoding": encoding,
-                        "Vary": "Accept-Encoding",
-                        "Cache-Control": "public, max-age=2592000",
-                    })
-                    await resp(scope, receive, send)
-                    return
+            if filename in self.COMPRESSED_FILES:
+                for ext, encoding in self.ENCODING_MAP:
+                    if encoding in accept:
+                        compressed = original + ext
+                        resp = FileResponse(compressed, headers={
+                            "Content-Encoding": encoding,
+                            "Vary": "Accept-Encoding",
+                            "Cache-Control": "public, max-age=2592000",
+                        })
+                        await resp(scope, receive, send)
+                        return
             await super().__call__(scope, receive, send)
     
     app.mount("/assets", CachedStaticFiles(directory="assets/dist/assets"))
@@ -74,7 +76,7 @@ if is_web_function_enabled:
     async def get_favicon(request: Request):
         return FileResponse("assets/dist/favicon.ico", headers={"Cache-Control": "public, max-age=2592000"})
     
-    web_paths = [f"/assets/{filename}" for filename in os.listdir("assets/dist/assets")] 
+    web_paths = [f"/assets/{filename}" for filename in os.listdir("assets/dist/assets") if not filename.endswith(('.br', '.gz'))]
 
 # 自定义请求验证错误处理 - 参数错误时返回 bad arguments
 @app.exception_handler(RequestValidationError)

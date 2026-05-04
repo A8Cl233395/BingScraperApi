@@ -126,7 +126,6 @@ const emit = defineEmits(['navigate', 'edit', 'regenerate']);
 const preScrollPositions = new Map<number, number[]>();
 
 onBeforeUpdate(() => {
-  if (!state.isMobile) return;
   const container = document.getElementById(`bubble-${props.nodeId}-assistant`);
   if (container) {
     const segments = container.querySelectorAll('.prose');
@@ -142,7 +141,6 @@ onBeforeUpdate(() => {
 });
 
 onUpdated(() => {
-  if (!state.isMobile) return;
   const container = document.getElementById(`bubble-${props.nodeId}-assistant`);
   if (container) {
     const segments = container.querySelectorAll('.prose');
@@ -430,7 +428,15 @@ const handleEdit = () => {
   isEditing.value = true; 
   editText.value = userTextContent.value; 
   editImages.value = [...images.value];
-  nextTick(adjustEditHeight); 
+  nextTick(() => {
+    adjustEditHeight();
+    setTimeout(() => {
+      if (editTextareaRef.value) {
+        editTextareaRef.value.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        editTextareaRef.value.focus();
+      }
+    }, 100);
+  }); 
 };
 
 const addEditFiles = async (files: File[]) => {
@@ -557,7 +563,7 @@ const handleContentClick = (e: MouseEvent) => {
 </script>
 
 <template>
-  <div class="flex flex-col mb-6" :class="isUser ? 'items-end' : 'items-start'">
+  <div :id="'msg-' + nodeId" class="flex flex-col mb-6" :class="isUser ? 'items-end' : 'items-start'">
     <div class="flex flex-col min-w-0" :class="isUser ? (isEditing ? 'w-full items-start' : 'w-fit max-w-[85%] md:max-w-[75%] items-end self-end') : 'w-full items-start'">
 
       <template v-if="isUser">

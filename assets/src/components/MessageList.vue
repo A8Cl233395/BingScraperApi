@@ -28,11 +28,13 @@ interface ChatNode {
 const messages = shallowRef<ChatNode[]>([]);
 const messageTree = ref<any>({});
 const lastNodeId = ref<string | null>(null);
-// Guard flag to prevent the currentChatId watch from firing during streaming
-const isStreaming = ref(false);
+// Tracks which chat's messages are currently being displayed
+const lastActiveChatId = ref<number | null | 'new'>(null);
 const abortController = ref<AbortController | null>(null);
+const activeNodeId = ref<string | null>(null);
 
 const fetchChatDetails = async (id: number) => {
+  lastActiveChatId.value = id;
   try {
     const res = await api.get(`/api/message?id=${id}`);
     messageTree.value = res.data;
@@ -99,6 +101,7 @@ const processSSEEvent = (
 
   if (eventType === 'id') {
     const chatId = parseInt(data);
+    lastActiveChatId.value = chatId;
     state.currentChatId = chatId;
     // Add a placeholder for new chats in the sidebar
     if (!state.chats.some(c => c[0] === chatId)) {
@@ -196,7 +199,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
   if (abortController.value) abortController.value.abort();
   const currentController = new AbortController();
   abortController.value = currentController;
-  isStreaming.value = true;
+  state.isStreaming = true;
 
   try {
     await fetchEventSource(
@@ -230,7 +233,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
     }
   } finally {
     if (abortController.value === currentController) {
-      isStreaming.value = false;
+      state.isStreaming = false;
       targetMsg.isStreaming = false;
       abortController.value = null;
     }
@@ -280,6 +283,7 @@ const handleSend = async (content: any, parent?: string) => {
   // Push into a new array (shallowRef needs a new reference to auto-trigger,
   // but we also call triggerRef explicitly for in-place mutations)
   messages.value = [...messages.value, userMsg];
+  lastNodeId.value = tempId;
   nextTick(() => {
     scrollToBottom(true);
   });
@@ -303,7 +307,7 @@ const handleSend = async (content: any, parent?: string) => {
   }
   const currentController = new AbortController();
   abortController.value = currentController;
-  isStreaming.value = true;
+  state.isStreaming = true;
 
   // Track whether we received a node_id (needed for disconnect reconnect)
   let receivedNodeId: string | null = null;
@@ -344,7 +348,7 @@ const handleSend = async (content: any, parent?: string) => {
     }
   } finally {
     if (abortController.value === currentController) {
-      isStreaming.value = false;
+      state.isStreaming = false;
       userMsg.isStreaming = false;
       abortController.value = null;
     }
@@ -427,13 +431,24 @@ onUnmounted(() => {
 });
 
 watch(() => state.currentChatId, (newId) => {
-  // Skip if we're currently streaming — the SSE handler sets currentChatId
-  // from the 'id' event, and we don't want to fetch/replace messages mid-stream
-  if (isStreaming.value) return;
+  // If the change was triggered by the same chat (e.g. stream setting the ID), ignore it
+  if (newId === lastActiveChatId.value) return;
+
+  // Reset highlight when switching chats
+  activeNodeId.value = null;
+
+  // If we are switching while streaming, abort the current stream
+  if (state.isStreaming) {
+    if (abortController.value) {
+      abortController.value.abort();
+    }
+    state.isStreaming = false;
+  }
 
   if (newId) {
     fetchChatDetails(newId);
   } else {
+    lastActiveChatId.value = null;
     messages.value = [];
     lastNodeId.value = 'root';
     messageTree.value = { root: { child: [], current: null } };
@@ -449,37 +464,137 @@ onMounted(() => {
   }
 });
 
-defineExpose({ handleSend, messages });
+const scrollToTop = () => {
+  if (containerRef.value) {
+    containerRef.value.scrollTo({ top: 0, behavior: 'smooth' });
+    autoScroll.value = false;
+  }
+};
+
+const isNavExpanded = ref(false);
+
+const scrollToNode = (nodeId: string) => {
+  activeNodeId.value = nodeId;
+  const el = document.getElementById(`msg-${nodeId}`);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    autoScroll.value = false;
+  }
+};
+
+let activeObserver: IntersectionObserver | null = null;
+onMounted(() => {
+  activeObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        activeNodeId.value = entry.target.id.replace('msg-', '');
+      }
+    });
+  }, {
+    root: containerRef.value,
+    threshold: 0.5
+  });
+
+  // Observe existing nodes
+  messages.value.forEach(node => {
+    const el = document.getElementById(`msg-${node.id}`);
+    if (el) activeObserver?.observe(el);
+  });
+});
+
+onUnmounted(() => {
+  if (activeObserver) activeObserver.disconnect();
+});
+
+watch(messages, (newMsgs) => {
+  nextTick(() => {
+    if (activeObserver) {
+      activeObserver.disconnect();
+      newMsgs.forEach(node => {
+        const el = document.getElementById(`msg-${node.id}`);
+        if (el) activeObserver?.observe(el);
+      });
+    }
+  });
+}, { deep: true });
+
+const getMsgPreview = (node: ChatNode) => {
+  const text = node.user.find((c: any) => c.type === 'text')?.text;
+  if (text) return text;
+  if (node.user.some((c: any) => c.type === 'image_url')) return '[图片]';
+  return '空消息';
+};
+
+defineExpose({ handleSend, messages, scrollToTop });
 </script>
 
 <template>
-  <div 
-    ref="containerRef"
-    id="message-container" 
-    class="overflow-y-auto p-4" 
-    @scroll="handleScroll"
-  >
-    <div ref="contentRef" class="max-w-4xl mx-auto py-8">
-      <template v-for="node in messages" :key="node.clientId">
-        <!-- User part of the node -->
-        <MessageBubble 
-          :message="node.user" 
-          :isUser="true" 
-          :nodeId="node.id"
-          :siblingCount="getSiblingCount(node.id)"
-          :siblingIndex="getSiblingIndex(node.id)"
-          @navigate="navigateSiblings"
-          @edit="handleEdit"
-        />
-        <!-- Assistant part of the node -->
-        <MessageBubble 
-          v-if="node.assistant && (node.assistant.length > 0 || node.thinking)"
-          :message="node" 
-          :isUser="false" 
-          :nodeId="node.id"
-          @regenerate="handleRegenerate"
-        />
-      </template>
+  <div class="flex flex-col min-h-0 relative">
+    <div 
+      ref="containerRef"
+      id="message-container" 
+      class="flex-1 overflow-y-auto p-4" 
+      @scroll="handleScroll"
+    >
+      <div ref="contentRef" class="max-w-4xl mx-auto py-8">
+        <template v-for="node in messages" :key="node.clientId">
+          <!-- User part of the node -->
+          <MessageBubble 
+            :message="node.user" 
+            :isUser="true" 
+            :nodeId="node.id"
+            :siblingCount="getSiblingCount(node.id)"
+            :siblingIndex="getSiblingIndex(node.id)"
+            @navigate="navigateSiblings"
+            @edit="handleEdit"
+          />
+          <!-- Assistant part of the node -->
+          <MessageBubble 
+            v-if="node.assistant && (node.assistant.length > 0 || node.thinking)"
+            :message="node" 
+            :isUser="false" 
+            :nodeId="node.id"
+            @regenerate="handleRegenerate"
+          />
+        </template>
+      </div>
     </div>
+
+    <!-- Desktop Message Navigator -->
+    <Teleport to="body" v-if="!state.isMobile && messages.length > 1">
+      <div 
+        class="fixed right-6 top-1/2 -translate-y-1/2 z-40 flex flex-col items-end transition-all duration-300 ease-in-out group max-h-[80vh]"
+        @mouseenter="isNavExpanded = true"
+        @mouseleave="isNavExpanded = false"
+      >
+        <div 
+          class="flex flex-col gap-4 p-3 rounded-lg transition-all duration-300 ease-in-out border border-transparent overflow-y-auto overflow-x-hidden no-scrollbar show-scrollbar-on-hover"
+          :class="[
+            isNavExpanded ? 'bg-bg-panel border-border-main shadow-2xl scale-100' : 'bg-transparent scale-95'
+          ]"
+        >
+          <div 
+            v-for="node in messages" 
+            :key="node.id"
+            class="flex items-center justify-end gap-3 cursor-pointer group/item py-0.5"
+            @click="scrollToNode(node.id)"
+          >
+            <div 
+              class="text-xs text-text-muted transition-all duration-300 origin-right whitespace-nowrap max-w-[0px] overflow-hidden opacity-0"
+              :class="isNavExpanded ? 'max-w-[240px] opacity-100' : ''"
+            >
+              <span class="group-hover/item:text-text-main transition-colors">{{ getMsgPreview(node) }}</span>
+            </div>
+            <div 
+              class="h-1 rounded-full transition-all duration-300 flex-shrink-0"
+              :class="[
+                isNavExpanded ? 'w-4' : 'w-3',
+                activeNodeId === node.id ? 'bg-primary-main shadow-[0_0_8px_rgba(var(--primary-rgb),0.5)]' : 'bg-text-placeholder/40 group-hover/item:bg-text-muted'
+              ]"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

@@ -94,6 +94,16 @@
   scrollbar-width: none;
 }
 
+@utility show-scrollbar-on-hover {
+  &:hover {
+    &::-webkit-scrollbar {
+      display: block;
+    }
+    -ms-overflow-style: auto;
+    scrollbar-width: thin;
+  }
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;

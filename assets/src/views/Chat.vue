@@ -10,6 +10,7 @@ import ImagePreview from '../components/ImagePreview.vue';
 import TextSelectionOverlay from '../components/TextSelectionOverlay.vue';
 
 const messageListRef = ref<any>(null);
+const mobileKeyboardActive = ref(false);
 
 const isChatStarted = computed(() => {
   return state.currentChatId !== null || (messageListRef.value?.messages?.length > 0);
@@ -39,6 +40,10 @@ const handlePopState = () => {
   } else {
     state.currentChatId = null;
   }
+};
+
+const handleHeaderDblClick = () => {
+  messageListRef.value?.scrollToTop();
 };
 
 onMounted(() => {
@@ -96,16 +101,18 @@ watch(() => state.currentChatId, (newId) => {
     <Sidebar />
 
     <main class="flex-1 flex flex-col h-full relative min-w-0 bg-bg-main w-full">
-      <header class="h-14 flex items-center px-4 justify-between flex-shrink-0 z-30 w-full bg-bg-main border-b border-border-main">
+      <header @dblclick="handleHeaderDblClick" class="h-14 flex items-center px-4 justify-between flex-shrink-0 z-30 w-full bg-bg-main border-b border-border-main cursor-pointer select-none">
         <div class="flex items-center gap-3">
           <button 
             @click="state.isSidebarOpen = !state.isSidebarOpen" 
+            @dblclick.stop
             class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover transition-colors"
           >
             <i class="fas" :class="state.isSidebarOpen ? 'fa-align-left' : 'fa-bars'"></i>
           </button>
           <button 
             @click="startNewChat" 
+            @dblclick.stop
             class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover transition-colors" 
             title="新对话"
           >
@@ -116,7 +123,7 @@ watch(() => state.currentChatId, (newId) => {
         </div>
       </header>
 
-      <div class="flex-1 flex flex-col overflow-hidden relative transition-all duration-500 ease-in-out justify-center">
+      <div class="flex-1 flex flex-col overflow-hidden relative transition-all duration-500 ease-in-out" :class="mobileKeyboardActive ? 'justify-start' : 'justify-center'">
         <MessageList 
           ref="messageListRef" 
           :class="[
@@ -125,7 +132,7 @@ watch(() => state.currentChatId, (newId) => {
           ]"
         />
   
-        <ChatInput :isChatStarted="isChatStarted" @send="handleSend" />
+        <ChatInput :isChatStarted="isChatStarted" @send="handleSend" @mobile-focus="mobileKeyboardActive = true" @mobile-blur="mobileKeyboardActive = false" />
       </div>
     </main>
     
