@@ -560,12 +560,8 @@ class Link:
         pass
 
     def __call__(self, data):
-        if data["user"] not in usermanager.users:
-            usermanager.users[data["user"]] = User(data["user"])
-        user = usermanager.users[data["user"]]
+        user = usermanager.get_user(data["user"])
         match data["type"]:
-            case "task":
-                return user.handle_task(data)
             case "memory":
                 return user.handle_memory(data)
             case "sync":
@@ -581,11 +577,10 @@ class StreamingCache:
 class User:
     def __init__(self, user_id: int):
         self.user_id: int = user_id
-        # init memory and tasks
+        # init memory
         if not os.path.exists(f"link_datas/{user_id}.json"):
-            logger.debug(f"User {user_id} data file not found")
+            logger.debug(f"User {user_id} data file not found, creating one")
             self.memory = []
-            self.tasks = {}
             if is_webchat_enabled:
                 self.model = config["webchat"]["default-model"]
                 self.vision_model = config["webchat"]["default-vision-model"]
@@ -598,7 +593,6 @@ class User:
                 logger.debug(f"Loading user {user_id} data from file")
                 data = json.load(f)
                 self.memory: list[str] = data["memory"]
-                self.tasks: dict[str, dict[str, str]] = data["tasks"]
                 if is_webchat_enabled:
                     self.model = data.get("model", config["webchat"]["default-model"])
                     self.vision_model = data.get("vision_model", config["webchat"]["default-vision-model"])
@@ -614,7 +608,6 @@ class User:
     def data(self) -> dict:
         return {
             "memory": self.memory,
-            "tasks": self.tasks,
             "model": self.model,
             "vision_model": self.vision_model,
             "thinking": self.thinking,
@@ -622,13 +615,6 @@ class User:
             "token": self.token,
             "expire": self.expire,
         }
-    
-    def handle_task(self, data):
-        if data["operate"] == "create":
-            self.tasks[data["name"]] = data["data"]
-        elif data["operate"] == "remove":
-            if data["name"] in self.tasks:
-                del self.tasks[data["name"]]
     
     def handle_memory(self, data):
         if data["operate"] == "add":
@@ -641,39 +627,6 @@ class User:
         if data["operate"] == "push_all":
             if "memory" in data:
                 self.memory = data["memory"]
-            if "tasks" in data:
-                self.tasks = data["tasks"]
-
-    def create_task(self, name: str, trigger: str, schedule: str, description: str):
-        success = send_to_websocket({
-            "user": self.user_id,
-            "type": "task",
-            "operate": "create",
-            "name": name,
-            "data": {
-                "trigger": trigger,
-                "schedule": schedule,
-                "description": description,
-            }
-        })
-        if not success:
-            return False
-        self.tasks[name] = {"trigger": trigger, "schedule": schedule}
-        return True
-    
-    def remove_task(self, name: str):
-        if name not in self.tasks:
-            return False
-        success = send_to_websocket({
-            "user": self.user_id,
-            "type": "task",
-            "operate": "remove",
-            "name": name,
-        })
-        if not success:
-            return False
-        del self.tasks[name]
-        return True
 
     def add_memory(self, memory: str):
         success = send_to_websocket({
@@ -757,61 +710,6 @@ class ChatInstance:
                         },
                     },
                     "required": ["url"]
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "createTask",
-                "description": "创建/替换一个任务。任务会调用AI并发送结果",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "description": "名称，唯一",
-                            "type": "string",
-                        },
-                        "trigger": {
-                            "description": "触发方式",
-                            "type": "string",
-                            "enum": ["date", "cron"],
-                        },
-                        "schedule": {
-                            "anyOf": [
-                                {
-                                    "description": "date触发日期，格式为YYYY-MM-DDTHH:MM:SS",
-                                    "type": "string",
-                                },
-                                {
-                                    "description": "cron触发表达式，5个字段",
-                                    "type": "string",
-                                }
-                            ]
-                        },
-                        "description": {
-                            "description": "此项会作为AI的输入",
-                            "type": "string",
-                        },
-                    },
-                    "required": ["name", "trigger", "schedule", "description"]
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "removeTask",
-                "description": "删除一个任务",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "description": "任务名称",
-                            "type": "string",
-                        },
-                    },
-                    "required": ["name"]
                 },
             },
         },
@@ -968,21 +866,9 @@ class ChatInstance:
                     content = ChatInstance.customize_reader(arguments_json["url"])
                 case "searchWeb":
                     content = browser.search(arguments_json["query"])
-                case "createTask":
-                    success = self.user.create_task(arguments_json["name"], arguments_json["trigger"], arguments_json["schedule"], arguments_json["description"])
-                    if success:
-                        content = f"任务 {arguments_json['name']} 已创建！"
-                    else:
-                        content = f"后端错误！无法创建任务！"
-                case "removeTask":
-                    success = self.user.remove_task(arguments_json["name"])
-                    if success:
-                        content = f"任务 {arguments_json['name']} 已删除！"
-                    else:
-                        content = f"后端错误！无法删除任务！"
                 case "manageMemory":
                     if arguments_json["operation"] == "add":
-                        mem = f"[{datetime.now().strftime('%Y-%m-%d')}] {arguments_json['memory']}"
+                        mem = f"[{datetime.now().strftime('%m-%d')}] {arguments_json['memory']}"
                         success = self.user.add_memory(mem)
                         if success:
                             content = f"记忆 \"{mem}\" 已添加！"
@@ -1016,10 +902,6 @@ class ChatInstance:
                     return f"URL: {arguments_json['url']}"
                 case "searchWeb":
                     return f"查询: {arguments_json['query']}"
-                case "createTask":
-                    return f"任务名称: {arguments_json['name']}\n触发方式: {arguments_json['trigger']}\n计划时间: {arguments_json['schedule']}\n任务描述: \n{arguments_json['description']}"
-                case "removeTask":
-                    return f"任务名称: {arguments_json['name']}"
                 case "manageMemory":
                     return f"操作: {arguments_json['operation']}\n记忆: {arguments_json['memory']}"
                 case _:
@@ -1093,7 +975,6 @@ class ChatInstance:
         '''
         return RAW_PROMPT.format(
             memory_block="\n".join(user.memory or ["暂无记忆"]), 
-            task_block="\n".join([f"[{task_name}]: {user.tasks[task_name]['trigger']} {user.tasks[task_name]['schedule']}" for task_name in user.tasks] or ["暂无任务"]), 
             device="Web端", 
             time=datetime.now().strftime("%Y-%m-%d %A"))
     
