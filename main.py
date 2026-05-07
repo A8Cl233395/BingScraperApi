@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
         logger.info("Finished saving webchat data.")
         webchat.close()
     if is_bing_crawler_enabled:
+        logger.info("Stopping browser...")
         browser.stop()
 
 # 禁用 docs 和 redoc

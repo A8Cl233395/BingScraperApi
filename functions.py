@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import re
 import sqlite3
+from typing import Generator
 from urllib.parse import quote_plus, urlparse
 from playwright.async_api import async_playwright, Browser, TimeoutError as PwTimeoutError
 from collections import OrderedDict
@@ -20,6 +21,7 @@ import logging
 import lz4.frame
 from hashlib import sha256
 import trafilatura
+from concurrent.futures import ThreadPoolExecutor
 
 class AsyncCrawler:
     def __init__(self, dom_timeout=5000, bing_idle_time=3, web_idle_time=5):
@@ -259,7 +261,7 @@ class AsyncCrawler:
                     redirect_url = response.headers.get('Location')
                     if redirect_url:
                         # 可能需要递归处理多次重定向
-                        return Browser.get_final_url(redirect_url)
+                        return AsyncCrawler.get_final_url(redirect_url)
                 return response.url
         except requests.exceptions.RequestException as e:
             logger.error(f"请求失败: {e}")
@@ -332,7 +334,7 @@ class Bilibili:
             return match.group(0) if match else None
         
         if "b23.tv" in url:
-            final_url = Browser.get_final_url(url)
+            final_url = AsyncCrawler.get_final_url(url)
             if final_url and "bilibili.com" in final_url:
                 match = re.search(r'BV[a-zA-Z0-9]+', final_url)
                 return match.group(0) if match else None
@@ -571,12 +573,14 @@ class Link:
 
 @dataclass
 class StreamingCache:
+    __slots__ = ("data", "condition")
     data: list
     condition: threading.Condition
 
 class User:
     def __init__(self, user_id: int):
         self.user_id: int = user_id
+        self.lock = threading.Lock()
         # init memory
         if not os.path.exists(f"link_datas/{user_id}.json"):
             logger.debug(f"User {user_id} data file not found, creating one")
@@ -617,41 +621,45 @@ class User:
         }
     
     def handle_memory(self, data):
-        if data["operate"] == "add":
-            self.memory.append(data["data"])
-        elif data["operate"] == "remove":
-            if data["data"] in self.memory:
-                self.memory.remove(data["data"])
+        with self.lock:
+            if data["operate"] == "add":
+                self.memory.append(data["data"])
+            elif data["operate"] == "remove":
+                if data["data"] in self.memory:
+                    self.memory.remove(data["data"])
     
     def handle_sync(self, data):
-        if data["operate"] == "push_all":
-            if "memory" in data:
-                self.memory = data["memory"]
+        with self.lock:
+            if data["operate"] == "push_all":
+                if "memory" in data:
+                    self.memory = data["memory"]
 
     def add_memory(self, memory: str):
-        success = send_to_websocket({
-            "user": self.user_id,
-            "type": "memory",
-            "operate": "add",
-            "data": memory,
-        })
-        if not success:
-            return False
-        self.memory.append(memory)
-        return True
+        with self.lock:
+            success = send_to_websocket({
+                "user": self.user_id,
+                "type": "memory",
+                "operate": "add",
+                "data": memory,
+            })
+            if not success:
+                return False
+            self.memory.append(memory)
+            return True
     
     def remove_memory(self, memory: str):
-        if memory not in self.memory:
-            return False
-        success = send_to_websocket({
-            "user": self.user_id,
-            "type": "memory",
-            "operate": "remove",
-            "data": memory,
-        })
-        if not success:
-            return False
-        self.memory.remove(memory)
+        with self.lock:
+            if memory not in self.memory:
+                return False
+            success = send_to_websocket({
+                "user": self.user_id,
+                "type": "memory",
+                "operate": "remove",
+                "data": memory,
+            })
+            if not success:
+                return False
+            self.memory.remove(memory)
         return True
     
     def verify_token(self, token: str):
@@ -676,6 +684,36 @@ class User:
     def destroy_token(self):
         self.token = None
         self.expire = 0
+
+class DelayedOutput: # TODO: WHAT THE FUCK IS THIS
+    __slots__ = ("tool_call", "executor", "future")
+    def __init__(self, tool_call: dict, instance: "ChatInstance"):
+        self.tool_call = tool_call
+        self.executor: ThreadPoolExecutor | None = ThreadPoolExecutor(max_workers=1)
+        self.future = self.executor.submit(instance._handle_tool_call, tool_call)
+
+    def get_sse(self):
+        result = self.future.result()["content"]
+        try:
+            if self.executor is not None:
+                self.executor.shutdown()
+                self.executor = None
+        except Exception as e:
+            logger.error(f"Error shutting down executor: {e}")
+        return self._sse(result)
+
+    def get_raw(self):
+        result = self.future.result()
+        try:
+            if self.executor is not None:
+                self.executor.shutdown()
+                self.executor = None
+        except Exception as e:
+            logger.error(f"Error shutting down executor: {e}")
+        return result
+
+    def _sse(self, data: str) -> str:
+        return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 class ChatInstance:
     tools = [
@@ -758,7 +796,7 @@ class ChatInstance:
         completion = client.chat.completions.create(**params)
         return completion
 
-    def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None):
+    def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None) -> Generator[str | DelayedOutput]:
         try:
             # 检查多模态
             if not self.chat_tree["root"]["multimodel"]:
@@ -779,7 +817,7 @@ class ChatInstance:
             is_thinking = False
             is_answering = False
             tool_calls = []
-            tool_responses = []
+            tool_threads: list[DelayedOutput] = []
             for chunk in completion:
                 if not chunk.choices: # 兼容mimo
                     continue
@@ -790,7 +828,7 @@ class ChatInstance:
                         yield self._sse("thinking", "signal")
                     reasoning_content += delta.reasoning_content
                     yield self._sse(delta.reasoning_content)
-                if hasattr(delta, "content") and delta.content: # WHY ALIBABA SENDS THIS WITH REASONING_CONTENT WTF
+                if hasattr(delta, "content") and delta.content: # 兼容阿里的傻逼返回
                     if not is_answering:
                         yield self._sse("answering", "signal")
                         is_answering = True
@@ -802,8 +840,8 @@ class ChatInstance:
                             if tool_calls: # 处理旧的（完成生成的）tool call
                                 yield self._sse(self._tool_call_json_parser(tool_calls[-1]))
                                 yield self._sse("tool_response", "signal")
-                                tool_responses.append(self._handle_tool_call(tool_calls[-1]))
-                                yield self._sse(tool_responses[-1]["content"])
+                                tool_threads.append(DelayedOutput(tool_calls[-1], self))
+                                yield tool_threads[-1] # hot potato !
                             tool_calls.append({
                                 "id": tool_call.id,
                                 "function": {
@@ -831,8 +869,10 @@ class ChatInstance:
                 # 处理最后一个tool call
                 yield self._sse(self._tool_call_json_parser(tool_calls[-1]))
                 yield self._sse("tool_response", "signal")
-                tool_responses.append(self._handle_tool_call(tool_calls[-1]))
-                yield self._sse(tool_responses[-1]["content"])
+                tool_response = self._handle_tool_call(tool_calls[-1]) # last one. just wait for it
+                yield self._sse(tool_response["content"])
+                tool_responses = [r.get_raw() for r in tool_threads]
+                tool_responses.append(tool_response)
                 current_node_assistant_messages.append({"role": "assistant", "content": answering_content, "tool_calls": tool_calls})
                 current_messages.append({"role": "assistant", "content": answering_content, "tool_calls": tool_calls})
                 if is_thinking:
@@ -938,13 +978,6 @@ class ChatInstance:
         return node_id
     
     def _sse(self, data: str, event: str = None) -> str:
-        """
-        将任意字符串转换为标准的 SSE 传送格式。
-        
-        :param data: 需要发送的内容（支持空串、换行符、多行文本）
-        :param event: 可选的事件名称 (event type)
-        :return: 格式化后的 SSE 字符串
-        """
         if event:
             return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
         else:
@@ -1022,7 +1055,7 @@ class ChatInstance:
                     song_id = re.search(r"id=(\d+)", url).group(1)
                     return ncm.get_details_text(song_id)
                 case "163cn.tv":
-                    final_url = Browser.get_final_url(url)
+                    final_url = AsyncCrawler.get_final_url(url)
                     if final_url and "music.163.com" in final_url:
                         match = re.search(r"id=(\d+)", final_url)
                         if match:
@@ -1143,6 +1176,9 @@ class Webchat:
                 if data is None:
                     break
                 current_index += 1
+
+            if isinstance(data, DelayedOutput):
+                data = data.get_sse()
 
             yield data
     
