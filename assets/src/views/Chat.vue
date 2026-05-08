@@ -101,7 +101,7 @@ watch(() => state.currentChatId, (newId) => {
     <Sidebar />
 
     <main class="flex-1 flex flex-col h-full relative min-w-0 bg-bg-main w-full">
-      <header @dblclick="handleHeaderDblClick" class="h-14 flex items-center px-4 justify-between flex-shrink-0 z-30 w-full bg-bg-main border-b border-border-main cursor-pointer select-none">
+      <header @dblclick="handleHeaderDblClick" class="h-14 flex items-center px-4 justify-between shrink-0 z-30 w-full bg-bg-main border-b border-border-main cursor-pointer select-none">
         <div class="flex items-center gap-3">
           <button 
             @click="state.isSidebarOpen = !state.isSidebarOpen" 

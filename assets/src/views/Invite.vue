@@ -401,9 +401,9 @@ const copyToClipboard = async () => {
 }
 
 .copy-btn.copied {
-  background-color: #2d5a27;
-  border-color: #3c8c3c;
-  color: #7ee787;
+  background-color: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success);
 }
 
 .toast {
@@ -429,8 +429,8 @@ const copyToClipboard = async () => {
 }
 
 .toast.success {
-  border-color: #3c8c3c;
-  color: #7ee787;
+  border-color: var(--success-border);
+  color: var(--success);
 }
 
 .toast.error {

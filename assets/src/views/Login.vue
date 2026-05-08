@@ -233,7 +233,7 @@ onMounted(() => {
   display: none;
   margin-top: 8px;
   padding: 12px;
-  background-color: rgba(248, 81, 73, 0.1);
+  background-color: var(--danger-bg);
   border: 1px solid var(--danger);
   border-radius: 6px;
   color: var(--danger);
@@ -321,8 +321,8 @@ onMounted(() => {
 }
 
 .toast.success {
-  border-color: #3c8c3c;
-  color: #7ee787;
+  border-color: var(--success-border);
+  color: var(--success);
 }
 
 .toast.error {

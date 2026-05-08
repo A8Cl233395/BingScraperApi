@@ -67,14 +67,15 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
     </button>
 
     <transition
-      @enter="(el: any) => { el.style.height = '0px'; el.offsetHeight; el.style.height = el.scrollHeight + 'px'; }"
-      @after-enter="(el: any) => { el.style.height = 'auto'; }"
-      @leave="(el: any) => { el.style.height = el.scrollHeight + 'px'; el.offsetHeight; el.style.height = '0px'; }"
+      @enter="(el: any) => { el.style.transition = 'none'; el.style.height = '0px'; el.style.opacity = '0'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; }"
+      @after-enter="(el: any) => { el.style.transition = ''; el.style.height = 'auto'; }"
+      @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; el.style.opacity = '0'; }"
+      @after-leave="(el: any) => { el.style.transition = ''; }"
     >
       <!-- Dropdown -->
       <div
         v-if="isOpen"
-        class="absolute left-0 mt-2 w-64 bg-bg-main border border-border-main rounded-lg shadow-xl z-50 py-1 overflow-hidden origin-top-left transition-all duration-300 ease-in-out"
+        class="absolute left-0 mt-2 w-64 bg-bg-main border border-border-main rounded-lg shadow-xl z-50 py-1 overflow-hidden origin-top-left"
       >
         <template v-for="(info, name) in state.models" :key="name">
           <div
@@ -91,13 +92,14 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
             
             <!-- Details inline -->
             <transition
-              @enter="(el: any) => { el.style.height = '0px'; el.offsetHeight; el.style.height = el.scrollHeight + 'px'; }"
-              @after-enter="(el: any) => { el.style.height = 'auto'; }"
-              @leave="(el: any) => { el.style.height = el.scrollHeight + 'px'; el.offsetHeight; el.style.height = '0px'; }"
+              @enter="(el: any) => { el.style.transition = 'none'; el.style.height = '0px'; el.style.opacity = '0'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; }"
+              @after-enter="(el: any) => { el.style.transition = ''; el.style.height = 'auto'; }"
+              @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; el.style.opacity = '0'; }"
+              @after-leave="(el: any) => { el.style.transition = ''; }"
             >
               <div
                 v-if="expandedModel === name"
-                class="mt-2 pt-2 border-t border-border-main overflow-hidden transition-all duration-300 ease-in-out"
+                class="mt-2 pt-2 border-t border-border-main overflow-hidden"
                 @click.stop
               >
                 <p class="text-xs text-text-muted mb-2">{{ info.desc }}</p>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { state } from '../store';
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, onUnmounted } from 'vue';
 import { processImage } from '../utils/image';
 import api from '../utils/api';
 import { isMobileDevice } from '../utils/device';
@@ -44,6 +44,9 @@ const handleSend = () => {
     emit('send', content);
     textInput.value = '';
     images.value = [];
+    if (isMobileDevice()) {
+      textareaRef.value?.blur();
+    }
     nextTick(adjustHeight);
   }
 };
@@ -109,7 +112,13 @@ const removeImage = (index: number) => {
   images.value.splice(index, 1);
 };
 
+let blurTimeout: any = null;
+
 const handleFocus = () => {
+  if (blurTimeout) {
+    clearTimeout(blurTimeout);
+    blurTimeout = null;
+  }
   if (isMobileDevice()) {
     emit('mobile-focus');
     window.scrollTo(0, 0);
@@ -122,9 +131,16 @@ const handleFocus = () => {
 
 const handleBlur = () => {
   if (isMobileDevice()) {
-    emit('mobile-blur');
+    blurTimeout = setTimeout(() => {
+      emit('mobile-blur');
+      blurTimeout = null;
+    }, 200);
   }
 };
+
+onUnmounted(() => {
+  if (blurTimeout) clearTimeout(blurTimeout);
+});
 
 const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boolean) => {
   try {
@@ -148,7 +164,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
 
 <template>
   <div 
-    class="w-full max-w-4xl mx-auto px-4 layout-transition flex flex-col flex-shrink-0 pb-6 pt-2"
+    class="w-full max-w-4xl mx-auto px-4 layout-transition flex flex-col shrink-0 pb-6 pt-2"
   >
     <div 
       class="transition-all duration-500 ease-in-out overflow-hidden flex flex-col justify-end" 
@@ -171,6 +187,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           <img :src="img" class="w-full h-full object-cover" />
           <button 
             @click="removeImage(index)"
+            @mousedown.prevent
             class="absolute top-0 right-0 bg-black/50 text-white w-5 h-5 flex items-center justify-center rounded-bl-md opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <i class="fas fa-times text-[10px]"></i>
@@ -195,23 +212,26 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
       <div class="flex items-center gap-2">
         <button 
           @click="state.isThinking = !state.isThinking"
+          @mousedown.prevent
           class="flex items-center gap-1.5 px-3 py-1.5 border border-border-input rounded-md text-xs hover:bg-bg-hover transition-colors"
-          :class="state.isThinking ? 'bg-text-main text-bg-main border-text-main hover:bg-text-muted' : 'bg-bg-main text-text-muted'"
+          :class="state.isThinking ? 'bg-primary-main text-primary-text border-primary-main hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
         >
-          <i class="fa-solid fa-brain" :class="state.isThinking ? 'text-bg-main' : 'text-text-placeholder'"></i>
+          <i class="fa-solid fa-brain" :class="state.isThinking ? 'text-primary-text' : 'text-text-placeholder'"></i>
           深度思考
         </button>
         <button 
           @click="state.isEnableFunction = !state.isEnableFunction"
+          @mousedown.prevent
           class="flex items-center gap-1.5 px-3 py-1.5 border border-border-input rounded-md text-xs hover:bg-bg-hover transition-colors"
-          :class="state.isEnableFunction ? 'bg-text-main text-bg-main border-text-main hover:bg-text-muted' : 'bg-bg-main text-text-muted'"
+          :class="state.isEnableFunction ? 'bg-primary-main text-primary-text border-primary-main hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
         >
-          <i class="fa-solid fa-wrench" :class="state.isEnableFunction ? 'text-bg-main' : 'text-text-placeholder'"></i>
+          <i class="fa-solid fa-wrench" :class="state.isEnableFunction ? 'text-primary-text' : 'text-text-placeholder'"></i>
           使用工具
         </button>
         <div class="relative">
           <button 
             @click="showOptions = !showOptions"
+            @mousedown.prevent
             class="w-8 h-8 flex items-center justify-center border border-border-input rounded-md text-text-placeholder hover:bg-bg-hover transition-colors" 
             title="默认选项"
           >
@@ -225,17 +245,15 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           </button>
 
           <transition
-            enter-active-class="transition duration-300 ease-out"
-            enter-from-class="transform scale-y-0 opacity-0"
-            enter-to-class="transform scale-y-100 opacity-100"
-            leave-active-class="transition duration-200 ease-in"
-            leave-from-class="transform scale-y-100 opacity-100"
-            leave-to-class="transform scale-y-0 opacity-0"
+            @enter="(el: any) => { el.style.transition = 'none'; el.style.height = '0px'; el.style.opacity = '0'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; }"
+            @after-enter="(el: any) => { el.style.transition = ''; el.style.height = 'auto'; }"
+            @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; el.style.opacity = '0'; }"
+            @after-leave="(el: any) => { el.style.transition = ''; }"
           >
             <!-- Default Options Popup -->
             <div 
               v-if="showOptions"
-              class="absolute left-0 w-48 bg-bg-main border border-border-main rounded-lg shadow-xl z-50 p-1"
+              class="absolute left-0 w-48 bg-bg-main border border-border-main rounded-lg shadow-xl z-50 p-1 overflow-hidden"
               :class="[
                 props.isChatStarted ? 'bottom-full mb-2 origin-bottom-left' : 'top-full mt-2 origin-top-left'
               ]"
@@ -243,6 +261,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
               <div class="px-3 py-2 text-[10px] font-bold text-text-placeholder uppercase tracking-wider">默认选项</div>
               <div 
                 @click="setDefaultOption('thinking', !state.defaultSettings.thinking)"
+                @mousedown.prevent
                 class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
               >
                 <span>深度思考</span>
@@ -250,6 +269,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
               </div>
               <div 
                 @click="setDefaultOption('enable_function', !state.defaultSettings.enable_function)"
+                @mousedown.prevent
                 class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
               >
                 <span>使用工具</span>
@@ -271,6 +291,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         />
         <button 
           @click="fileInput?.click()"
+          @mousedown.prevent
           class="text-text-placeholder hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md transition-colors" 
           title="上传图片"
         >
@@ -278,6 +299,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         </button>
         <button 
           @click="handleSend"
+          @mousedown.prevent
           class="bg-primary-main text-primary-text hover:bg-primary-hover w-8 h-8 flex items-center justify-center rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="state.isStreaming"
         >

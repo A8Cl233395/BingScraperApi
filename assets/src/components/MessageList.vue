@@ -580,13 +580,13 @@ defineExpose({ handleSend, messages, scrollToTop });
             @click="scrollToNode(node.id)"
           >
             <div 
-              class="text-xs text-text-muted transition-all duration-300 origin-right whitespace-nowrap max-w-[0px] overflow-hidden opacity-0"
+              class="text-xs text-text-muted transition-all duration-300 origin-right whitespace-nowrap max-w-0 overflow-hidden opacity-0"
               :class="isNavExpanded ? 'max-w-[240px] opacity-100' : ''"
             >
               <span class="group-hover/item:text-text-main transition-colors">{{ getMsgPreview(node) }}</span>
             </div>
             <div 
-              class="h-1 rounded-full transition-all duration-300 flex-shrink-0"
+              class="h-1 rounded-full transition-all duration-300 shrink-0"
               :class="[
                 isNavExpanded ? 'w-4' : 'w-3',
                 activeNodeId === node.id ? 'bg-primary-main shadow-[0_0_8px_rgba(var(--primary-rgb),0.5)]' : 'bg-text-placeholder/40 group-hover/item:bg-text-muted'

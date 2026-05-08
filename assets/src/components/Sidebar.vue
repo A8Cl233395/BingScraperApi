@@ -68,14 +68,14 @@ const handleScroll = () => {
 
 <template>
   <aside 
-    class="bg-bg-panel h-full transition-all duration-300 ease-in-out flex-shrink-0 z-[100] shadow-[1px_0_5px_rgba(0,0,0,0.05)] overflow-hidden"
+    class="bg-bg-panel h-full transition-all duration-300 ease-in-out shrink-0 z-100 shadow-[1px_0_5px_rgba(0,0,0,0.05)] overflow-hidden"
     :class="[
       state.isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
       state.isMobile ? 'fixed inset-y-0 left-0 w-72' : 'relative w-64',
       !state.isSidebarOpen && !state.isMobile ? 'md:-ml-64 md:translate-x-0 md:border-r-0' : 'border-r border-border-main md:ml-0'
     ]"
   >
-    <div :class="state.isMobile ? 'w-72' : 'w-64'" class="h-full flex flex-col flex-shrink-0">
+    <div :class="state.isMobile ? 'w-72' : 'w-64'" class="h-full flex flex-col shrink-0">
       <div class="p-4 flex justify-between items-center">
         <span class="font-bold text-lg text-text-main">AI Chat</span>
         <button @click="state.isSidebarOpen = false" class="md:hidden text-text-muted hover:text-text-main">
@@ -114,7 +114,7 @@ const handleScroll = () => {
           <Transition name="fade">
             <div 
               v-if="pressingChatId === chat[0]"
-              class="absolute inset-0 bg-white/20 z-0"
+              class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
             ></div>
           </Transition>
           <span class="relative z-10 truncate text-sm pr-6">{{ chat[1] }}</span>
@@ -141,7 +141,7 @@ const handleScroll = () => {
   <div 
     v-if="state.isSidebarOpen && state.isMobile" 
     @click="state.isSidebarOpen = false" 
-    class="fixed inset-0 z-[90] transition-opacity"
+    class="fixed inset-0 z-90 transition-opacity"
     style="background-color: rgba(0, 0, 0, 0.4);"
   ></div>
 

@@ -3,7 +3,6 @@ import { marked } from 'marked';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import hljs from 'highlight.js/lib/common';
-import '../hljs-theme.css';
 
 marked.use({
   breaks: true,
@@ -30,7 +29,7 @@ marked.use({
       }
       
       return `
-<div class="code-block-wrapper my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-bg-main" style="touch-action: pan-x pan-y;">
+<div class="code-block-wrapper my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-code-bg" style="touch-action: pan-x pan-y;">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${lang}</span>
     <button class="copy-code-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
@@ -47,6 +46,38 @@ marked.use({
 // Add a custom extension to protect LaTeX from being mangled by marked
 marked.use({
   extensions: [
+    {
+      name: 'strong',
+      level: 'inline',
+      start(src) { return src.indexOf('**'); },
+      tokenizer(src) {
+        const match = src.match(/^\*\*([^\s\*](?:[\s\S]*?[^\s\*])?)\*\*(?!\*)/);
+        if (match) {
+          return {
+            type: 'strong',
+            raw: match[0],
+            text: match[1],
+            tokens: this.lexer.inlineTokens(match[1])
+          };
+        }
+      }
+    },
+    {
+      name: 'em',
+      level: 'inline',
+      start(src) { return src.indexOf('*'); },
+      tokenizer(src) {
+        const match = src.match(/^\*([^\s\*](?:[\s\S]*?[^\s\*])?)\*(?!\*)/);
+        if (match) {
+          return {
+            type: 'em',
+            raw: match[0],
+            text: match[1],
+            tokens: this.lexer.inlineTokens(match[1])
+          };
+        }
+      }
+    },
     {
       name: 'inlineMath',
       level: 'inline',
@@ -587,7 +618,7 @@ const handleContentClick = (e: MouseEvent) => {
             <Transition name="fade">
               <div 
                 v-if="!userTextContent && !isEditing && isPressing"
-                class="absolute inset-0 bg-white/20 z-0"
+                class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
               ></div>
             </Transition>
             <img v-for="(url, idx) in images" :key="idx" :src="url" @click="state.previewImageUrl = url" class="relative z-10 max-w-[200px] max-h-[200px] rounded-md border border-border-main cursor-pointer" />
@@ -608,7 +639,7 @@ const handleContentClick = (e: MouseEvent) => {
             <Transition name="fade">
               <div 
                 v-if="isPressing"
-                class="absolute inset-0 bg-white/20 z-0"
+                class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
               ></div>
             </Transition>
             
@@ -677,7 +708,7 @@ const handleContentClick = (e: MouseEvent) => {
             <Transition name="fade">
               <div 
                 v-if="isPressing"
-                class="absolute inset-0 bg-white/20 z-0"
+                class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
               ></div>
             </Transition>
             <template v-for="(item, idx) in message.assistant" :key="idx">
@@ -722,7 +753,7 @@ const handleContentClick = (e: MouseEvent) => {
     </div>
 
     <!-- Mobile Context Menu -->
-    <div v-if="showMobileMenu" class="fixed inset-0 z-[1100]" @click="showMobileMenu = false" @contextmenu.prevent>
+    <div v-if="showMobileMenu" class="fixed inset-0 z-1100" @click="showMobileMenu = false" @contextmenu.prevent>
       <div class="fixed inset-0 bg-black/5"></div>
       <div 
         class="absolute bg-bg-panel border border-border-main rounded-lg shadow-xl overflow-hidden animate-in fade-in zoom-in duration-150 py-1" 
@@ -749,130 +780,3 @@ const handleContentClick = (e: MouseEvent) => {
     </div>
   </div>
 </template>
-
-<style>
-@reference "tailwindcss";
-
-.math-block {
-  width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 0.5rem 0;
-  margin: 0.5rem 0;
-}
-
-.math-block .katex-display {
-  margin: 0;
-  text-align: center;
-  min-width: 100%;
-}
-
-.prose pre { @apply bg-transparent p-0 m-0 border-none rounded-none overflow-x-auto; }
-.prose code { @apply text-[0.85em] font-mono; }
-.prose :not(pre) > code {
-  background-color: var(--bg-panel);
-  color: var(--text-main);
-  border: 1px solid var(--border-color);
-  @apply px-1.5 py-0.5 rounded mx-0.5;
-}
-.prose p { @apply mb-3 last:mb-0 leading-relaxed; }
-.prose ul, .prose ol { @apply ml-6 mb-4 mt-2 list-outside; }
-.prose ul { @apply list-disc; }
-.prose ol { @apply list-decimal; }
-.prose li { @apply mb-1.5; }
-.prose li > p { @apply mb-1; }
-.prose li > ul, .prose li > ol { @apply mt-1 mb-2; }
-
-.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
-  color: var(--text-main);
-  @apply font-bold mt-6 mb-3 leading-tight;
-}
-.prose h1 { 
-  @apply text-xl pb-2; 
-  border-bottom: 1px solid var(--border-color);
-}
-.prose h2 { 
-  @apply text-lg pb-1; 
-  border-bottom: 1px solid var(--border-color);
-}
-.prose h3 { @apply text-base; }
-
-.prose blockquote {
-  border-left: 4px solid var(--border-color);
-  background-color: var(--bg-panel);
-  color: var(--text-muted);
-  @apply pl-4 py-1 my-4 rounded-r-sm;
-}
-
-.table-wrapper {
-  @apply my-4 border rounded-md overflow-x-auto w-full;
-  border-color: var(--border-color);
-  touch-action: pan-x pan-y;
-}
-
-.prose table {
-  @apply w-full border-collapse text-sm table;
-  min-width: max-content;
-}
-.prose thead {
-  background-color: var(--bg-panel);
-  @apply text-left;
-}
-.prose th {
-  @apply px-4 py-2 font-semibold;
-  border-bottom: 1px solid var(--border-color);
-}
-.prose td {
-  @apply px-4 py-2;
-  border-bottom: 1px solid var(--border-color);
-}
-.prose tr:last-child td {
-  @apply border-b-0;
-}
-.prose tr:nth-child(even) {
-  background-color: rgba(0, 0, 0, 0.02);
-}
-@media (prefers-color-scheme: dark) {
-  .prose tr:nth-child(even) {
-    background-color: rgba(255, 255, 255, 0.02);
-  }
-}
-
-.prose a {
-  color: var(--primary);
-  @apply hover:underline decoration-1 underline-offset-4;
-}
-
-.prose hr {
-  @apply my-6;
-  border-top: 1px solid var(--border-color);
-}
-
-.prose strong {
-  @apply font-semibold;
-  color: var(--text-main);
-}
-
-.prose em {
-  @apply italic;
-}
-
-.prose img {
-  @apply cursor-pointer rounded-md;
-}
-
-/* Code block wrapper adjustments */
-.code-block-wrapper pre code.hljs {
-  @apply bg-transparent p-0;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-</style>

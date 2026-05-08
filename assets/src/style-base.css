@@ -1,67 +1,77 @@
 @import "tailwindcss";
 
 :root {
-    --bg-main: #FFFFFF;
-    --bg-panel: #F8F8F8;
-    --bg-hover: #F2F2F2;
-    --bg-active: #E8E8E8;
-    --text-main: #3B3B3B;
-    --text-muted: #616161;
-    --text-placeholder: #767676;
-    --border-color: #E5E5E5;
-    --border-input: #CECECE;
-    --primary: #005FB8;
-    --primary-hover: #0258A8;
-    --primary-text: #FFFFFF;
-    --danger: #F85149;
-    --btn-secondary-bg: #E5E5E5;
-    --btn-secondary-text: #3B3B3B;
-    --code-bg: #fafafa;
-    
-    /* hljs atom-one-light */
-    --hljs-bg: #fafafa;
-    --hljs-color: #383a42;
-    --hljs-comment: #a0a1a7;
-    --hljs-keyword: #a626a4;
-    --hljs-section: #e45649;
-    --hljs-literal: #0184bb;
-    --hljs-string: #50a14f;
-    --hljs-attr: #986801;
-    --hljs-symbol: #4078f2;
-    --hljs-built-in: #c18401;
+  --bg-main: #FFFFFF;
+  --bg-panel: #F8F8F8;
+  --bg-hover: #F2F2F2;
+  --bg-active: #E8E8E8;
+  --text-main: #3B3B3B;
+  --text-muted: #616161;
+  --text-placeholder: #767676;
+  --border-color: #E5E5E5;
+  --border-input: #CECECE;
+  --primary: #005FB8;
+  --primary-hover: #0258A8;
+  --primary-text: #FFFFFF;
+  --danger: #F85149;
+  --btn-secondary-bg: #E5E5E5;
+  --btn-secondary-text: #3B3B3B;
+  --code-bg: #F8F8F8;
+  --link: #005FB8;
+  --success: #2EA043;
+  --success-border: #3c8c3c;
+  --success-bg: rgba(46, 160, 67, 0.1);
+  --danger-bg: rgba(248, 81, 73, 0.1);
+
+  /* hljs vs-code light style */
+  --hljs-bg: #ffffff;
+  --hljs-color: #000000;
+  --hljs-comment: #008000;
+  --hljs-keyword: #0000ff;
+  --hljs-section: #795e26;
+  --hljs-literal: #098658;
+  --hljs-string: #a31515;
+  --hljs-attr: #001080;
+  --hljs-symbol: #0000ff;
+  --hljs-built-in: #267f99;
 }
 
 @media (prefers-color-scheme: dark) {
-    :root {
-        --bg-main: #1F1F1F;
-        --bg-panel: #181818;
-        --bg-hover: #2B2B2B;
-        --bg-active: #313131;
-        --text-main: #CCCCCC;
-        --text-muted: #868686;
-        --text-placeholder: #989898;
-        --border-color: #2B2B2B;
-        --border-input: #3C3C3C;
-        --primary: #0078D4;
-        --primary-hover: #026EC1;
-        --primary-text: #FFFFFF;
-        --danger: #F85149;
-        --btn-secondary-bg: #313131;
-        --btn-secondary-text: #CCCCCC;
-        --code-bg: #282c34;
+  :root {
+    --bg-main: #1F1F1F;
+    --bg-panel: #181818;
+    --bg-hover: #2B2B2B;
+    --bg-active: #313131;
+    --text-main: #CCCCCC;
+    --text-muted: #868686;
+    --text-placeholder: #989898;
+    --border-color: #2B2B2B;
+    --border-input: #3C3C3C;
+    --primary: #0078D4;
+    --primary-hover: #026EC1;
+    --primary-text: #FFFFFF;
+    --danger: #F85149;
+    --btn-secondary-bg: #00000000;
+    --btn-secondary-text: #CCCCCC;
+    --code-bg: #2B2B2B;
+    --link: #4daafc;
+    --success: #3FB950;
+    --success-border: #3c8c3c;
+    --success-bg: #2d5a27;
+    --danger-bg: rgba(248, 81, 73, 0.1);
 
-        /* hljs atom-one-dark */
-        --hljs-bg: #282c34;
-        --hljs-color: #abb2bf;
-        --hljs-comment: #5c6370;
-        --hljs-keyword: #c678dd;
-        --hljs-section: #e06c75;
-        --hljs-literal: #56b6c2;
-        --hljs-string: #98c379;
-        --hljs-attr: #d19a66;
-        --hljs-symbol: #61aeee;
-        --hljs-built-in: #e6c07b;
-    }
+    /* hljs vs-code dark style */
+    --hljs-bg: transparent;
+    --hljs-color: #d4d4d4;
+    --hljs-comment: #6a9955;
+    --hljs-keyword: #569cd6;
+    --hljs-section: #dcdcaa;
+    --hljs-literal: #b5cea8;
+    --hljs-string: #ce9178;
+    --hljs-attr: #9cdcfe;
+    --hljs-symbol: #d7ba7d;
+    --hljs-built-in: #4ec9b0;
+  }
 }
 
 @theme {
@@ -84,12 +94,18 @@
   --color-btn-secondary-bg: var(--btn-secondary-bg);
   --color-btn-secondary-text: var(--btn-secondary-text);
   --color-code-bg: var(--code-bg);
+  --color-link: var(--link);
+  --color-success-main: var(--success);
+  --color-success-border: var(--success-border);
+  --color-success-bg: var(--success-bg);
+  --color-danger-bg: var(--danger-bg);
 }
 
 @utility no-scrollbar {
   &::-webkit-scrollbar {
     display: none;
   }
+
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
@@ -99,6 +115,7 @@
     &::-webkit-scrollbar {
       display: block;
     }
+
     -ms-overflow-style: auto;
     scrollbar-width: thin;
   }

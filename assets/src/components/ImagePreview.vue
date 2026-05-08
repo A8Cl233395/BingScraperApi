@@ -184,7 +184,7 @@ onUnmounted(() => {
 
 <template>
   <div v-if="state.previewImageUrl"
-       class="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
+       class="fixed inset-0 z-100 flex items-center justify-center bg-black/90"
        @wheel="handleWheel"
        @click.self="closePreview">
 
@@ -220,7 +220,7 @@ onUnmounted(() => {
       <button @click="zoomIn" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="放大">
         <i class="fas fa-search-plus"></i>
       </button>
-      <div class="w-[1px] h-4 bg-white/30 mx-1"></div>
+      <div class="w-px h-4 bg-white/30 mx-1"></div>
       <button @click="resetView" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="重置">
         <i class="fas fa-expand"></i>
       </button>
