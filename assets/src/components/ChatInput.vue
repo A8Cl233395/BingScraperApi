@@ -17,6 +17,7 @@ const images = ref<string[]>([]);
 const fileInput = ref<HTMLInputElement | null>(null);
 const showOptions = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
+const isProcessingImage = ref(false);
 
 const adjustHeight = () => {
   if (textareaRef.value) {
@@ -77,12 +78,26 @@ const handleFileUpload = async (e: Event) => {
 };
 
 const addFiles = async (files: File[]) => {
-  for (const file of files) {
-    if (images.value.length >= 10) break;
-    if (file.type.startsWith('image/')) {
-      const base64 = await processImage(file);
-      images.value.push(base64);
+  isProcessingImage.value = true;
+  try {
+    for (const file of files) {
+      if (images.value.length >= 10) break;
+      const isImage = file.type.startsWith('image/') || 
+                      file.name.toLowerCase().endsWith('.heic') || 
+                      file.name.toLowerCase().endsWith('.heif');
+      
+      if (isImage) {
+        try {
+          const base64 = await processImage(file);
+          images.value.push(base64);
+        } catch (error) {
+          console.error('Failed to process image:', error);
+          alert('图片处理失败，请稍后重试');
+        }
+      }
     }
+  } finally {
+    isProcessingImage.value = false;
   }
 };
 
@@ -182,7 +197,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
       @dragover.prevent
     >
       <!-- Image Previews -->
-      <div v-if="images.length > 0" class="flex flex-wrap gap-2 mb-2">
+      <div v-if="images.length > 0 || isProcessingImage" class="flex flex-wrap gap-2 mb-2">
         <div v-for="(img, index) in images" :key="index" class="relative group w-16 h-16 rounded-md overflow-hidden border border-border-main">
           <img :src="img" class="w-full h-full object-cover" />
           <button 
@@ -192,6 +207,9 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           >
             <i class="fas fa-times text-[10px]"></i>
           </button>
+        </div>
+        <div v-if="isProcessingImage" class="w-16 h-16 rounded-md border border-dashed border-border-main flex items-center justify-center bg-bg-hover">
+          <i class="fas fa-spinner fa-spin text-text-placeholder"></i>
         </div>
       </div>
 

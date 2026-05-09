@@ -345,7 +345,7 @@ if is_webchat_enabled:
                         if img.format != "JPEG":
                             raise ValueError()
                         width, height = img.size
-                        if width > 1000 or height > 1000:
+                        if width > 1600 or height > 1600:
                             raise ValueError()
                 except:
                     raise ValueError

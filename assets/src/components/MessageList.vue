@@ -550,7 +550,7 @@ defineExpose({ handleSend, messages, scrollToTop });
           />
           <!-- Assistant part of the node -->
           <MessageBubble 
-            v-if="node.assistant && (node.assistant.length > 0 || node.thinking)"
+            v-if="(node.assistant && (node.assistant.length > 0 || node.thinking)) || node.isStreaming"
             :message="node" 
             :isUser="false" 
             :nodeId="node.id"

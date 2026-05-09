@@ -13,6 +13,7 @@
     "autoprefixer": "^10.5.0",
     "axios": "^1.15.1",
     "font-awesome": "^4.7.0",
+    "heic2any": "^0.0.4",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.45",
     "marked": "^18.0.2",

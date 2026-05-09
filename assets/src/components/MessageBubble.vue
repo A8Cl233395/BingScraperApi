@@ -211,6 +211,13 @@ const editText = ref('');
 const editImages = ref<string[]>([]);
 const editFileInput = ref<HTMLInputElement | null>(null);
 
+watch(() => props.nodeId, () => {
+  isThinkingExpanded.value = false;
+  expandedThinkingSegments.value = {};
+  expandedTools.value = {};
+  isEditing.value = false;
+});
+
 // === MOBILE LONG PRESS & MENU ===
 const showMobileMenu = ref(false);
 const longPressTimer = ref<number | null>(null);
@@ -349,10 +356,12 @@ let pendingThinkingUpdate: string | null = null;
 let resumeTimeout: any = null;
 const applyPendingUpdates = () => {
   if (pendingUpdate) {
+    for (const key in segmentHtml) delete segmentHtml[key];
     Object.assign(segmentHtml, pendingUpdate);
     pendingUpdate = null;
   }
   if (pendingThinkingSegmentsUpdate) {
+    for (const key in segmentThinking) delete segmentThinking[key];
     Object.assign(segmentThinking, pendingThinkingSegmentsUpdate);
     pendingThinkingSegmentsUpdate = null;
   }
@@ -404,11 +413,19 @@ watch(() => props.isUser ? null : props.message?.assistant, (arr) => {
       }
     }
   }
+
+  for (const key in segmentHtml) {
+    if (!(key in map)) hasChanges = true;
+  }
+  for (const key in segmentThinking) {
+    if (!(key in thinkingMap)) hasThinkingChanges = true;
+  }
   
   if (hasChanges) {
     if (state.isTextSelected || state.isMouseDown) {
       pendingUpdate = map;
     } else {
+      for (const key in segmentHtml) delete segmentHtml[key];
       Object.assign(segmentHtml, map);
       pendingUpdate = null;
     }
@@ -417,6 +434,7 @@ watch(() => props.isUser ? null : props.message?.assistant, (arr) => {
     if (state.isTextSelected || state.isMouseDown) {
       pendingThinkingSegmentsUpdate = thinkingMap;
     } else {
+      for (const key in segmentThinking) delete segmentThinking[key];
       Object.assign(segmentThinking, thinkingMap);
       pendingThinkingSegmentsUpdate = null;
     }
@@ -690,7 +708,7 @@ const handleContentClick = (e: MouseEvent) => {
               <i class="fas fa-brain text-[10px] w-3 text-center"></i><span>思考过程</span>
               <i class="fas fa-chevron-right text-[10px] transition-transform duration-200" :class="isThinkingExpanded ? 'rotate-90' : ''"></i>
             </div>
-            <div v-if="isThinkingExpanded" class="mt-2 p-4 bg-bg-panel rounded-lg text-xs text-text-muted border-l-2 border-border-main leading-relaxed italic whitespace-pre-wrap shadow-sm">{{ thinkingContent }}</div>
+            <div v-if="isThinkingExpanded" class="mt-2 p-4 bg-bg-panel rounded-lg text-xs text-text-muted border-l-2 border-border-main leading-relaxed whitespace-pre-wrap shadow-sm">{{ thinkingContent }}</div>
           </div>
 
           <!-- Assistant content -->
@@ -711,6 +729,15 @@ const handleContentClick = (e: MouseEvent) => {
                 class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
               ></div>
             </Transition>
+            
+            <!-- Waiting for stream (Animation 1) -->
+            <div v-if="message.isStreaming && (!message.assistant || message.assistant.length === 0) && !thinkingContent" class="relative z-10 w-full flex items-center min-h-[32px] px-1">
+              <div class="stream-waiting">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+              </div>
+            </div>
             <template v-for="(item, idx) in message.assistant" :key="idx">
               <!-- Reasoning content (per-segment) -->
               <div v-if="item.role === 'assistant' && segmentThinking[idx]" class="relative z-10 my-2 w-full">
@@ -718,7 +745,7 @@ const handleContentClick = (e: MouseEvent) => {
                   <i class="fas fa-brain text-[10px] w-3 text-center"></i><span>思考过程</span>
                   <i class="fas fa-chevron-right text-[10px] transition-transform duration-200" :class="expandedThinkingSegments[idx] ? 'rotate-90' : ''"></i>
                 </div>
-                <div v-if="expandedThinkingSegments[idx]" class="mt-2 p-4 bg-bg-panel rounded-lg text-xs text-text-muted border-l-2 border-border-main leading-relaxed italic whitespace-pre-wrap shadow-sm">{{ segmentThinking[idx] }}</div>
+                <div v-if="expandedThinkingSegments[idx]" class="mt-2 p-4 bg-bg-panel rounded-lg text-xs text-text-muted border-l-2 border-border-main leading-relaxed whitespace-pre-wrap shadow-sm">{{ segmentThinking[idx] }}</div>
               </div>
 
               <!-- Text content -->
@@ -741,6 +768,11 @@ const handleContentClick = (e: MouseEvent) => {
                 </div>
               </template>
             </template>
+            
+            <!-- Streaming active cursor (Animation 2) -->
+            <div v-if="message.isStreaming && (message.assistant?.length > 0 || thinkingContent)" class="relative z-10 flex items-center mt-2 mb-1 px-1 opacity-80 h-4">
+              <span class="stream-cursor"></span>
+            </div>
           </div>
           
           <!-- Assistant Actions -->
@@ -780,3 +812,41 @@ const handleContentClick = (e: MouseEvent) => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.stream-waiting {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+}
+.stream-waiting .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  animation: pulse-dot 1.4s infinite ease-in-out both;
+}
+.stream-waiting .dot:nth-child(1) { animation-delay: -0.32s; }
+.stream-waiting .dot:nth-child(2) { animation-delay: -0.16s; }
+.stream-waiting .dot:nth-child(3) { animation-delay: 0s; }
+
+@keyframes pulse-dot {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+.stream-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 14px;
+  background-color: var(--primary);
+  border-radius: 1px;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+</style>

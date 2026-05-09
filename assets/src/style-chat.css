@@ -125,7 +125,6 @@
 .hljs-comment,
 .hljs-quote {
   color: var(--hljs-comment);
-  font-style: italic;
 }
 
 .hljs-doctag,
