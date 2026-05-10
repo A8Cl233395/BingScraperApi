@@ -13,7 +13,7 @@ const close = () => {
       <header class="h-14 flex items-center px-4 justify-between border-b border-border-main shrink-0">
         <span class="font-medium text-text-main">选择文本</span>
         <button @click="close" class="w-10 h-10 flex items-center justify-center text-text-muted hover:text-text-main">
-          <i class="fas fa-times text-lg"></i>
+          <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-lg" />
         </button>
       </header>
       <div class="flex-1 overflow-y-auto p-4 select-text">

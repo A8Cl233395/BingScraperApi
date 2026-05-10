@@ -108,7 +108,7 @@ watch(() => state.currentChatId, (newId) => {
             @dblclick.stop
             class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover transition-colors"
           >
-            <i class="fas" :class="state.isSidebarOpen ? 'fa-align-left' : 'fa-bars'"></i>
+            <FontAwesomeIcon :icon="['fas', state.isSidebarOpen ? 'align-left' : 'bars']" />
           </button>
           <button 
             @click="startNewChat" 
@@ -116,7 +116,7 @@ watch(() => state.currentChatId, (newId) => {
             class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover transition-colors" 
             title="新对话"
           >
-            <i class="far fa-pen-to-square"></i>
+            <FontAwesomeIcon :icon="['far', 'pen-to-square']" />
           </button>
           
           <ModelSelector />

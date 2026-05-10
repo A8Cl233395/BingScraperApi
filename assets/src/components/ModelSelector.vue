@@ -63,7 +63,7 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
         {{ state.currentModel || '选择模型' }}
         <span v-if="state.currentVModel" class="text-text-placeholder">/ {{ state.currentVModel }}</span>
       </span>
-      <i class="fas fa-chevron-down text-[10px] text-text-placeholder transition-transform duration-200" :class="isOpen ? 'rotate-180' : ''"></i>
+      <FontAwesomeIcon :icon="['fas', 'chevron-down']" class="text-[10px] text-text-placeholder transition-transform duration-200" :class="isOpen ? 'rotate-180' : ''" />
     </button>
 
     <transition
@@ -87,7 +87,7 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
               <span class="text-sm" :class="state.currentModel === name ? 'text-primary-main font-semibold' : 'text-text-main'">
                 {{ name }}
               </span>
-              <i class="fas fa-chevron-right text-[10px] text-text-placeholder transition-transform duration-200" :class="expandedModel === name ? 'rotate-90' : ''"></i>
+              <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] text-text-placeholder transition-transform duration-200" :class="expandedModel === name ? 'rotate-90' : ''" />
             </div>
             
             <!-- Details inline -->

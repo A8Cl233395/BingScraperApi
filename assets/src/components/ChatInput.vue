@@ -205,11 +205,11 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
             @mousedown.prevent
             class="absolute top-0 right-0 bg-black/50 text-white w-5 h-5 flex items-center justify-center rounded-bl-md opacity-0 group-hover:opacity-100 transition-opacity"
           >
-            <i class="fas fa-times text-[10px]"></i>
+            <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-[10px]" />
           </button>
         </div>
         <div v-if="isProcessingImage" class="w-16 h-16 rounded-md border border-dashed border-border-main flex items-center justify-center bg-bg-hover">
-          <i class="fas fa-spinner fa-spin text-text-placeholder"></i>
+          <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="text-text-placeholder" />
         </div>
       </div>
 
@@ -234,7 +234,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           class="flex items-center gap-1.5 px-3 py-1.5 border border-border-input rounded-md text-xs hover:bg-bg-hover transition-colors"
           :class="state.isThinking ? 'bg-primary-main text-primary-text border-primary-main hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
         >
-          <i class="fa-solid fa-brain" :class="state.isThinking ? 'text-primary-text' : 'text-text-placeholder'"></i>
+          <FontAwesomeIcon :icon="['fas', 'brain']" :class="state.isThinking ? 'text-primary-text' : 'text-text-placeholder'" />
           深度思考
         </button>
         <button 
@@ -243,7 +243,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           class="flex items-center gap-1.5 px-3 py-1.5 border border-border-input rounded-md text-xs hover:bg-bg-hover transition-colors"
           :class="state.isEnableFunction ? 'bg-primary-main text-primary-text border-primary-main hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
         >
-          <i class="fa-solid fa-wrench" :class="state.isEnableFunction ? 'text-primary-text' : 'text-text-placeholder'"></i>
+          <FontAwesomeIcon :icon="['fas', 'wrench']" :class="state.isEnableFunction ? 'text-primary-text' : 'text-text-placeholder'" />
           使用工具
         </button>
         <div class="relative">
@@ -253,13 +253,11 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
             class="w-8 h-8 flex items-center justify-center border border-border-input rounded-md text-text-placeholder hover:bg-bg-hover transition-colors" 
             title="默认选项"
           >
-            <i 
-              class="fas text-xs transition-transform" 
-              :class="[
-                props.isChatStarted ? 'fa-chevron-up' : 'fa-chevron-down',
-                showOptions ? 'rotate-180' : ''
-              ]"
-            ></i>
+            <FontAwesomeIcon
+              :icon="['fas', props.isChatStarted ? 'chevron-up' : 'chevron-down']"
+              class="text-xs transition-transform"
+              :class="showOptions ? 'rotate-180' : ''"
+            />
           </button>
 
           <transition
@@ -283,7 +281,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
                 class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
               >
                 <span>深度思考</span>
-                <i v-if="state.defaultSettings.thinking" class="fas fa-check text-text-main"></i>
+                <FontAwesomeIcon v-if="state.defaultSettings.thinking" :icon="['fas', 'check']" class="text-text-main" />
               </div>
               <div 
                 @click="setDefaultOption('enable_function', !state.defaultSettings.enable_function)"
@@ -291,7 +289,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
                 class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
               >
                 <span>使用工具</span>
-                <i v-if="state.defaultSettings.enable_function" class="fas fa-check text-text-main"></i>
+                <FontAwesomeIcon v-if="state.defaultSettings.enable_function" :icon="['fas', 'check']" class="text-text-main" />
               </div>
             </div>
           </transition>
@@ -313,7 +311,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           class="text-text-placeholder hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md transition-colors" 
           title="上传图片"
         >
-          <i class="far fa-image text-lg"></i>
+          <FontAwesomeIcon :icon="['far', 'image']" class="text-lg" />
         </button>
         <button 
           @click="handleSend"
@@ -321,8 +319,8 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           class="bg-primary-main text-primary-text hover:bg-primary-hover w-8 h-8 flex items-center justify-center rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="state.isStreaming"
         >
-          <i v-if="state.isStreaming" class="fas fa-spinner fa-spin text-sm"></i>
-          <i v-else class="fas fa-paper-plane text-sm"></i>
+          <FontAwesomeIcon v-if="state.isStreaming" :icon="['fas', 'spinner']" spin class="text-sm" />
+          <FontAwesomeIcon v-else :icon="['fas', 'paper-plane']" class="text-sm" />
         </button>
       </div>
 

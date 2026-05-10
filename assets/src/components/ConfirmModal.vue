@@ -27,13 +27,11 @@ const emit = defineEmits(['confirm', 'cancel']);
       >
         <div class="p-6">
           <div class="flex items-center justify-center w-12 h-12 rounded-full mb-4 mx-auto" :class="isDanger ? 'bg-danger-main/10' : 'bg-primary-main/10'">
-            <i 
-              class="fas" 
-              :class="[
-                isDanger ? 'fa-exclamation-triangle text-danger-main' : 'fa-info-circle text-primary-main',
-                'text-xl'
-              ]"
-            ></i>
+            <FontAwesomeIcon 
+              :icon="['fas', isDanger ? 'triangle-exclamation' : 'circle-info']"
+              :class="isDanger ? 'text-danger-main' : 'text-primary-main'"
+              class="text-xl"
+            />
           </div>
           
           <h3 class="text-lg font-semibold text-text-main text-center mb-2">

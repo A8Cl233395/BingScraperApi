@@ -192,7 +192,7 @@ onUnmounted(() => {
      <button @click="closePreview"
              class="absolute top-4 right-4 z-10 w-10 h-10 flex items-center justify-center text-white/70 hover:text-white transition-colors rounded-full bg-white/10 hover:bg-white/20"
              title="关闭 (Esc)">
-       <i class="fas fa-times text-xl"></i>
+        <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-xl" />
      </button>
 
      <!-- Image Container -->
@@ -214,18 +214,18 @@ onUnmounted(() => {
       <!-- Controls Bottom -->
     <div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 px-6 py-3 bg-black/50 text-white rounded-full">
       <button @click="zoomOut" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="缩小">
-        <i class="fas fa-search-minus"></i>
+        <FontAwesomeIcon :icon="['fas', 'magnifying-glass-minus']" />
       </button>
       <span class="text-sm font-mono min-w-[3rem] text-center select-none">{{ Math.round(scale * 100) }}%</span>
       <button @click="zoomIn" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="放大">
-        <i class="fas fa-search-plus"></i>
+        <FontAwesomeIcon :icon="['fas', 'magnifying-glass-plus']" />
       </button>
       <div class="w-px h-4 bg-white/30 mx-1"></div>
       <button @click="resetView" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="重置">
-        <i class="fas fa-expand"></i>
+        <FontAwesomeIcon :icon="['fas', 'expand']" />
       </button>
       <button @click="downloadImage" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="下载">
-        <i class="fas fa-download"></i>
+        <FontAwesomeIcon :icon="['fas', 'download']" />
       </button>
     </div>
   </div>

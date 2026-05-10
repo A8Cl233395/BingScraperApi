@@ -79,7 +79,7 @@ const handleScroll = () => {
       <div class="p-4 flex justify-between items-center">
         <span class="font-bold text-lg text-text-main">AI Chat</span>
         <button @click="state.isSidebarOpen = false" class="md:hidden text-text-muted hover:text-text-main">
-          <i class="fas fa-times"></i>
+          <FontAwesomeIcon :icon="['fas', 'xmark']" />
         </button>
       </div>
       
@@ -87,7 +87,7 @@ const handleScroll = () => {
         @click="state.currentChatId = null"
         class="px-4 py-2 border border-dashed border-border-input rounded-md mx-4 mb-4 text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors"
       >
-        <i class="fas fa-plus mr-2"></i> 新对话
+        <FontAwesomeIcon :icon="['fas', 'plus']" class="mr-2" /> 新对话
       </div>
       
       <div 
@@ -123,12 +123,12 @@ const handleScroll = () => {
             @click.stop="handleDelete(chat[0])"
             class="hidden group-hover:block text-text-placeholder hover:text-danger-main absolute right-2 z-20 transition-colors p-1"
           >
-            <i class="fas fa-trash-alt text-xs"></i>
+            <FontAwesomeIcon :icon="['fas', 'trash-can']" class="text-xs" />
           </button>
         </div>
         <!-- Loading indicator -->
         <div v-if="state.isLoadingHistory" class="text-center py-3 text-xs text-text-placeholder">
-          <i class="fas fa-spinner fa-spin mr-1"></i> 加载中...
+          <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="mr-1" /> 加载中...
         </div>
         <div v-if="!state.hasMoreHistory && state.chats.length > 0" class="text-center py-3 text-xs text-text-placeholder">
           没有更多了
