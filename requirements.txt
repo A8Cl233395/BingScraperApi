@@ -4,3 +4,6 @@ playwright
 requests
 lz4
 trafilatura
+openai
+pyyaml
+pillow

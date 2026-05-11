@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, watch } from 'vue';
+import { onMounted, onUnmounted, ref, computed, watch } from 'vue';
 import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
 import Sidebar from '../components/Sidebar.vue';
@@ -46,6 +46,24 @@ const handleHeaderDblClick = () => {
   messageListRef.value?.scrollToTop();
 };
 
+const handleMouseDown = () => { state.isMouseDown = true; };
+const handleMouseUp = () => {
+  state.isMouseDown = false;
+  const sel = window.getSelection();
+  state.isTextSelected = !!(sel && !sel.isCollapsed);
+};
+const handleTouchStart = () => { state.isMouseDown = true; };
+const handleTouchEnd = () => {
+  state.isMouseDown = false;
+  const sel = window.getSelection();
+  state.isTextSelected = !!(sel && !sel.isCollapsed);
+};
+const handleTouchCancel = () => { state.isMouseDown = false; };
+const handleSelectionChange = () => {
+  const sel = window.getSelection();
+  state.isTextSelected = !!(sel && !sel.isCollapsed);
+};
+
 onMounted(() => {
   const urlParams = new URLSearchParams(window.location.search);
   const idFromUrl = urlParams.get('id');
@@ -59,25 +77,24 @@ onMounted(() => {
   checkDevice();
   window.addEventListener('resize', checkDevice);
   window.addEventListener('popstate', handlePopState);
-  window.addEventListener('mousedown', () => state.isMouseDown = true);
-  window.addEventListener('mouseup', () => {
-    state.isMouseDown = false;
-    // Immediate check after mouseup to catch the selection state
-    const sel = window.getSelection();
-    state.isTextSelected = !!(sel && !sel.isCollapsed);
-  });
-  window.addEventListener('touchstart', () => { state.isMouseDown = true; }, { passive: true });
-  window.addEventListener('touchend', () => { 
-    state.isMouseDown = false; 
-    const sel = window.getSelection();
-    state.isTextSelected = !!(sel && !sel.isCollapsed);
-  }, { passive: true });
-  window.addEventListener('touchcancel', () => { state.isMouseDown = false; }, { passive: true });
-  window.addEventListener('selectionchange', () => {
-    const sel = window.getSelection();
-    state.isTextSelected = !!(sel && !sel.isCollapsed);
-  });
+  window.addEventListener('mousedown', handleMouseDown);
+  window.addEventListener('mouseup', handleMouseUp);
+  window.addEventListener('touchstart', handleTouchStart, { passive: true });
+  window.addEventListener('touchend', handleTouchEnd, { passive: true });
+  window.addEventListener('touchcancel', handleTouchCancel, { passive: true });
+  window.addEventListener('selectionchange', handleSelectionChange);
   state.fetchHome();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkDevice);
+  window.removeEventListener('popstate', handlePopState);
+  window.removeEventListener('mousedown', handleMouseDown);
+  window.removeEventListener('mouseup', handleMouseUp);
+  window.removeEventListener('touchstart', handleTouchStart);
+  window.removeEventListener('touchend', handleTouchEnd);
+  window.removeEventListener('touchcancel', handleTouchCancel);
+  window.removeEventListener('selectionchange', handleSelectionChange);
 });
 
 watch(() => state.currentChatId, (newId) => {

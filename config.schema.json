@@ -1,0 +1,289 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Web Search API config.yaml",
+  "type": "object",
+  "required": ["server"],
+  "additionalProperties": false,
+  "properties": {
+    "server": {
+      "type": "object",
+      "required": ["auth_key"],
+      "additionalProperties": false,
+      "properties": {
+        "auth_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "API 认证密钥，所有功能接口的 key 请求头必须匹配此值"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 5212
+        },
+        "cert": {
+          "type": "string",
+          "description": "SSL 证书路径，与 key 一起配置时启用 HTTPS"
+        },
+        "key": {
+          "type": "string",
+          "description": "SSL 私钥路径"
+        },
+        "public_address": {
+          "type": "string",
+          "format": "uri",
+          "description": "公网地址，阿里云语音识别生成临时下载链接时需要"
+        },
+        "log_level": {
+          "type": "string",
+          "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+          "default": "DEBUG"
+        }
+      }
+    },
+
+    "bing_crawler": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dom_timeout": {
+              "type": "integer",
+              "minimum": 1000,
+              "default": 5000,
+              "description": "Playwright 页面加载基础超时（毫秒）"
+            },
+            "bing_idle_time": {
+              "type": "number",
+              "minimum": 0,
+              "default": 3,
+              "description": "Bing 搜索页面网络空闲等待（秒）"
+            },
+            "web_idle_time": {
+              "type": "number",
+              "minimum": 0,
+              "default": 4,
+              "description": "页面阅读网络空闲等待（秒）"
+            }
+          }
+        }
+      ]
+    },
+
+    "ncm": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object" }
+      ],
+      "description": "网易云音乐歌词功能，值为空即启用"
+    },
+
+    "bilibili": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object" }
+      ],
+      "description": "B 站视频转录功能，需要同时启用 VoiceRecognition"
+    },
+
+    "VoiceRecognition": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["type", "key", "url"],
+            "additionalProperties": false,
+            "properties": {
+              "type": { "const": "azure" },
+              "key": { "type": "string", "minLength": 1 },
+              "url": { "type": "string", "format": "uri" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["type", "key", "model"],
+            "additionalProperties": false,
+            "properties": {
+              "type": { "const": "aliyun" },
+              "key": { "type": "string", "minLength": 1 },
+              "model": { "type": "string", "minLength": 1 }
+            }
+          }
+        ]
+      },
+      "description": "语音识别服务列表，支持多个实例轮询负载均衡"
+    },
+
+    "ocr": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["umi_ocr_endpoint"],
+          "additionalProperties": false,
+          "properties": {
+            "umi_ocr_endpoint": {
+              "type": "string",
+              "format": "uri",
+              "description": "Umi-OCR 服务地址"
+            }
+          }
+        }
+      ]
+    },
+
+    "link": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object" }
+      ],
+      "description": "WebSocket 链接，AI 聊天的记忆同步依赖此模块"
+    },
+
+    "invite": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["turnstile-secret", "invite-code-key"],
+          "additionalProperties": false,
+          "properties": {
+            "turnstile-secret": {
+              "type": "string",
+              "description": "Cloudflare Turnstile 密钥"
+            },
+            "invite-code-key": {
+              "type": "string",
+              "minLength": 1,
+              "description": "邀请码生成接口的验证密钥"
+            }
+          }
+        }
+      ]
+    },
+
+    "webchat": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["default-model", "default-vision-model", "title-model", "prompt_raw", "models"],
+          "additionalProperties": false,
+          "properties": {
+            "default-model": {
+              "type": "string",
+              "minLength": 1,
+              "description": "默认文本模型，必须是 models 中的一个 key"
+            },
+            "default-vision-model": {
+              "type": "string",
+              "minLength": 1,
+              "description": "默认视觉模型，必须是 models 中标记 vision: true 的 key"
+            },
+            "title-model": {
+              "type": "string",
+              "minLength": 1,
+              "description": "对话标题生成模型"
+            },
+            "prompt_raw": {
+              "type": "string",
+              "description": "系统提示词，支持 {memory_block}、{time}、{device} 占位符"
+            },
+            "models": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "object",
+                "required": ["desc", "api_key", "url"],
+                "additionalProperties": false,
+                "properties": {
+                  "desc": {
+                    "type": "string",
+                    "description": "模型显示名称"
+                  },
+                  "api_key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "OpenAI 兼容 API 地址"
+                  },
+                  "vision": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "标记为视觉模型，支持图片输入"
+                  },
+                  "thinking-extra-body": {
+                    "type": "object",
+                    "required": ["false", "true"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "false": {
+                        "type": "object",
+                        "description": "关闭思维链时的 extra_body 参数"
+                      },
+                      "true": {
+                        "type": "object",
+                        "description": "开启思维链时的 extra_body 参数"
+                      }
+                    }
+                  }
+                }
+              },
+              "description": "模型配置表，key 为模型标识符"
+            }
+          }
+        }
+      ]
+    }
+  },
+
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "webchat": { "type": "object" }
+        },
+        "required": ["webchat"]
+      },
+      "then": {
+        "required": ["bing_crawler", "link"]
+      }
+    },
+    {
+      "if": {
+        "required": ["bilibili"]
+      },
+      "then": {
+        "required": ["VoiceRecognition"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "VoiceRecognition": {
+            "type": "array",
+            "contains": {
+              "properties": { "type": { "const": "aliyun" } },
+              "required": ["type"]
+            }
+          }
+        },
+        "required": ["VoiceRecognition"]
+      },
+      "then": {
+        "properties": {
+          "server": {
+            "required": ["public_address"]
+          }
+        }
+      }
+    }
+  ]
+}

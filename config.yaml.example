@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/A8Cl233395/BingScraperApi/refs/heads/main/config.schema.json
 server:
   auth_key: ur_auth_key
   port: 5212

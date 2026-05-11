@@ -1391,6 +1391,9 @@ if __name__ != "__main__":
         ncm = Ncm()
 
     if is_bilibili_enabled:
+        if not is_vr_enabled:
+            logger.error("VoiceRecognition is required for Bilibili but not enabled")
+            exit(1)
         bili = Bilibili()
 
     if is_vr_enabled:
