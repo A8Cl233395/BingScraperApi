@@ -211,6 +211,8 @@ const isEditing = ref(false);
 const editText = ref('');
 const editImages = ref<string[]>([]);
 const editFileInput = ref<HTMLInputElement | null>(null);
+const copied = ref(false);
+let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 watch(() => props.nodeId, () => {
   isThinkingExpanded.value = false;
@@ -278,6 +280,7 @@ const cancelLongPress = () => {
 onBeforeUnmount(() => {
   cancelLongPress();
   preScrollPositions.clear();
+  if (copiedTimer) clearTimeout(copiedTimer);
 });
 
 const handleCopyAction = () => {
@@ -465,7 +468,13 @@ const getToolResponses = (callId: string) => {
   return props.message.assistant.filter((m: any) => m.role === 'tool' && m.tool_call_id === callId);
 };
 
-const handleCopy = () => { navigator.clipboard.writeText(userTextContent.value); };
+const showCopyFeedback = () => {
+  if (copiedTimer) clearTimeout(copiedTimer);
+  copied.value = true;
+  copiedTimer = setTimeout(() => { copied.value = false; }, 2000);
+};
+
+const handleCopy = () => { navigator.clipboard.writeText(userTextContent.value); showCopyFeedback(); };
 const handleCopyAssistant = () => {
   if (props.isUser || !props.message?.assistant) return;
   const text = props.message.assistant
@@ -474,6 +483,7 @@ const handleCopyAssistant = () => {
     .filter((c: string) => c.length > 0)
     .join('\n\n');
   navigator.clipboard.writeText(text);
+  showCopyFeedback();
 };
 const handleEdit = () => { 
   isEditing.value = true; 
@@ -622,7 +632,7 @@ const handleContentClick = (e: MouseEvent) => {
     <div class="flex flex-col min-w-0" :class="isUser ? (isEditing ? 'w-full items-start' : 'w-fit max-w-[85%] md:max-w-[75%] items-end self-end') : 'w-full items-start'">
 
       <template v-if="isUser">
-        <div class="group flex flex-col min-w-0" :class="isEditing ? 'w-full items-start' : 'max-w-full items-end'">
+        <div class="group flex flex-col min-w-0 max-w-full" :class="isEditing ? 'w-full items-start' : 'items-end'">
           
           <!-- Image Content (Outside bubble if there is text) -->
           <div 
@@ -651,7 +661,7 @@ const handleContentClick = (e: MouseEvent) => {
           <!-- Text Bubble Section -->
           <div 
             v-if="userTextContent || isEditing"
-            class="relative p-4 rounded-lg shadow-sm bg-bg-panel rounded-tr-none transition-all duration-200 overflow-hidden" 
+            class="relative p-4 rounded-lg shadow-sm bg-bg-panel rounded-tr-none transition-all duration-200 overflow-hidden min-w-0" 
             :class="[isEditing ? 'w-full' : '', state.isMobile ? '' : '']"
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
@@ -694,7 +704,10 @@ const handleContentClick = (e: MouseEvent) => {
             </div>
             <template v-if="!isEditing && !state.isMobile">
               <button @click="handleEdit" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="编辑"><FontAwesomeIcon :icon="['far', 'pen-to-square']" /></button>
-              <button @click="handleCopy" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="复制"><FontAwesomeIcon :icon="['far', 'copy']" /></button>
+              <button @click="handleCopy" class="transition-colors text-xs flex items-center gap-1 h-[18px]" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
+                <FontAwesomeIcon :icon="copied ? ['fas', 'check'] : ['far', 'copy']" class="text-[11px] w-3 text-center" />
+                <Transition name="fade"><span v-if="copied" class="text-[10px]">已复制</span></Transition>
+              </button>
             </template>
             <template v-else-if="isEditing">
               <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center rounded-md hover:bg-bg-hover" title="上传图片"><FontAwesomeIcon :icon="['far', 'image']" class="text-base" /></button>
@@ -714,7 +727,7 @@ const handleContentClick = (e: MouseEvent) => {
               <FontAwesomeIcon :icon="['fas', 'brain']" class="text-[10px] w-3 text-center" /><span>思考过程</span>
               <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="isThinkingExpanded ? 'rotate-90' : ''" />
             </div>
-            <div v-if="isThinkingExpanded" class="mt-2 p-4 bg-bg-panel rounded-lg text-xs text-text-muted border-l-2 border-border-main leading-relaxed whitespace-pre-wrap shadow-sm">{{ thinkingContent }}</div>
+            <div v-if="isThinkingExpanded" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ thinkingContent }}</div>
           </div>
 
           <!-- Assistant content -->
@@ -751,7 +764,7 @@ const handleContentClick = (e: MouseEvent) => {
                   <FontAwesomeIcon :icon="['fas', 'brain']" class="text-[10px] w-3 text-center" /><span>思考过程</span>
                   <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="expandedThinkingSegments[idx] ? 'rotate-90' : ''" />
                 </div>
-                <div v-if="expandedThinkingSegments[idx]" class="mt-2 p-4 bg-bg-panel rounded-lg text-xs text-text-muted border-l-2 border-border-main leading-relaxed whitespace-pre-wrap shadow-sm">{{ segmentThinking[idx] }}</div>
+                <div v-if="expandedThinkingSegments[idx]" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ segmentThinking[idx] }}</div>
               </div>
 
               <!-- Text content -->
@@ -765,9 +778,9 @@ const handleContentClick = (e: MouseEvent) => {
                     <span>调用 {{ call.function.name }}</span>
                     <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="expandedTools[call.id] ? 'rotate-90' : ''" />
                   </div>
-                  <div v-if="expandedTools[call.id]" class="pl-5 pb-1 mt-1">
-                    <div class="text-[11px] font-mono text-text-placeholder break-all whitespace-pre-wrap bg-bg-panel p-2 rounded">{{ call.function.arguments }}</div>
-                    <div v-for="resp in getToolResponses(call.id)" :key="resp.tool_call_id" class="mt-1 text-[11px] text-text-placeholder whitespace-pre-wrap break-all bg-bg-panel p-2 rounded">
+                  <div v-if="expandedTools[call.id]" class="mt-1">
+                    <div class="text-[11px] font-mono text-text-placeholder break-all whitespace-pre-wrap px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">{{ call.function.arguments }}</div>
+                    <div v-for="resp in getToolResponses(call.id)" :key="resp.tool_call_id" class="mt-1 text-[11px] text-text-placeholder whitespace-pre-wrap break-all px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">
                       <span class="text-text-muted font-medium">返回：</span>{{ resp.content }}
                     </div>
                   </div>
@@ -783,7 +796,10 @@ const handleContentClick = (e: MouseEvent) => {
           
           <!-- Assistant Actions -->
           <div class="mt-2 flex items-center gap-3 transition-opacity" :class="state.isMobile ? 'opacity-0 h-0 overflow-hidden' : 'opacity-0 group-hover:opacity-100'">
-            <button @click="handleCopyAssistant" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="复制"><FontAwesomeIcon :icon="['far', 'copy']" /></button>
+            <button @click="handleCopyAssistant" class="transition-colors text-xs flex items-center gap-1 h-[18px]" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
+              <FontAwesomeIcon :icon="copied ? ['fas', 'check'] : ['far', 'copy']" class="text-[11px] w-3 text-center" />
+              <Transition name="fade"><span v-if="copied" class="text-[10px]">已复制</span></Transition>
+            </button>
           </div>
         </div>
       </template>

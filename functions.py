@@ -30,6 +30,7 @@ class AsyncCrawler:
         self.web_idle_time = web_idle_time
         self._browser: Browser = None
         self._context = None
+        self._pw = None
         self._page_semaphore: asyncio.Semaphore = None
         self._loop: asyncio.AbstractEventLoop = None
         self._thread: threading.Thread = None
@@ -59,8 +60,11 @@ class AsyncCrawler:
         self._loop.run_forever()
     
     async def _init_browser(self):
-        pw = await async_playwright().start()
-        self._browser = await pw.firefox.launch(
+        self._pw = await async_playwright().start()
+        await self._launch_browser()
+
+    async def _launch_browser(self):
+        self._browser = await self._pw.firefox.launch(
             headless=True,
             args=[
                 "--no-sandbox",
@@ -73,11 +77,33 @@ class AsyncCrawler:
         self._context = await self._browser.new_context()
         self._page_semaphore = asyncio.Semaphore(20)  # 限制并发 tab 数
 
+    async def _ensure_browser(self):
+        if self._browser is not None and self._browser.is_connected():
+            return
+        logger.warning("Firefox 已断开，正在重启...")
+        try:
+            if self._context:
+                await self._context.close()
+        except Exception:
+            pass
+        try:
+            if self._browser:
+                await self._browser.close()
+        except Exception:
+            pass
+        self._context = None
+        self._browser = None
+        self._warmed_up = False
+        await self._launch_browser()
+        logger.info("Firefox 重启成功")
+
     async def _shutdown(self):
         if self._context:
             await self._context.close()
         if self._browser:
             await self._browser.close()
+        if self._pw:
+            await self._pw.stop()
 
     def _run_coro(self, coro, timeout=60):
         """将协程投递到事件循环，阻塞等待结果"""
@@ -95,7 +121,8 @@ class AsyncCrawler:
         return self._run_coro(self._read(url))
 
     async def _get_page(self):
-        """获取一个 page，受信号量限制"""
+        """获取一个 page，受信号量限制；浏览器挂了会原地重启"""
+        await self._ensure_browser()
         await self._page_semaphore.acquire()
         page = await self._context.new_page()
         page.set_default_timeout(self.dom_timeout)

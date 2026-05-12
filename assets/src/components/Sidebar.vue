@@ -9,6 +9,13 @@ const chatListRef = ref<HTMLElement | null>(null);
 const showDeleteConfirm = ref(false);
 const chatToDelete = ref<number | null>(null);
 const pressingChatId = ref<number | null>(null);
+const isAtBottom = ref(false);
+
+const checkScrollBottom = () => {
+  const el = chatListRef.value;
+  if (!el) return;
+  isAtBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
+};
 
 const handleChatClick = (id: number) => {
   state.currentChatId = id;
@@ -60,6 +67,7 @@ const confirmDelete = () => {
 const handleScroll = () => {
   const el = chatListRef.value;
   if (!el) return;
+  checkScrollBottom();
   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
     state.fetchMoreHistory();
   }
@@ -90,49 +98,59 @@ const handleScroll = () => {
         <FontAwesomeIcon :icon="['fas', 'plus']" class="mr-2" /> 新对话
       </div>
       
-      <div 
-        ref="chatListRef"
-        class="flex-1 overflow-y-auto px-2 space-y-1"
-        @scroll="handleScroll"
-      >
+      <div class="relative flex-1 min-h-0">
         <div 
-          v-for="chat in state.chats" 
-          :key="chat[0]"
-          @click="handleChatClick(chat[0])"
-          @touchstart="startLongPress(chat[0])"
-          @touchend="cancelLongPress"
-          @touchmove="cancelLongPress"
-          @touchcancel="cancelLongPress"
-          @contextmenu.prevent
-          class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors"
-          :class="[
-            state.currentChatId === chat[0] ? 'bg-bg-active' : '',
-            pressingChatId === chat[0] ? 'scale-[0.98] bg-bg-hover' : ''
-          ]"
+          ref="chatListRef"
+          class="h-full overflow-y-auto px-2 space-y-1"
+          @scroll="handleScroll"
         >
-          <!-- Selected effect -->
-          <Transition name="fade">
-            <div 
-              v-if="pressingChatId === chat[0]"
-              class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
-            ></div>
-          </Transition>
-          <span class="relative z-10 truncate text-sm pr-6">{{ chat[1] }}</span>
-          <button 
-            v-if="!state.isMobile"
-            @click.stop="handleDelete(chat[0])"
-            class="hidden group-hover:block text-text-placeholder hover:text-danger-main absolute right-2 z-20 transition-colors p-1"
+          <div 
+            v-for="chat in state.chats" 
+            :key="chat[0]"
+            @click="handleChatClick(chat[0])"
+            @touchstart="startLongPress(chat[0])"
+            @touchend="cancelLongPress"
+            @touchmove="cancelLongPress"
+            @touchcancel="cancelLongPress"
+            @contextmenu.prevent
+            class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors"
+            :class="[
+              state.currentChatId === chat[0] ? 'bg-bg-active' : '',
+              pressingChatId === chat[0] ? 'scale-[0.98] bg-bg-hover' : ''
+            ]"
           >
-            <FontAwesomeIcon :icon="['fas', 'trash-can']" class="text-xs" />
-          </button>
+            <!-- Selected effect -->
+            <Transition name="fade">
+              <div 
+                v-if="pressingChatId === chat[0]"
+                class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
+              ></div>
+            </Transition>
+            <span class="relative z-10 truncate text-sm pr-6">{{ chat[1] }}</span>
+            <button 
+              v-if="!state.isMobile"
+              @click.stop="handleDelete(chat[0])"
+              class="hidden group-hover:block text-text-placeholder hover:text-danger-main absolute right-2 z-20 transition-colors p-1"
+            >
+              <FontAwesomeIcon :icon="['fas', 'trash-can']" class="text-xs" />
+            </button>
+          </div>
+          <!-- Loading indicator -->
+          <div v-if="state.isLoadingHistory" class="text-center py-3 text-xs text-text-placeholder">
+            <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="mr-1" /> 加载中...
+          </div>
+          <div v-if="!state.hasMoreHistory && state.chats.length > 0" class="text-center py-3 text-xs text-text-placeholder">
+            没有更多了
+          </div>
         </div>
-        <!-- Loading indicator -->
-        <div v-if="state.isLoadingHistory" class="text-center py-3 text-xs text-text-placeholder">
-          <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="mr-1" /> 加载中...
-        </div>
-        <div v-if="!state.hasMoreHistory && state.chats.length > 0" class="text-center py-3 text-xs text-text-placeholder">
-          没有更多了
-        </div>
+        <!-- Bottom fade-out gradient -->
+        <Transition name="fade">
+          <div 
+            v-if="!isAtBottom"
+            class="absolute bottom-0 left-0 right-0 h-12 pointer-events-none z-10"
+            style="background: linear-gradient(to top, var(--bg-panel), transparent);"
+          ></div>
+        </Transition>
       </div>
     </div>
   </aside>

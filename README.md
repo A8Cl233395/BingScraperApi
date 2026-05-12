@@ -268,20 +268,16 @@ web_search_api/
 | 模块 | 问题 | 目标 |
 |------|------|------|
 | `functions.py` | 1472 行单文件，config 加载 + 服务初始化 + 类定义全混在一起 | 拆分为 `config.py`、`services/`、`models.py` |
-| SQL 查询 | `Webchat` 类有 10 处 f-string 拼接表名 | 改为单表 + `user_id` 列 + 参数化查询 |
 | 配置校验 | 直接字典访问，缺 key 在 import 时崩溃 | 用 Pydantic Settings 定义 schema，启动时校验 |
 | 前端状态 | 单个 `reactive({})` 承担所有状态 | 拆分为 composables（`useChat`、`useAuth`、`useUI`） |
 | 前端类型 | `MessageBubble.vue` 等组件大量 `any` 类型 | 定义 `ChatMessage`、`ChatNode` 等接口 |
 
 ### 待新增
 
-| 功能 | 说明 | 优先级 |
-|------|------|--------|
+| 功能 | 说明 |
+|------|------|
 | 结构化日志 | 统一错误语言 |
 | 速率限制 | 对 `/search`、`/api/chat` 等重接口加限流 |
-| `/status` 健康检查 | 检查 Playwright 进程、SQLite 连接、外部 API 可达性 |
-| 前端错误提示 | 当前所有错误只 `console.error`，用户无感知 |
-| 浏览器崩溃恢复 | `AsyncCrawler` 无重启逻辑，Firefox 挂了只能重启服务 |
 
 ## 许可证
 
