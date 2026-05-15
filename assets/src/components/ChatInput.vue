@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { state } from '../store';
 import { ref, watch, nextTick, onUnmounted } from 'vue';
-import { processImage } from '../utils/image';
 import api from '../utils/api';
 import { isMobileDevice } from '../utils/device';
+import { useImageEditor } from '../composables/useImageEditor';
+import ImageEditorGrid from './ImageEditorGrid.vue';
 
 
 const props = defineProps<{
@@ -13,11 +14,26 @@ const props = defineProps<{
 const emit = defineEmits(['send', 'mobile-focus', 'mobile-blur']);
 
 const textInput = ref('');
-const images = ref<string[]>([]);
-const fileInput = ref<HTMLInputElement | null>(null);
 const showOptions = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
-const isProcessingImage = ref(false);
+
+// 图片编辑（使用 composable）
+const {
+  images,
+  isProcessingImage,
+  isOcrProcessing,
+  fileInputRef: fileInput,
+  handleFileUpload,
+  handlePaste,
+  handleDrop,
+  removeImage,
+  handleOcr,
+  clearImages,
+} = useImageEditor();
+
+const handleImageOcr = (index: number) => {
+  handleOcr(index, textInput);
+};
 
 const adjustHeight = () => {
   if (textareaRef.value) {
@@ -44,7 +60,7 @@ const handleSend = () => {
 
     emit('send', content);
     textInput.value = '';
-    images.value = [];
+    clearImages();
     if (isMobileDevice()) {
       textareaRef.value?.blur();
     }
@@ -68,63 +84,6 @@ const handleKeydown = (e: KeyboardEvent) => {
       });
     }
   }
-};
-
-const handleFileUpload = async (e: Event) => {
-  const files = (e.target as HTMLInputElement).files;
-  if (files) {
-    await addFiles(Array.from(files));
-  }
-};
-
-const addFiles = async (files: File[]) => {
-  isProcessingImage.value = true;
-  try {
-    for (const file of files) {
-      if (images.value.length >= 10) break;
-      const isImage = file.type.startsWith('image/') || 
-                      file.name.toLowerCase().endsWith('.heic') || 
-                      file.name.toLowerCase().endsWith('.heif');
-      
-      if (isImage) {
-        try {
-          const base64 = await processImage(file);
-          images.value.push(base64);
-        } catch (error) {
-          console.error('Failed to process image:', error);
-          alert('图片处理失败，请稍后重试');
-        }
-      }
-    }
-  } finally {
-    isProcessingImage.value = false;
-  }
-};
-
-const handlePaste = async (e: ClipboardEvent) => {
-  const items = e.clipboardData?.items;
-  if (items) {
-    const files = [];
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        if (file) files.push(file);
-      }
-    }
-    await addFiles(files);
-  }
-};
-
-const handleDrop = async (e: DragEvent) => {
-  e.preventDefault();
-  const files = e.dataTransfer?.files;
-  if (files) {
-    await addFiles(Array.from(files));
-  }
-};
-
-const removeImage = (index: number) => {
-  images.value.splice(index, 1);
 };
 
 let blurTimeout: any = null;
@@ -197,21 +156,13 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
       @dragover.prevent
     >
       <!-- Image Previews -->
-      <div v-if="images.length > 0 || isProcessingImage" class="flex flex-wrap gap-2 mb-2">
-        <div v-for="(img, index) in images" :key="index" class="relative group w-16 h-16 rounded-md overflow-hidden border border-border-main">
-          <img :src="img" class="w-full h-full object-cover" />
-          <button 
-            @click="removeImage(index)"
-            @mousedown.prevent
-            class="absolute top-0 right-0 bg-black/50 text-white w-5 h-5 flex items-center justify-center rounded-bl-md opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-[10px]" />
-          </button>
-        </div>
-        <div v-if="isProcessingImage" class="w-16 h-16 rounded-md border border-dashed border-border-main flex items-center justify-center bg-bg-hover">
-          <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="text-text-placeholder" />
-        </div>
-      </div>
+      <ImageEditorGrid
+        :images="images"
+        :is-processing-image="isProcessingImage"
+        :is-ocr-processing="isOcrProcessing"
+        @remove="removeImage"
+        @ocr="handleImageOcr"
+      />
 
       <textarea 
         ref="textareaRef"

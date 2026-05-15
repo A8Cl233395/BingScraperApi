@@ -1,3 +1,5 @@
+import api from './api';
+
 export const processImage = async (file: File): Promise<string> => {
   let imageFile = file;
 
@@ -61,3 +63,12 @@ export const processImage = async (file: File): Promise<string> => {
     reader.readAsDataURL(imageFile);
   });
 };
+
+/**
+ * 将 base64 图片发送到后端 OCR 接口进行文字识别
+ */
+export async function performOcr(base64Data: string): Promise<string> {
+  const base64 = base64Data.split(',')[1];
+  const ocrResponse = await api.post('/api/ocr', { image: base64 });
+  return ocrResponse.data as string;
+}

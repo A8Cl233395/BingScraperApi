@@ -261,23 +261,14 @@ web_search_api/
 
 - 多处裸 `except:` 会吞掉 `KeyboardInterrupt` 等系统异常
 - `LRUCache`、`InviteManager` 等共享对象在多线程下无锁保护
-- SSE 断线重连无最大次数限制
 
 ### 待重构
 
 | 模块 | 问题 | 目标 |
 |------|------|------|
 | `functions.py` | 1472 行单文件，config 加载 + 服务初始化 + 类定义全混在一起 | 拆分为 `config.py`、`services/`、`models.py` |
-| 配置校验 | 直接字典访问，缺 key 在 import 时崩溃 | 用 Pydantic Settings 定义 schema，启动时校验 |
 | 前端状态 | 单个 `reactive({})` 承担所有状态 | 拆分为 composables（`useChat`、`useAuth`、`useUI`） |
 | 前端类型 | `MessageBubble.vue` 等组件大量 `any` 类型 | 定义 `ChatMessage`、`ChatNode` 等接口 |
-
-### 待新增
-
-| 功能 | 说明 |
-|------|------|
-| 结构化日志 | 统一错误语言 |
-| 速率限制 | 对 `/search`、`/api/chat` 等重接口加限流 |
 
 ## 许可证
 

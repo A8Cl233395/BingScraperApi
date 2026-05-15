@@ -24,7 +24,8 @@ import {
   faICursor,
   faRotateRight,
   faTriangleExclamation,
-  faCircleInfo
+  faCircleInfo,
+  faFileLines
 } from '@fortawesome/free-solid-svg-icons'
 
 import {
@@ -56,6 +57,7 @@ library.add(
   faRotateRight,
   faTriangleExclamation,
   faCircleInfo,
+  faFileLines,
   faCopy,
   faPenToSquare,
   faImage

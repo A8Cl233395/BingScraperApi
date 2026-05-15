@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from functools import wraps 
 from fastapi import FastAPI, Request, HTTPException, WebSocketDisconnect
 from fastapi.params import Query, Body
 from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse, FileResponse
@@ -8,9 +9,31 @@ from pydantic import BaseModel, Field, field_validator
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from PIL import Image
+import base64
 import io
+import time
 import uvicorn
+from collections import defaultdict, deque
 from functions import *
+
+def user_rate_limit(qpm: int):
+    """滑动窗口速率限制装饰器，基于uid请求头的每分钟请求数限制（每个函数独立计算）"""
+    _window: dict[int, deque] = defaultdict(lambda: deque())
+    def decorator(func):
+        @wraps(func)
+        def wrapper(request: Request, *args, **kwargs):
+            uid = int(request.headers.get('uid', 0))
+            now = time.time()
+            threshold = now - 60
+            dq = _window[uid]
+            while dq and dq[0] < threshold:
+                dq.popleft()
+            if len(dq) >= qpm:
+                raise HTTPException(status_code=429, detail="Too Many Requests")
+            dq.append(now)
+            return func(request, *args, **kwargs)
+        return wrapper
+    return decorator
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,16 +42,16 @@ async def lifespan(app: FastAPI):
         browser.start()
     yield
     if is_usermanager_required:
-        logger.info("Saving user data...")
+        logger.info("正在保存用户数据...")
         usermanager.save()
-        logger.info("Finished saving user data.")
+        logger.info("用户数据保存完成")
     if is_webchat_enabled:
-        logger.info("Saving webchat data...")
+        logger.info("正在保存聊天数据...")
         webchat.save_all()
-        logger.info("Finished saving webchat data.")
+        logger.info("聊天数据保存完成")
         webchat.close()
     if is_bing_crawler_enabled:
-        logger.info("Stopping browser...")
+        logger.info("正在停止浏览器...")
         browser.stop()
 
 # 禁用 docs 和 redoc
@@ -87,7 +110,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # 全局异常处理
 @app.exception_handler(Exception)
 async def internal_error_handler(request: Request, exc: Exception):
-    logger.error(f"Exception occurred: {exc}", exc_info=True)
+    logger.error(f"发生异常: {exc}", exc_info=True)
     return PlainTextResponse(
         content='Server error! This is not your fault!',
         status_code=500
@@ -109,7 +132,7 @@ async def verify_key_middleware(request: Request, call_next):
         return await call_next(request)
     elif is_web_function_enabled and request.url.path in web_paths:
         return await call_next(request)
-    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat", "/api/reconnect"]:
+    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat", "/api/reconnect", "/api/ocr"]:
         uid = request.headers.get('uid')
         try:
             uid = int(uid)
@@ -282,20 +305,20 @@ if is_link_enabled:
             return
         set_websocket_connect(websocket)
         await websocket.accept()
-        logger.info("websocket connected")
+        logger.info("WebSocket 已连接")
         try:
             while True:
                 message = await websocket.receive_text()
                 try:
                     data = json.loads(message)
-                    logger.info(f"Received message: {data}")
+                    logger.info(f"收到消息: {data}")
                     link(data)
                 except json.JSONDecodeError:
-                    logger.warning("Received invalid JSON format")
+                    logger.warning("收到无效的 JSON 格式")
                 except Exception as e:
-                    logger.error(f"Error processing message: {e}", exc_info=True)
+                    logger.error(f"处理消息出错: {e}", exc_info=True)
         except WebSocketDisconnect:
-            logger.info("websocket disconnected")
+            logger.info("WebSocket 已断开")
         finally:
             set_websocket_connect(None)
 
@@ -343,10 +366,10 @@ if is_webchat_enabled:
                     binary_data = base64.b64decode(encoded)
                     with Image.open(io.BytesIO(binary_data)) as img:
                         if img.format != "JPEG":
-                            raise ValueError()
+                            raise ValueError
                         width, height = img.size
                         if width > 1600 or height > 1600:
-                            raise ValueError()
+                            raise ValueError
                 except:
                     raise ValueError
             return v
@@ -393,6 +416,26 @@ if is_webchat_enabled:
                 raise ValueError
             return v
     
+    class OCRPost(BaseModel):
+        image: str = Field(...)
+
+        @field_validator('image')
+        def validate_image(v):
+            try:
+                image_bytes = base64.b64decode(v)
+            except Exception:
+                raise ValueError
+            if len(image_bytes) > 1024 * 1024 * 10: # 10MB
+                raise ValueError
+            try:
+                with Image.open(io.BytesIO(image_bytes)) as img:
+                    width, height = img.size
+                    if width > 1600 or height > 1600:
+                        raise ValueError
+            except:
+                raise ValueError
+            return image_bytes
+    
     @app.get("/login")
     def login_get():
         return FileResponse("assets/dist/login.html")
@@ -422,6 +465,7 @@ if is_webchat_enabled:
         return webchat.get_home_data(uid)
     
     @app.post("/api/chat", response_class=StreamingResponse)
+    @user_rate_limit(10)
     def api_chat(request: Request, data: ChatPost = Body(...)):
         generator = webchat.chat(int(request.headers["uid"]), data.model_dump())
         return StreamingResponse(generator, media_type="text/event-stream")
@@ -465,6 +509,11 @@ if is_webchat_enabled:
         user_id = int(request.headers["uid"])
         webchat.delete_chat(user_id, id)
         return "success"
+    
+    @app.post("/api/ocr", response_class=PlainTextResponse)
+    @user_rate_limit(10)
+    def api_ocr(request: Request, data: OCRPost = Body(...)):
+        return webchat.ocr(data.image)
 
 if __name__ == '__main__':
     if "cert" in config["server"] and "key" in config["server"]:
@@ -478,12 +527,12 @@ if __name__ == '__main__':
                 use_colors=False
             )
         else:
-            logger.warning('cert or key not found')
-            logger.info("Falling back to HTTP mode...")
-            logger.warning("SERVER IS RUNNING WITH HTTP!")
-            logger.warning("DO NOT EXPOSE THIS SERVER TO PUBLIC!")
+            logger.warning('未找到证书或密钥')
+            logger.info("回退到 HTTP 模式...")
+            logger.warning("服务器正在以 HTTP 模式运行！")
+            logger.warning("请勿将此服务器暴露到公网！")
             uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False)
     else:
-        logger.warning("SERVER IS RUNNING WITH HTTP!")
-        logger.warning("DO NOT EXPOSE THIS SERVER TO PUBLIC!")
+        logger.warning("服务器正在以 HTTP 模式运行！")
+        logger.warning("请勿将此服务器暴露到公网！")
         uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False)

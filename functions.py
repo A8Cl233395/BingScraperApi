@@ -581,7 +581,7 @@ class UserManager:
     def save(self):
         for user_id, user in self.users.items():
             with open(f"link_datas/{user_id}.json", "w", encoding="utf-8") as f:
-                logger.info(f"Saving user {user_id} data to file: link_datas/{user_id}.json")
+                logger.info(f"正在保存用户 {user_id} 数据到文件: link_datas/{user_id}.json")
                 json.dump(user.data, f, ensure_ascii=False)
 
 class Link:
@@ -610,7 +610,7 @@ class User:
         self.lock = threading.Lock()
         # init memory
         if not os.path.exists(f"link_datas/{user_id}.json"):
-            logger.debug(f"User {user_id} data file not found, creating one")
+            logger.debug(f"用户 {user_id} 数据文件不存在，正在创建")
             self.memory = []
             if is_webchat_enabled:
                 self.model = config["webchat"]["default-model"]
@@ -621,7 +621,7 @@ class User:
                 self.expire = 0
         else:
             with open(f"link_datas/{user_id}.json", "r", encoding="utf-8") as f:
-                logger.debug(f"Loading user {user_id} data from file")
+                logger.debug(f"正在从文件加载用户 {user_id} 数据")
                 data = json.load(f)
                 self.memory: list[str] = data["memory"]
                 if is_webchat_enabled:
@@ -726,7 +726,7 @@ class DelayedOutput: # TODO: WHAT THE FUCK IS THIS
                 self.executor.shutdown()
                 self.executor = None
         except Exception as e:
-            logger.error(f"Error shutting down executor: {e}")
+            logger.error(f"关闭执行器出错: {e}")
         return self._sse(result)
 
     def get_raw(self):
@@ -736,7 +736,7 @@ class DelayedOutput: # TODO: WHAT THE FUCK IS THIS
                 self.executor.shutdown()
                 self.executor = None
         except Exception as e:
-            logger.error(f"Error shutting down executor: {e}")
+            logger.error(f"关闭执行器出错: {e}")
         return result
 
     def _sse(self, data: str) -> str:
@@ -1291,7 +1291,7 @@ class Webchat:
         return user.verify_token(token)
     
     def _save_chat(self, user: User, chat_id: int):
-        logger.debug(f"Saving chat {chat_id} for user {user.user_id}")
+        logger.debug(f"正在为用户 {user.user_id} 保存聊天 {chat_id}")
         chat_instance = user.chat_cache[chat_id][0]
         compressed = self._compress(chat_instance.chat_tree)
         with self.conn:
@@ -1313,7 +1313,7 @@ class Webchat:
                 self._save_chat(user, chat_id)
     
     def close(self):
-        logger.info("Closing webchat database...")
+        logger.info("正在关闭聊天数据库...")
         self.conn.close()
 
     def delete_chat(self, user_id: int, chat_id: int):
@@ -1324,6 +1324,9 @@ class Webchat:
             self.conn.commit()
         if chat_id in user.chat_cache:
             del user.chat_cache[chat_id]
+    
+    def ocr(self, image: bytes):
+        return ocr_service.extract_text_from_data(image)
 
 class LRUCache:
     def __init__(self, capacity=50, allow_reverse=False):
@@ -1424,7 +1427,7 @@ if __name__ != "__main__":
 
     if is_bilibili_enabled:
         if not is_vr_enabled:
-            logger.error("VoiceRecognition is required for Bilibili but not enabled")
+            logger.error("Bilibili 需要语音识别功能，但该功能未启用")
             exit(1)
         bili = Bilibili()
 
@@ -1440,10 +1443,13 @@ if __name__ != "__main__":
     
     if is_webchat_enabled:
         if not is_bing_crawler_enabled:
-            logger.error("Bing crawler is required for webchat but not enabled")
+            logger.error("聊天功能需要 Bing 爬虫，但该功能未启用")
             exit(1)
         if not is_link_enabled:
-            logger.error("Link is required for webchat but not enabled")
+            logger.error("聊天功能需要 Link 模块，但该功能未启用")
+            exit(1)
+        if not is_ocr_enabled:
+            logger.error("聊天功能需要 OCR 模块，但该功能未启用")
             exit(1)
         webchat = Webchat()
         oclients = {}
@@ -1472,7 +1478,7 @@ if __name__ != "__main__":
             websocket_connect = conn
 
         def send_to_websocket(message: dict):
-            logger.debug(f"Sending message to websocket: {message}")
+            logger.debug(f"正在发送消息到 WebSocket: {message}")
             if websocket_connect:
                 try:
                     asyncio.run_coroutine_threadsafe(websocket_connect.send_text(json.dumps(message, ensure_ascii=False)), event_loop)
@@ -1480,7 +1486,7 @@ if __name__ != "__main__":
                     pass
                 return True
             else:
-                logger.error("Failed to send message to websocket, websocket not connected")
+                logger.error("发送消息失败，WebSocket 未连接")
                 return False
 
     if is_download_service_required:
@@ -1499,9 +1505,9 @@ if __name__ != "__main__":
             def expire_control(filename):
                 time.sleep(3600)
                 if filename in downloads:
-                    logger.info(f"{filename} expired")
+                    logger.info(f"{filename} 已过期")
                     del downloads[filename]
         else:
-            logger.critical("public_address not found in config, make sure you have an public address")
-            logger.critical("or disable aliyun VoiceRecognition")
+            logger.critical("配置中未找到 public_address，请确保已配置公网地址")
+            logger.critical("或禁用阿里云语音识别功能")
             exit(1)

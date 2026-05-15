@@ -143,7 +143,8 @@ marked.use({
 import { ref, computed, watch, nextTick, reactive, onBeforeUnmount, onBeforeUpdate, onUpdated } from 'vue';
 import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
-import { processImage } from '../utils/image';
+import { useImageEditor } from '../composables/useImageEditor';
+import ImageEditorGrid from './ImageEditorGrid.vue';
 
 const props = defineProps<{
   message: any;
@@ -209,8 +210,23 @@ const toggleTool = (id: string) => {
 };
 const isEditing = ref(false);
 const editText = ref('');
-const editImages = ref<string[]>([]);
-const editFileInput = ref<HTMLInputElement | null>(null);
+
+// 编辑模式图片处理（使用 composable）
+const {
+  images: editImages,
+  isProcessingImage: isProcessingEditImage,
+  isOcrProcessing: isEditOcrProcessing,
+  fileInputRef: editFileInput,
+  handleFileUpload: handleEditFileUpload,
+  handlePaste: handleEditPaste,
+  handleDrop: handleEditDrop,
+  removeImage: removeEditImage,
+  handleOcr: editHandleOcrRaw,
+} = useImageEditor();
+
+const handleEditImageOcr = (index: number) => {
+  editHandleOcrRaw(index, editText);
+};
 const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -504,49 +520,6 @@ const handleEdit = () => {
   }); 
 };
 
-const addEditFiles = async (files: File[]) => {
-  for (const file of files) {
-    if (editImages.value.length >= 10) break;
-    if (file.type.startsWith('image/')) {
-      const base64 = await processImage(file);
-      editImages.value.push(base64);
-    }
-  }
-};
-
-const handleEditFileUpload = async (e: Event) => {
-  const files = (e.target as HTMLInputElement).files;
-  if (files) {
-    await addEditFiles(Array.from(files));
-  }
-};
-
-const handleEditPaste = async (e: ClipboardEvent) => {
-  const items = e.clipboardData?.items;
-  if (items) {
-    const files = [];
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        if (file) files.push(file);
-      }
-    }
-    await addEditFiles(files);
-  }
-};
-
-const handleEditDrop = async (e: DragEvent) => {
-  e.preventDefault();
-  const files = e.dataTransfer?.files;
-  if (files) {
-    await addEditFiles(Array.from(files));
-  }
-};
-
-const removeEditImage = (index: number) => {
-  editImages.value.splice(index, 1);
-};
-
 const submitEdit = () => { 
   const content = [];
   editImages.value.forEach(url => {
@@ -684,17 +657,13 @@ const handleContentClick = (e: MouseEvent) => {
             <div v-if="!isEditing" class="relative z-10 text-text-main break-all whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
             <div v-else class="w-full" @paste="handleEditPaste" @drop="handleEditDrop" @dragover.prevent>
               <!-- Edit Image Previews -->
-              <div v-if="editImages.length > 0" class="flex flex-wrap gap-2 mb-3">
-                <div v-for="(img, index) in editImages" :key="index" class="relative group w-16 h-16 rounded-md overflow-hidden border border-border-main">
-                  <img :src="img" class="w-full h-full object-cover" />
-                  <button 
-                    @click="removeEditImage(index)"
-                    class="absolute top-0 right-0 bg-black/50 text-white w-5 h-5 flex items-center justify-center rounded-bl-md opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-[10px]" />
-                  </button>
-                </div>
-              </div>
+              <ImageEditorGrid
+                :images="editImages"
+                :is-processing-image="isProcessingEditImage"
+                :is-ocr-processing="isEditOcrProcessing"
+                @remove="removeEditImage"
+                @ocr="handleEditImageOcr"
+              />
               <textarea ref="editTextareaRef" v-model="editText" class="w-full bg-bg-main border border-border-input rounded-md p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
               <input type="file" ref="editFileInput" class="hidden" multiple accept="image/*" @change="handleEditFileUpload" />
             </div>
@@ -836,6 +805,8 @@ const handleContentClick = (e: MouseEvent) => {
         </button>
       </div>
     </div>
+
+
   </div>
 </template>
 
