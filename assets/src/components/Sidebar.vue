@@ -30,7 +30,7 @@ const startLongPress = (id: number) => {
         chatToDelete.value = id;
         showDeleteConfirm.value = true;
         pressingChatId.value = null;
-      }, 600);
+      }, 400);
     }, 150); // Delay before starting long-press animation and timer
   }
 };

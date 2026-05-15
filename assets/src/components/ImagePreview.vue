@@ -13,17 +13,35 @@ let lastTouchDistance = 0;
 let lastTouchMidX = 0;
 let lastTouchMidY = 0;
 
+const fitScale = ref(1);
+
 const resetView = () => {
-  scale.value = 1;
+  scale.value = fitScale.value;
   translateX.value = 0;
   translateY.value = 0;
 };
 
 watch(() => state.previewImageUrl, (newUrl) => {
   if (newUrl) {
+    fitScale.value = 1;
     resetView();
   }
 });
+
+const handleImageLoad = (e: Event) => {
+  const img = e.target as HTMLImageElement;
+  const { naturalWidth, naturalHeight } = img;
+  if (!naturalWidth || !naturalHeight) return;
+  
+  const windowWidth = window.innerWidth;
+  const windowHeight = window.innerHeight;
+  
+  const scaleX = windowWidth / naturalWidth;
+  const scaleY = windowHeight / naturalHeight;
+  
+  fitScale.value = Math.min(scaleX, scaleY, 1);
+  resetView();
+};
 
 const closePreview = () => {
   state.previewImageUrl = null;
@@ -34,7 +52,7 @@ const handleWheel = (e: WheelEvent) => {
   const zoomSensitivity = 0.1;
   const delta = e.deltaY > 0 ? -1 : 1;
   let newScale = scale.value + delta * zoomSensitivity;
-  newScale = Math.max(0.1, Math.min(newScale, 10));
+  newScale = Math.max(0.05, Math.min(newScale, 10));
   scale.value = newScale;
 };
 
@@ -92,7 +110,7 @@ const handleTouchMove = (e: TouchEvent) => {
     if (lastTouchDistance > 0) {
       const scaleChange = distance / lastTouchDistance;
       let newScale = scale.value * scaleChange;
-      newScale = Math.max(0.1, Math.min(newScale, 10));
+      newScale = Math.max(0.05, Math.min(newScale, 10));
       
       const dx = mid.x - lastTouchMidX;
       const dy = mid.y - lastTouchMidY;
@@ -126,7 +144,7 @@ const zoomIn = () => {
 };
 
 const zoomOut = () => {
-  scale.value = Math.max(scale.value - 0.2, 0.1);
+  scale.value = Math.max(scale.value - 0.2, 0.05);
 };
 
 const downloadImage = async () => {
@@ -197,12 +215,13 @@ onUnmounted(() => {
 
      <!-- Image Container -->
      <div class="relative w-full h-full flex items-center justify-center overflow-hidden" @click.self="closePreview">
-<img :src="state.previewImageUrl"
+       <img :src="state.previewImageUrl"
              alt="Preview"
              class="max-w-none max-h-none object-contain transition-transform duration-75 ease-out select-none"
              :class="isDragging ? 'cursor-grabbing' : 'cursor-grab'"
              :style="{ transform: `translate(${translateX}px, ${translateY}px) scale(${scale})` }"
              style="touch-action: none;"
+             @load="handleImageLoad"
              @mousedown="handleMouseDown"
              @touchstart="handleTouchStart"
              @touchmove="handleTouchMove"

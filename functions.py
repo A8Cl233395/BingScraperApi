@@ -827,7 +827,7 @@ class ChatInstance:
         try:
             # 检查多模态
             if not self.chat_tree["root"]["multimodel"]:
-                if content[0]["type"] == "image_url": # 应该先在网关校验
+                if isinstance(content, list) and content[0]["type"] == "image_url": # 应该先在网关校验
                     self.chat_tree["root"]["multimodel"] = True
             # 初始化单轮次内容
             _model: str = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["multimodel"] else (model or self.user.model)) # 锁定模型
@@ -989,6 +989,8 @@ class ChatInstance:
         '''
         创建占位节点
         '''
+        if len(content) == 1 and content[0]["type"] == "text":
+            content = content[0]["text"]
         node_id_int = self.chat_tree["root"]["iteration"] + 1
         self.chat_tree["root"]["iteration"] = node_id_int
         node_id = str(node_id_int)
@@ -1044,7 +1046,10 @@ class ChatInstance:
                 return "新对话"
             title_model = config["webchat"]["title-model"]
             t = self.chat_tree["0"]
-            u = t["user"][-1]["text"] if t["user"][-1]["type"] == "text" else "[image]"
+            if isinstance(t["user"], str):
+                u = t["user"]
+            else:
+                u = t["user"][-1]["text"] if t["user"][-1]["type"] == "text" else "[image]"
             a = t["assistant"][-1]["content"]
             text = f"用户：\n{u if len(u)<50 else u[:20]+'\n...\n'+u[-20:]}\nAI：\n{a if len(a)<80 else a[:30]+'...'+a[-30:]}"
             params = {

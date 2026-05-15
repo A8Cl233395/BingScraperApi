@@ -4,12 +4,18 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import api from '../utils/api';
 
 const isOpen = ref(false);
+const isLoading = ref(false);
 const expandedModel = ref<string | null>(null);
 const containerRef = ref<HTMLElement | null>(null);
 
 const toggleDropdown = async () => {
   if (!isOpen.value && Object.keys(state.models).length === 0) {
-    await state.fetchModels();
+    isLoading.value = true;
+    try {
+      await state.fetchModels();
+    } finally {
+      isLoading.value = false;
+    }
   }
   isOpen.value = !isOpen.value;
 };
@@ -57,13 +63,16 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
   <div ref="containerRef" class="relative ml-2" @dblclick.stop>
     <button
       @click="toggleDropdown()"
-      class="flex items-center gap-2 border border-border-input rounded-md px-3 py-1.5 hover:bg-bg-hover bg-bg-main transition-colors"
+      class="flex items-center gap-2 border border-border-input rounded-md px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
+      :class="isLoading ? 'bg-bg-hover' : 'hover:bg-bg-hover bg-bg-main'"
+      :disabled="isLoading"
     >
       <span class="text-sm text-text-main">
         {{ state.currentModel || '选择模型' }}
         <span v-if="state.currentVModel" class="text-text-placeholder">/ {{ state.currentVModel }}</span>
       </span>
-      <FontAwesomeIcon :icon="['fas', 'chevron-down']" class="text-[10px] text-text-placeholder transition-transform duration-200" :class="isOpen ? 'rotate-180' : ''" />
+      <FontAwesomeIcon v-if="isLoading" :icon="['fas', 'spinner']" class="text-[10px] text-text-placeholder animate-spin" />
+      <FontAwesomeIcon v-else :icon="['fas', 'chevron-down']" class="text-[10px] text-text-placeholder transition-transform duration-200" :class="isOpen ? 'rotate-180' : ''" />
     </button>
 
     <transition

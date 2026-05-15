@@ -44,7 +44,7 @@ const fetchChatDetails = async (id: number) => {
   }
 };
 
-const buildMessageChain = (nodeId: string) => {
+const buildMessageChain = (nodeId: string, scrollToBottomFlag = true) => {
   const chain: ChatNode[] = [];
   let currId: string | null = nodeId;
   
@@ -59,13 +59,27 @@ const buildMessageChain = (nodeId: string) => {
   }
 
   // 2. Build DOWN to the leaf following the 'current' path
-  let downId = messageTree.value[nodeId]?.current;
+  // 如果节点没有 current 字段（非 root 节点），则使用最后一个子节点作为默认值
+  const getNextDownId = (id: string): string | undefined => {
+    const node = messageTree.value[id];
+    if (!node) return undefined;
+    // 优先使用 current 字段
+    if (node.current) return node.current;
+    // 如果没有 current 字段，使用最后一个子节点
+    const children = node.child;
+    if (children && children.length > 0) {
+      return children[children.length - 1];
+    }
+    return undefined;
+  };
+
+  let downId = getNextDownId(nodeId);
   while (downId) {
     const targetNode = messageTree.value[downId];
     if (!targetNode) break;
     const node: ChatNode = { ...targetNode, id: downId, clientId: downId };
     chain.push(node);
-    downId = targetNode.current;
+    downId = getNextDownId(downId);
   }
 
   messages.value = chain;
@@ -78,7 +92,9 @@ const buildMessageChain = (nodeId: string) => {
   }
 
   nextTick(() => {
-    scrollToBottom(true);
+    if (scrollToBottomFlag) {
+      scrollToBottom(true);
+    }
   });
 
   // Auto-reconnect: leaf node has user content but no assistant response
@@ -118,7 +134,7 @@ const processSSEEvent = (
       sseState.assistantEntry = null;
     }
   } else if (eventType === 'tool_name') {
-    const callId = 'tc-' + Date.now();
+    const callId = 'tc-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
     sseState.toolCallId = callId;
     if (!sseState.assistantEntry) {
       sseState.assistantEntry = reactive<AssistantMessage>({ role: 'assistant' });
@@ -265,7 +281,15 @@ const navigateSiblings = (nodeId: string, direction: number) => {
     const nextNodeId = siblings[nextIndex];
     // Update the parent's current pointer to the selected sibling
     parentNode.current = nextNodeId;
-    buildMessageChain(nextNodeId);
+    buildMessageChain(nextNodeId, false);
+    
+    // 滚动到切换按钮所在的位置（父节点），保持按钮位置不变
+    nextTick(() => {
+      const el = document.getElementById(`msg-${nodeId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
   }
 };
 
@@ -519,9 +543,12 @@ watch(messages, (newMsgs) => {
 }, { deep: true });
 
 const getMsgPreview = (node: ChatNode) => {
-  const text = node.user.find((c: any) => c.type === 'text')?.text;
-  if (text) return text;
-  if (node.user.some((c: any) => c.type === 'image_url')) return '[图片]';
+  if (typeof node.user === 'string') return node.user;
+  if (Array.isArray(node.user)) {
+    const text = node.user.find((c: any) => c.type === 'text')?.text;
+    if (text) return text;
+    if (node.user.some((c: any) => c.type === 'image_url')) return '[图片]';
+  }
   return '空消息';
 };
 

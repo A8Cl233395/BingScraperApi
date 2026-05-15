@@ -261,7 +261,7 @@ const startLongPress = (e: TouchEvent) => {
     longPressTimer.value = window.setTimeout(() => {
       showMobileMenu.value = true;
       isPressing.value = false;
-    }, 600);
+    }, 400);
   }, 150);
 };
 
@@ -345,7 +345,11 @@ const menuStyle = computed(() => {
 // === USER message rendering ===
 const userTextContent = computed(() => {
   if (!props.isUser) return '';
-  return props.message.find((c: any) => c.type === 'text')?.text || '';
+  if (typeof props.message === 'string') return props.message;
+  if (Array.isArray(props.message)) {
+    return props.message.find((c: any) => c.type === 'text')?.text || '';
+  }
+  return '';
 });
 
 // === ASSISTANT message rendering (per-segment) ===
@@ -459,7 +463,7 @@ watch(() => props.isUser ? null : props.message?.thinking, (val) => {
 }, { immediate: true });
 
 const images = computed(() => {
-  if (!props.isUser) return [];
+  if (!props.isUser || !Array.isArray(props.message)) return [];
   return props.message.filter((c: any) => c.type === 'image_url').map((c: any) => c.image_url.url);
 });
 

@@ -9,6 +9,7 @@ export default defineConfig({
     compression({ algorithms: ['brotliCompress', 'gzip'] }),
   ],
   build: {
+    reportCompressedSize: false,
     rolldownOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
