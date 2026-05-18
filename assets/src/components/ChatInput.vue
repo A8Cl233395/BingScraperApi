@@ -29,7 +29,7 @@ const {
   removeImage,
   handleOcr,
   clearImages,
-} = useImageEditor();
+} = useImageEditor({ trackDraft: true });
 
 const handleImageOcr = (index: number) => {
   handleOcr(index, textInput);

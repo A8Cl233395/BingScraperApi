@@ -4,6 +4,9 @@
 
 > 推荐和 [FunQQbot](https://github.com/A8Cl233395/FunQQbot) 一起食用 ヾ(≧▽≦*)o
 
+> [!IMPORTANT] 数据结构更新
+> 提交 `4044064` 前（包括）的数据结构已经不再兼容，请运行 `updater.py` 更新数据结构，否则会导致加载旧的聊天记录时报错！
+
 ## 简介
 
 本项目为个人/小团队场景设计，将多种常用能力整合为单一服务：
@@ -267,8 +270,6 @@ web_search_api/
 | 模块 | 问题 | 目标 |
 |------|------|------|
 | `functions.py` | 1472 行单文件，config 加载 + 服务初始化 + 类定义全混在一起 | 拆分为 `config.py`、`services/`、`models.py` |
-| 前端状态 | 单个 `reactive({})` 承担所有状态 | 拆分为 composables（`useChat`、`useAuth`、`useUI`） |
-| 前端类型 | `MessageBubble.vue` 等组件大量 `any` 类型 | 定义 `ChatMessage`、`ChatNode` 等接口 |
 
 ## 许可证
 

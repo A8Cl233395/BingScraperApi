@@ -12,6 +12,11 @@ export const state = reactive({
   isThinking: false,
   isStreaming: false,
   isEnableFunction: true,
+  chatRequiresVision: false,
+  hasDraftImages: false,
+  get isVisionMode(): boolean {
+    return this.chatRequiresVision || this.hasDraftImages;
+  },
   defaultSettings: {
     model: '',
     vmodel: '',

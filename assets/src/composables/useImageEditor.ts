@@ -1,6 +1,7 @@
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { processImage } from '../utils/image';
 import { performOcr } from '../utils/image';
+import { state } from '../store';
 
 /**
  * 图片编辑 composable
@@ -10,13 +11,20 @@ import { performOcr } from '../utils/image';
  * - OCR 文字识别
  * - 删除图片
  */
-export function useImageEditor(options?: { maxImages?: number }) {
+export function useImageEditor(options?: { maxImages?: number; trackDraft?: boolean }) {
   const maxImages = options?.maxImages ?? 10;
+  const trackDraft = options?.trackDraft ?? false;
 
   const images = ref<string[]>([]);
   const isProcessingImage = ref(false);
   const isOcrProcessing = ref(false);
   const fileInputRef = ref<HTMLInputElement | null>(null);
+
+  if (trackDraft) {
+    watch(images, (newVal) => {
+      state.hasDraftImages = newVal.length > 0;
+    }, { deep: true });
+  }
 
   const addFiles = async (files: File[]) => {
     isProcessingImage.value = true;

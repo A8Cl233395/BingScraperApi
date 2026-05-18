@@ -32,12 +32,14 @@ const lastNodeId = ref<string | null>(null);
 const lastActiveChatId = ref<number | null | 'new'>(null);
 const abortController = ref<AbortController | null>(null);
 const activeNodeId = ref<string | null>(null);
+const activeStreamingNodeId = ref<string | null>(null);
 
 const fetchChatDetails = async (id: number) => {
   lastActiveChatId.value = id;
   try {
     const res = await api.get(`/api/message?id=${id}`);
     messageTree.value = res.data;
+    state.chatRequiresVision = !!res.data.root?.vision;
     buildMessageChain(res.data.root.current);
   } catch (e) {
     console.error('Failed to fetch chat details', e);
@@ -97,10 +99,14 @@ const buildMessageChain = (nodeId: string, scrollToBottomFlag = true) => {
     }
   });
 
-  // Auto-reconnect: leaf node has user content but no assistant response
+  // Auto-reconnect: leaf node has user content but no assistant response or was interrupted
   const lastNode = chain[chain.length - 1];
-  if (lastNode && lastNode.user && (!lastNode.assistant || lastNode.assistant.length === 0)) {
-    handleReconnect(state.currentChatId!, lastNode.id);
+  if (lastNode && lastNode.user && (!lastNode.assistant || lastNode.assistant.length === 0 || lastNode.isStreaming)) {
+    if (state.isStreaming && activeStreamingNodeId.value === lastNode.id) {
+      // Do nothing, it's already the active stream
+    } else {
+      handleReconnect(state.currentChatId!, lastNode.id);
+    }
   }
 };
 
@@ -147,6 +153,14 @@ const processSSEEvent = (
     if (lastNodeId.value === targetMsg.clientId || lastNodeId.value === parentId) {
       lastNodeId.value = data;
     }
+    if (activeStreamingNodeId.value === targetMsg.clientId) {
+      activeStreamingNodeId.value = data;
+    }
+    
+    // Cleanup temp node from tree if we had one
+    if (targetMsg.clientId.startsWith('temp-') && messageTree.value[targetMsg.clientId]) {
+      delete messageTree.value[targetMsg.clientId];
+    }
     
     targetMsg.id = data;
     const existingNode = messageTree.value[data];
@@ -155,7 +169,8 @@ const processSSEEvent = (
       assistant: targetMsg.assistant,
       parent: parentId || 'root',
       child: existingNode?.child || [],
-      current: existingNode?.current
+      current: existingNode?.current,
+      isStreaming: true
     };
     const pId = parentId || 'root';
     const parentNode = pId === 'root' ? messageTree.value.root : messageTree.value[pId];
@@ -216,6 +231,11 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
   const currentController = new AbortController();
   abortController.value = currentController;
   state.isStreaming = true;
+  activeStreamingNodeId.value = nodeId;
+
+  if (messageTree.value[nodeId]) {
+    messageTree.value[nodeId].isStreaming = true;
+  }
 
   try {
     await fetchEventSource(
@@ -251,6 +271,10 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
     if (abortController.value === currentController) {
       state.isStreaming = false;
       targetMsg.isStreaming = false;
+      if (messageTree.value[nodeId]) {
+        messageTree.value[nodeId].isStreaming = false;
+      }
+      activeStreamingNodeId.value = null;
       abortController.value = null;
     }
   }
@@ -308,6 +332,18 @@ const handleSend = async (content: any, parent?: string) => {
   // but we also call triggerRef explicitly for in-place mutations)
   messages.value = [...messages.value, userMsg];
   lastNodeId.value = tempId;
+  activeStreamingNodeId.value = tempId;
+  
+  // Create an initial entry in messageTree to track isStreaming correctly
+  messageTree.value[tempId] = {
+    user: content,
+    assistant: [],
+    parent: parentId || 'root',
+    child: [],
+    current: null,
+    isStreaming: true
+  };
+  
   nextTick(() => {
     scrollToBottom(true);
   });
@@ -374,6 +410,12 @@ const handleSend = async (content: any, parent?: string) => {
     if (abortController.value === currentController) {
       state.isStreaming = false;
       userMsg.isStreaming = false;
+      if (receivedNodeId && messageTree.value[receivedNodeId]) {
+        messageTree.value[receivedNodeId].isStreaming = false;
+      } else if (!receivedNodeId && messageTree.value[tempId]) {
+        messageTree.value[tempId].isStreaming = false;
+      }
+      activeStreamingNodeId.value = null;
       abortController.value = null;
     }
   }
@@ -476,6 +518,7 @@ watch(() => state.currentChatId, (newId) => {
     messages.value = [];
     lastNodeId.value = 'root';
     messageTree.value = { root: { child: [], current: null } };
+    state.chatRequiresVision = false;
   }
 });
 
@@ -485,6 +528,7 @@ onMounted(() => {
   } else {
     lastNodeId.value = 'root';
     messageTree.value = { root: { child: [], current: null } };
+    state.chatRequiresVision = false;
   }
 });
 

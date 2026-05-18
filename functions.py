@@ -804,7 +804,7 @@ class ChatInstance:
     def __init__(self, user: User, chat_tree: dict = None):
         self.system_prompt = self._build_system_message(user)
         self.user = user
-        self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "multimodel": False, "iteration": -1}}
+        self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "vision": False, "iteration": -1}}
 
     def _ai(self, model, messages, thinking, enable_function):
         params = {
@@ -826,11 +826,11 @@ class ChatInstance:
     def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None) -> Generator[str | DelayedOutput]:
         try:
             # 检查多模态
-            if not self.chat_tree["root"]["multimodel"]:
+            if not self.chat_tree["root"]["vision"]:
                 if isinstance(content, list) and content[0]["type"] == "image_url": # 应该先在网关校验
-                    self.chat_tree["root"]["multimodel"] = True
+                    self.chat_tree["root"]["vision"] = True
             # 初始化单轮次内容
-            _model: str = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["multimodel"] else (model or self.user.model)) # 锁定模型
+            _model: str = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["vision"] else (model or self.user.model)) # 锁定模型
             thinking = thinking if thinking is not None else self.user.thinking # 锁定思考
             enable_function = enable_function if enable_function is not None else self.user.enable_function # 锁定是否启用函数
             if current_messages is None: # 初始化或继承当前消息

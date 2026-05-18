@@ -67,9 +67,12 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
       :class="isLoading ? 'bg-bg-hover' : 'hover:bg-bg-hover bg-bg-main'"
       :disabled="isLoading"
     >
-      <span class="text-sm text-text-main">
-        {{ state.currentModel || '选择模型' }}
-        <span v-if="state.currentVModel" class="text-text-placeholder">/ {{ state.currentVModel }}</span>
+      <span class="text-sm flex items-center gap-1">
+        <span :class="state.isVisionMode ? 'text-text-placeholder' : 'text-text-main'">{{ state.currentModel || '选择模型' }}</span>
+        <template v-if="state.currentVModel">
+          <span class="text-text-placeholder">/</span>
+          <span :class="state.isVisionMode ? 'text-text-main' : 'text-text-placeholder'">{{ state.currentVModel }}</span>
+        </template>
       </span>
       <FontAwesomeIcon v-if="isLoading" :icon="['fas', 'spinner']" class="text-[10px] text-text-placeholder animate-spin" />
       <FontAwesomeIcon v-else :icon="['fas', 'chevron-down']" class="text-[10px] text-text-placeholder transition-transform duration-200" :class="isOpen ? 'rotate-180' : ''" />
@@ -89,16 +92,22 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
         <template v-for="(info, name) in state.models" :key="name">
           <div
             class="px-4 py-2 hover:bg-bg-hover cursor-pointer flex flex-col transition-colors border-b last:border-b-0 border-border-main"
-            :class="state.currentModel === name ? 'bg-bg-active' : ''"
+            :class="(state.isVisionMode ? state.currentVModel === name : state.currentModel === name) ? 'bg-bg-active' : ''"
             @click="toggleModelDetails(name as string)"
           >
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2 min-w-0">
-                <span class="text-sm truncate" :class="state.currentModel === name ? 'text-primary-main font-semibold' : 'text-text-main'">
+                <span class="text-sm truncate" :class="(state.isVisionMode ? state.currentVModel === name : state.currentModel === name) ? 'text-primary-main font-semibold' : 'text-text-main'">
                   {{ name }}
                 </span>
-                <span v-if="state.currentModel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary-main/15 text-primary-main">当前</span>
-                <span v-else-if="state.defaultSettings.model === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success-bg text-success-main">默认</span>
+                <template v-if="state.isVisionMode">
+                  <span v-if="state.currentVModel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/15 text-orange-500">当前视觉</span>
+                  <span v-else-if="state.defaultSettings.vmodel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success-bg text-success-main">默认视觉</span>
+                </template>
+                <template v-else>
+                  <span v-if="state.currentModel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary-main/15 text-primary-main">当前</span>
+                  <span v-else-if="state.defaultSettings.model === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success-bg text-success-main">默认</span>
+                </template>
               </div>
               <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] text-text-placeholder transition-transform duration-200 shrink-0" :class="expandedModel === name ? 'rotate-90' : ''" />
             </div>

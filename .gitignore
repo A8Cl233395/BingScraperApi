@@ -10,5 +10,6 @@ assets/.vscode/
 assets/node_modules/
 assets/dist/
 assets/.env
+assets/.env.development
 test.py
 AGENTS.md
