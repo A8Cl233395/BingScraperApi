@@ -792,7 +792,7 @@ class ChatInstance:
                             "enum": ["add", "remove"],
                         },
                         "memory": {
-                            "description": "要操作的记忆内容，添加时不需要时间戳，删除时需要内容必须完全匹配（包括时间戳）",
+                            "description": "要操作的记忆内容，需要完全匹配",
                             "type": "string",
                         },
                     },
@@ -935,18 +935,20 @@ class ChatInstance:
                     content = browser.search(arguments_json["query"])
                 case "manageMemory":
                     if arguments_json["operation"] == "add":
-                        mem = f"[{datetime.now().strftime('%m-%d')}] {arguments_json['memory']}"
-                        success = self.user.add_memory(mem)
+                        success = self.user.add_memory(arguments_json["memory"])
                         if success:
-                            content = f"记忆 \"{mem}\" 已添加！"
+                            content = f"记忆 \"{arguments_json['memory']}\" 已添加！"
                         else:
                             content = f"后端错误！无法添加记忆！"
                     elif arguments_json["operation"] == "remove":
-                        success = self.user.remove_memory(arguments_json["memory"])
-                        if success:
-                            content = f"记忆 \"{arguments_json['memory']}\" 已删除！"
+                        if arguments_json["memory"] not in self.user.memory:
+                            content = f"错误：记忆不存在！"
                         else:
-                            content = f"后端错误！无法删除记忆！"
+                            success = self.user.remove_memory(arguments_json["memory"])
+                            if success:
+                                content = f"记忆 \"{arguments_json['memory']}\" 已删除！"
+                            else:
+                                content = f"后端错误！无法删除记忆！"
                     else:
                         content = f"错误：未知的操作：{arguments_json['operation']}！"
                 case _:

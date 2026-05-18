@@ -164,7 +164,7 @@ def status():
         "invite": is_invite_enabled,
         "link": is_link_enabled,
         "webchat": is_webchat_enabled,
-        "version": "4"
+        "version": "5"
     }
 
 # 下载服务，仅内部逻辑使用，不要写入文档
