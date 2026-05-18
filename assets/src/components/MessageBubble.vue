@@ -52,7 +52,7 @@ marked.use({
       level: 'inline',
       start(src) { return src.indexOf('**'); },
       tokenizer(src) {
-        const match = src.match(/^\*\*([^\s\*](?:[\s\S]*?[^\s\*])?)\*\*(?!\*)/);
+        const match = src.match(/^\*\*([^\s\*](?:[\s\S]*?[^\s\*])??)\*\*(?!\*)/);
         if (match) {
           return {
             type: 'strong',
@@ -68,7 +68,7 @@ marked.use({
       level: 'inline',
       start(src) { return src.indexOf('*'); },
       tokenizer(src) {
-        const match = src.match(/^\*([^\s\*](?:[\s\S]*?[^\s\*])?)\*(?!\*)/);
+        const match = src.match(/^\*([^\s\*](?:[\s\S]*?[^\s\*])??)\*(?!\*)/);
         if (match) {
           return {
             type: 'em',
