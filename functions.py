@@ -207,7 +207,7 @@ class AsyncCrawler:
                 try:
                     await page.goto(url, wait_until="domcontentloaded")
                 except PwTimeoutError:
-                    pass
+                    return "Page Timeout!"
 
                 await self._wait_for_network_idle(page, i=self.bing_idle_time)
 
@@ -252,7 +252,7 @@ class AsyncCrawler:
                 await page.goto(url, wait_until="domcontentloaded")
                 await self._wait_for_network_idle(page, i=self.web_idle_time)
             except PwTimeoutError:
-                pass
+                return "Page Timeout!"
 
             web_source = await page.content()
             if not web_source:
@@ -1038,8 +1038,7 @@ class ChatInstance:
         构建系统提示消息
         '''
         return RAW_PROMPT.format(
-            memory_block="\n".join(user.memory or ["暂无记忆"]), 
-            device="Web端", 
+            memory_block=("\n".join(f"- {p}" if i == 0 else f"  {p}" for item in user.memory for i, p in enumerate(item.split("\n")))) if user.memory else "暂无记忆",
             time=datetime.now().strftime("%Y-%m-%d %A"))
     
     def generate_title(self):

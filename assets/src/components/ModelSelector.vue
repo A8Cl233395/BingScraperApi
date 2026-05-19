@@ -79,17 +79,18 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
     </button>
 
     <transition
-      @enter="(el: any) => { el.style.transition = 'none'; el.style.height = '0px'; el.style.opacity = '0'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; }"
+      @enter="(el: any) => { el.style.transition = 'none'; el.style.height = '0px'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = el.scrollHeight + 'px'; }"
       @after-enter="(el: any) => { el.style.transition = ''; el.style.height = 'auto'; }"
-      @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; el.style.opacity = '0'; }"
+      @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; }"
       @after-leave="(el: any) => { el.style.transition = ''; }"
     >
       <!-- Dropdown -->
       <div
         v-if="isOpen"
-        class="absolute left-0 mt-2 w-64 bg-bg-main border border-border-main rounded-lg shadow-xl z-50 py-1 overflow-hidden origin-top-left"
+        class="absolute left-0 mt-2 w-64 rounded-lg shadow-xl z-50 overflow-hidden origin-top-left"
       >
-        <template v-for="(info, name) in state.models" :key="name">
+        <div class="bg-bg-main border border-border-main rounded-lg py-1">
+          <template v-for="(info, name) in state.models" :key="name">
           <div
             class="px-4 py-2 hover:bg-bg-hover cursor-pointer flex flex-col transition-colors border-b last:border-b-0 border-border-main"
             :class="(state.isVisionMode ? state.currentVModel === name : state.currentModel === name) ? 'bg-bg-active' : ''"
@@ -114,39 +115,42 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
             
             <!-- Details inline -->
             <transition
-              @enter="(el: any) => { el.style.transition = 'none'; el.style.height = '0px'; el.style.opacity = '0'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; }"
+              @enter="(el: any) => { el.style.transition = 'none'; el.style.height = '0px'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = el.scrollHeight + 'px'; }"
               @after-enter="(el: any) => { el.style.transition = ''; el.style.height = 'auto'; }"
-              @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; el.style.opacity = '0'; }"
+              @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; }"
               @after-leave="(el: any) => { el.style.transition = ''; }"
             >
               <div
                 v-if="expandedModel === name"
-                class="mt-2 pt-2 border-t border-border-main overflow-hidden"
+                class="overflow-hidden"
                 @click.stop
               >
-                <p class="text-xs text-text-muted mb-2">{{ info.desc }}</p>
-                <div class="grid grid-cols-2 gap-1 text-[11px]">
-                  <button @click.stop="setSessionModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input rounded hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为当前会话模型">
-                    <FontAwesomeIcon :icon="['fas', 'bolt']" class="text-[10px] text-text-muted group-hover/btn:text-primary-main transition-colors" />
-                    <span>会话</span>
-                  </button>
-                  <button @click.stop="setDefaultModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input rounded hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为默认模型">
-                    <FontAwesomeIcon :icon="['fas', 'thumbtack']" class="text-[10px] text-text-muted group-hover/btn:text-primary-main transition-colors" />
-                    <span>默认</span>
-                  </button>
-                  <button v-if="info.vision" @click.stop="setSessionModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 rounded hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为当前视觉模型">
-                    <FontAwesomeIcon :icon="['fas', 'eye']" class="text-[10px]" />
-                    <span>视觉</span>
-                  </button>
-                  <button v-if="info.vision" @click.stop="setDefaultModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 rounded hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为默认视觉模型">
-                    <FontAwesomeIcon :icon="['fas', 'thumbtack']" class="text-[10px]" />
-                    <span>默认视觉</span>
-                  </button>
+                <div class="mt-2 pt-2 border-t border-border-main">
+                  <p class="text-xs text-text-muted mb-2">{{ info.desc }}</p>
+                  <div class="grid grid-cols-2 gap-1 text-[11px]">
+                    <button @click.stop="setSessionModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input rounded hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为当前会话模型">
+                      <FontAwesomeIcon :icon="['fas', 'bolt']" class="text-[10px] text-text-muted group-hover/btn:text-primary-main transition-colors" />
+                      <span>会话</span>
+                    </button>
+                    <button @click.stop="setDefaultModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input rounded hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为默认模型">
+                      <FontAwesomeIcon :icon="['fas', 'thumbtack']" class="text-[10px] text-text-muted group-hover/btn:text-primary-main transition-colors" />
+                      <span>默认</span>
+                    </button>
+                    <button v-if="info.vision" @click.stop="setSessionModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 rounded hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为当前视觉模型">
+                      <FontAwesomeIcon :icon="['fas', 'eye']" class="text-[10px]" />
+                      <span>视觉</span>
+                    </button>
+                    <button v-if="info.vision" @click.stop="setDefaultModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 rounded hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为默认视觉模型">
+                      <FontAwesomeIcon :icon="['fas', 'thumbtack']" class="text-[10px]" />
+                      <span>默认视觉</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </transition>
           </div>
         </template>
+        </div>
       </div>
     </transition>
   </div>

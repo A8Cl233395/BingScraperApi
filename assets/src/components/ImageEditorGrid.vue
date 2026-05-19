@@ -60,7 +60,7 @@ const handleMenuDelete = () => {
         @touchend="cancelImageLongPress"
         @touchmove="cancelImageLongPress"
         @touchcancel="cancelImageLongPress"
-        @contextmenu.prevent
+        @contextmenu="isMobileDevice() ? $event.preventDefault() : null"
       />
       <!-- 移动端 OCR 加载遮罩 -->
       <div v-if="isOcrProcessing && isMobileDevice()" class="absolute inset-0 bg-black/50 flex items-center justify-center z-10">

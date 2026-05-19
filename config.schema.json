@@ -191,7 +191,7 @@
             },
             "prompt_raw": {
               "type": "string",
-              "description": "系统提示词，支持 {memory_block}、{time}、{device} 占位符"
+              "description": "系统提示词，支持 {memory_block}、{time} 占位符"
             },
             "models": {
               "type": "object",

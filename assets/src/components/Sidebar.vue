@@ -112,7 +112,7 @@ const handleScroll = () => {
             @touchend="cancelLongPress"
             @touchmove="cancelLongPress"
             @touchcancel="cancelLongPress"
-            @contextmenu.prevent
+            @contextmenu="state.isMobile ? $event.preventDefault() : null"
             class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors"
             :class="[
               state.currentChatId === chat[0] ? 'bg-bg-active' : '',

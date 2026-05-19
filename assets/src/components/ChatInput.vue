@@ -212,35 +212,37 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           </button>
 
           <transition
-            @enter="(el: any) => { el.style.transition = 'none'; el.style.height = '0px'; el.style.opacity = '0'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; }"
+            @enter="(el: any) => { el.style.transition = 'none'; el.style.height = '0px'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = el.scrollHeight + 'px'; }"
             @after-enter="(el: any) => { el.style.transition = ''; el.style.height = 'auto'; }"
-            @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.style.opacity = '1'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; el.style.opacity = '0'; }"
+            @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; }"
             @after-leave="(el: any) => { el.style.transition = ''; }"
           >
             <!-- Default Options Popup -->
             <div 
               v-if="showOptions"
-              class="absolute left-0 w-48 bg-bg-main border border-border-main rounded-lg shadow-xl z-50 p-1 overflow-hidden"
+              class="absolute left-0 w-48 z-50 overflow-hidden shadow-xl rounded-lg"
               :class="[
                 props.isChatStarted ? 'bottom-full mb-2 origin-bottom-left' : 'top-full mt-2 origin-top-left'
               ]"
             >
-              <div class="px-3 py-2 text-[10px] font-bold text-text-placeholder uppercase tracking-wider">默认选项</div>
-              <div 
-                @click="setDefaultOption('thinking', !state.defaultSettings.thinking)"
-                @mousedown.prevent
-                class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
-              >
-                <span>深度思考</span>
-                <FontAwesomeIcon v-if="state.defaultSettings.thinking" :icon="['fas', 'check']" class="text-text-main" />
-              </div>
-              <div 
-                @click="setDefaultOption('enable_function', !state.defaultSettings.enable_function)"
-                @mousedown.prevent
-                class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
-              >
-                <span>使用工具</span>
-                <FontAwesomeIcon v-if="state.defaultSettings.enable_function" :icon="['fas', 'check']" class="text-text-main" />
+              <div class="bg-bg-main border border-border-main rounded-lg p-1">
+                <div class="px-3 py-2 text-[10px] font-bold text-text-placeholder uppercase tracking-wider">默认选项</div>
+                <div 
+                  @click="setDefaultOption('thinking', !state.defaultSettings.thinking)"
+                  @mousedown.prevent
+                  class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
+                >
+                  <span>深度思考</span>
+                  <FontAwesomeIcon v-if="state.defaultSettings.thinking" :icon="['fas', 'check']" class="text-text-main" />
+                </div>
+                <div 
+                  @click="setDefaultOption('enable_function', !state.defaultSettings.enable_function)"
+                  @mousedown.prevent
+                  class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
+                >
+                  <span>使用工具</span>
+                  <FontAwesomeIcon v-if="state.defaultSettings.enable_function" :icon="['fas', 'check']" class="text-text-main" />
+                </div>
               </div>
             </div>
           </transition>

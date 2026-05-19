@@ -55,7 +55,6 @@ webchat:
     ---
 
     **现在的时间**：{time}
-    **用户环境**：{device}
 
     ---
   models:

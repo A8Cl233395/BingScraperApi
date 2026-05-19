@@ -623,7 +623,7 @@ const handleContentClick = (e: MouseEvent) => {
             @touchend="(!userTextContent && !isEditing) ? cancelLongPress() : null"
             @touchmove="(!userTextContent && !isEditing) ? cancelLongPress() : null"
             @touchcancel="(!userTextContent && !isEditing) ? cancelLongPress() : null"
-            @contextmenu="(!userTextContent && !isEditing) ? $event.preventDefault() : null"
+            @contextmenu="(state.isMobile && !userTextContent && !isEditing) ? $event.preventDefault() : null"
           >
             <!-- Selected effect for image-only messages -->
             <Transition name="fade">
@@ -644,7 +644,7 @@ const handleContentClick = (e: MouseEvent) => {
             @touchend="cancelLongPress"
             @touchmove="cancelLongPress"
             @touchcancel="cancelLongPress"
-            @contextmenu.prevent
+            @contextmenu="state.isMobile ? $event.preventDefault() : null"
           >
             <!-- Selected effect for text bubble -->
             <Transition name="fade">
@@ -712,7 +712,7 @@ const handleContentClick = (e: MouseEvent) => {
             @touchend="cancelLongPress"
             @touchmove="cancelLongPress"
             @touchcancel="cancelLongPress"
-            @contextmenu.prevent
+            @contextmenu="state.isMobile ? $event.preventDefault() : null"
           >
             <!-- Selected effect -->
             <Transition name="fade">

@@ -58,6 +58,35 @@ async def lifespan(app: FastAPI):
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 KEY = config["server"]["auth_key"]
 
+# 第二个中间件，用于压缩响应
+app.add_middleware(GZipMiddleware, minimum_size=10000)
+
+# 第一个中间件，用于验证 key
+@app.middleware("http")
+async def verify_key_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if request.url.path in ["/ping", "/download", "/invitecodegen", "/api/login", "/invite", "/favicon.ico", "/login", "/webchat"]:
+        return await call_next(request)
+    elif is_web_function_enabled and request.url.path in web_paths:
+        return await call_next(request)
+    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat", "/api/reconnect", "/api/ocr"]:
+        uid = request.headers.get('uid')
+        try:
+            uid = int(uid)
+        except:
+            return PlainTextResponse(status_code=401, content="require key")
+        if not usermanager.is_user_exist(uid):
+            return PlainTextResponse(status_code=401, content="require key")
+        if not usermanager.get_user(uid).verify_token(request.headers.get('token')):
+            return PlainTextResponse(status_code=401, content="require key")
+        return await call_next(request)
+    key = request.headers.get('key')
+    if key != KEY:
+        return PlainTextResponse(content="require key", status_code=401)
+    return await call_next(request)
+
+
 if is_web_function_enabled:
     TURNSTILE_SECRET = config["invite"]["turnstile-secret"]
     INVITE_CODE_KEY = config["invite"]["invite-code-key"]
@@ -120,33 +149,7 @@ async def internal_error_handler(request: Request, exc: Exception):
 async def http_exception_handler(request: Request, exc: HTTPException):
     return PlainTextResponse(content=exc.detail, status_code=exc.status_code)
 
-# 第二个中间件，用于压缩响应
-app.add_middleware(GZipMiddleware, minimum_size=10000)
 
-# 第一个中间件，用于验证 key
-@app.middleware("http")
-async def verify_key_middleware(request: Request, call_next):
-    if request.method == "OPTIONS":
-        return await call_next(request)
-    if request.url.path in ["/ping", "/download", "/invitecodegen", "/api/login", "/invite", "/favicon.ico", "/login", "/webchat"]:
-        return await call_next(request)
-    elif is_web_function_enabled and request.url.path in web_paths:
-        return await call_next(request)
-    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat", "/api/reconnect", "/api/ocr"]:
-        uid = request.headers.get('uid')
-        try:
-            uid = int(uid)
-        except:
-            return PlainTextResponse(status_code=401, content="require key")
-        if not usermanager.is_user_exist(uid):
-            return PlainTextResponse(status_code=401, content="require key")
-        if not usermanager.get_user(uid).verify_token(request.headers.get('token')):
-            return PlainTextResponse(status_code=401, content="require key")
-        return await call_next(request)
-    key = request.headers.get('key')
-    if key != KEY:
-        return PlainTextResponse(content="require key", status_code=401)
-    return await call_next(request)
 
 @app.get("/ping", response_class=PlainTextResponse)
 def ping():
