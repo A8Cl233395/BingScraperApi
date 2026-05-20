@@ -32,7 +32,6 @@ class AsyncCrawler:
         self._page_semaphore: asyncio.Semaphore = None
         self._loop: asyncio.AbstractEventLoop = None
         self._thread: threading.Thread = None
-        self._warmed_up = False
     
     def start(self):
         self._thread = threading.Thread(target=self._run_loop, daemon=True) # 启动事件循环线程并初始化浏览器
@@ -68,7 +67,9 @@ class AsyncCrawler:
                 "intl.accept_languages": "zh-CN,zh,en-US,en"
             }
         )
-        self._context = await self._browser.new_context()
+        self._context = await self._browser.new_context( # 气笑了
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
+        )
         
         # 修复 navigator.webdriver
         await self._context.add_init_script("""
@@ -96,7 +97,6 @@ class AsyncCrawler:
             pass
         self._context = None
         self._browser = None
-        self._warmed_up = False
         await self._launch_browser()
         logger.info("Firefox 重启成功")
 
@@ -146,28 +146,11 @@ class AsyncCrawler:
         try:
             results = []
 
-            if not self._warmed_up:
-                for _ in range(3):
-                    try:
-                        logger.info("预热必应搜索")
-                        await page.goto(
-                            "https://www.bing.com/search?pc=MOZI&form=MOZLBR&q=bing",
-                            wait_until="networkidle",
-                            timeout=self.timeout,
-                        )
-                        await self._press_inputbox_enter(page)
-                        self._warmed_up = True
-                        break
-                    except PwTimeoutError:
-                        pass
-                else:
-                    raise RuntimeError("预热失败！连上网了吗？")
-
             while True:
                 for _ in range(2):
                     first = len(results) + 1 if results else ""
                     url = (
-                        f"https://www.bing.com/search?pc=MOZI&form=MOZLBR&q={quote_plus(query)}"
+                        f"https://www.bing.com/search?q={quote_plus(query)}"
                         + (f"&first={first}" if first else "")
                     )
                     try:
@@ -202,62 +185,6 @@ class AsyncCrawler:
             return "Internal Server Error, this is not your fault ヽ(*。>Д<)o゜"
         finally:
             await self._release_page(page)
-
-    async def _press_inputbox_enter(self, page):
-        """用 Playwright 的 click + press('Enter')"""
-        search_box = page.locator('#sb_form_q')
-        await search_box.wait_for(state="visible", timeout=self.timeout)
-        await asyncio.sleep(0.1)
-        await search_box.click()
-        await asyncio.sleep(0.1)
-        await search_box.press('Enter')
-        try:
-            await page.wait_for_load_state('networkidle', timeout=self.timeout)
-        except Exception:
-            pass
-
-    # async def _press_inputbox_enter(self, page):
-    #     """用 CDP 派发 isTrusted: true 的键盘事件"""
-    #     # 1. 获取 CDP session
-    #     cdp = await page.context.new_cdp_session(page)
-    #     # 2. 确保搜索框获得焦点（此时 isTrusted 仍是 false，但问题不大）
-    #     await page.locator('#sb_form_q').evaluate('el => el.focus()')
-    #     await asyncio.sleep(0.1)
-    #     # 3. 模拟按键盘上的 Enter（keyCode=13, code='Enter'）
-    #     await cdp.send('Input.dispatchKeyEvent', {
-    #         'type': 'keyDown',
-    #         'key': 'Enter',
-    #         'code': 'Enter',
-    #         'keyCode': 13,
-    #         'windowsVirtualKeyCode': 13,
-    #         'nativeVirtualKeyCode': 13,
-    #         'text': '\r',
-    #         'unmodifiedText': '\r',
-    #         'autoRepeat': False,
-    #         'location': 0,
-    #         'isKeypad': False,
-    #     })
-    #     await asyncio.sleep(0.05)
-    #     await cdp.send('Input.dispatchKeyEvent', {
-    #         'type': 'keyUp',
-    #         'key': 'Enter',
-    #         'code': 'Enter',
-    #         'keyCode': 13,
-    #         'windowsVirtualKeyCode': 13,
-    #         'nativeVirtualKeyCode': 13,
-    #         'text': '\r',
-    #         'unmodifiedText': '\r',
-    #         'autoRepeat': False,
-    #         'location': 0,
-    #         'isKeypad': False,
-    #     })
-    #     # 4. 等待页面跳转
-    #     try:
-    #         await page.wait_for_load_state('networkidle', timeout=self.timeout)
-    #     except Exception:
-    #         pass
-    #     # 5. 释放 CDP session（可选，但推荐）
-    #     await cdp.detach()
 
     async def _read(self, url: str) -> str:
         if not url:

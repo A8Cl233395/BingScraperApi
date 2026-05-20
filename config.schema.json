@@ -51,8 +51,7 @@
           "properties": {
             "timeout": {
               "type": "integer",
-              "minimum": 1000,
-              "default": 8000,
+              "default": 10000,
               "description": "Playwright 页面加载基础超时（毫秒）"
             }
           }

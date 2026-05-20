@@ -8,7 +8,7 @@ server:
   log_level: DEBUG
 
 bing_crawler:
-  timeout: 8000 # timeout
+  timeout: 10000 # timeout
 
 ncm:
 
