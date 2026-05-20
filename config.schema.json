@@ -49,23 +49,11 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "dom_timeout": {
+            "timeout": {
               "type": "integer",
               "minimum": 1000,
-              "default": 5000,
+              "default": 8000,
               "description": "Playwright 页面加载基础超时（毫秒）"
-            },
-            "bing_idle_time": {
-              "type": "number",
-              "minimum": 0,
-              "default": 3,
-              "description": "Bing 搜索页面网络空闲等待（秒）"
-            },
-            "web_idle_time": {
-              "type": "number",
-              "minimum": 0,
-              "default": 4,
-              "description": "页面阅读网络空闲等待（秒）"
             }
           }
         }

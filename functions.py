@@ -24,10 +24,8 @@ import trafilatura
 from concurrent.futures import ThreadPoolExecutor
 
 class AsyncCrawler:
-    def __init__(self, dom_timeout=5000, bing_idle_time=3, web_idle_time=5):
-        self.dom_timeout = dom_timeout
-        self.bing_idle_time = bing_idle_time
-        self.web_idle_time = web_idle_time
+    def __init__(self, timeout=8000):
+        self.timeout = timeout
         self._browser: Browser = None
         self._context = None
         self._pw = None
@@ -66,15 +64,20 @@ class AsyncCrawler:
     async def _launch_browser(self):
         self._browser = await self._pw.firefox.launch(
             headless=True,
-            args=[
-                "--no-sandbox",
-            ],
             firefox_user_prefs={
-                "dom.webdriver.enabled": False,
-                "useAutomationExtension": False,
+                "intl.accept_languages": "zh-CN,zh,en-US,en"
             }
         )
         self._context = await self._browser.new_context()
+        
+        # 修复 navigator.webdriver
+        await self._context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+                configurable: true,
+                enumerable: true
+            });
+        """)
         self._page_semaphore = asyncio.Semaphore(20)  # 限制并发 tab 数
 
     async def _ensure_browser(self):
@@ -125,8 +128,7 @@ class AsyncCrawler:
         await self._ensure_browser()
         await self._page_semaphore.acquire()
         page = await self._context.new_page()
-        page.set_default_timeout(self.dom_timeout)
-        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        page.set_default_timeout(self.timeout)
         return page
 
     async def _release_page(self, page):
@@ -135,49 +137,6 @@ class AsyncCrawler:
         except Exception:
             pass
         self._page_semaphore.release()
-
-    async def _wait_for_network_idle(self, page, t=5, i=3):
-        st = time.time()
-        ist = None
-        while time.time() - st < t:
-            try:
-                r = await page.evaluate("""
-                    () => {
-                        var p = performance.getEntriesByType('resource')
-                            .filter(x => !x.responseEnd || x.responseEnd === 0).length;
-                        var n = performance.getEntriesByType('navigation')[0];
-                        return {p: p, n: n && !n.domComplete};
-                    }
-                """)
-                ds = await page.evaluate("""
-                    () => {
-                        return {
-                            r: document.readyState,
-                            j: typeof jQuery !== 'undefined',
-                            a: typeof jQuery !== 'undefined' ? jQuery.active : 0,
-                            l: !!document.querySelector('.loading,.spinner,[data-loading]')
-                        };
-                    }
-                """)
-            except Exception:
-                await asyncio.sleep(0.5)
-                continue
-
-            idle = (
-                r["p"] == 0
-                and not r["n"]
-                and ds["r"] == "complete"
-                and (not ds["j"] or ds["a"] == 0)
-            )
-            if idle:
-                if ist is None:
-                    ist = time.time()
-                elif time.time() - ist >= i:
-                    return True
-            else:
-                ist = None
-            await asyncio.sleep(0.5)
-        return False
 
     async def _search(self, query: str, limit: int = None) -> str:
         if not query:
@@ -188,28 +147,36 @@ class AsyncCrawler:
             results = []
 
             if not self._warmed_up:
-                try:
-                    await page.goto(
-                        "https://www.bing.com/search?q=bing",
-                        wait_until="domcontentloaded"
-                    )
-                    await self._wait_for_network_idle(page, i=self.bing_idle_time)
-                except PwTimeoutError:
-                    pass
-                self._warmed_up = True
+                for _ in range(3):
+                    try:
+                        logger.info("预热必应搜索")
+                        await page.goto(
+                            "https://www.bing.com/search?pc=MOZI&form=MOZLBR&q=bing",
+                            wait_until="networkidle",
+                            timeout=self.timeout,
+                        )
+                        await self._press_inputbox_enter(page)
+                        self._warmed_up = True
+                        break
+                    except PwTimeoutError:
+                        pass
+                else:
+                    raise RuntimeError("预热失败！连上网了吗？")
 
             while True:
-                first = len(results) + 1 if results else ""
-                url = (
-                    f"https://www.bing.com/search?q={quote_plus(query)}"
-                    + (f"&first={first}" if first else "")
-                )
-                try:
-                    await page.goto(url, wait_until="domcontentloaded")
-                except PwTimeoutError:
-                    return "Page Timeout!"
-
-                await self._wait_for_network_idle(page, i=self.bing_idle_time)
+                for _ in range(2):
+                    first = len(results) + 1 if results else ""
+                    url = (
+                        f"https://www.bing.com/search?pc=MOZI&form=MOZLBR&q={quote_plus(query)}"
+                        + (f"&first={first}" if first else "")
+                    )
+                    try:
+                        await page.goto(url, wait_until="networkidle", timeout=self.timeout)
+                    except PwTimeoutError:
+                        continue
+                    break
+                else:
+                    raise RuntimeError("无法搜索！网络正常吗？")
 
                 page_results = await page.evaluate("""
                     () => {
@@ -223,7 +190,7 @@ class AsyncCrawler:
                 if not page_results:
                     break
                 results.extend(page_results)
-                if limit is None or len(results) >= limit: # enough results
+                if limit is None or len(results) >= limit:
                     break
 
             return "\n".join([
@@ -231,9 +198,66 @@ class AsyncCrawler:
                 for item in results[:limit]
             ])
         except Exception:
+            logger.exception("搜索失败")
             return "Internal Server Error, this is not your fault ヽ(*。>Д<)o゜"
         finally:
             await self._release_page(page)
+
+    async def _press_inputbox_enter(self, page):
+        """用 Playwright 的 click + press('Enter')"""
+        search_box = page.locator('#sb_form_q')
+        await search_box.wait_for(state="visible", timeout=self.timeout)
+        await asyncio.sleep(0.1)
+        await search_box.click()
+        await asyncio.sleep(0.1)
+        await search_box.press('Enter')
+        try:
+            await page.wait_for_load_state('networkidle', timeout=self.timeout)
+        except Exception:
+            pass
+
+    # async def _press_inputbox_enter(self, page):
+    #     """用 CDP 派发 isTrusted: true 的键盘事件"""
+    #     # 1. 获取 CDP session
+    #     cdp = await page.context.new_cdp_session(page)
+    #     # 2. 确保搜索框获得焦点（此时 isTrusted 仍是 false，但问题不大）
+    #     await page.locator('#sb_form_q').evaluate('el => el.focus()')
+    #     await asyncio.sleep(0.1)
+    #     # 3. 模拟按键盘上的 Enter（keyCode=13, code='Enter'）
+    #     await cdp.send('Input.dispatchKeyEvent', {
+    #         'type': 'keyDown',
+    #         'key': 'Enter',
+    #         'code': 'Enter',
+    #         'keyCode': 13,
+    #         'windowsVirtualKeyCode': 13,
+    #         'nativeVirtualKeyCode': 13,
+    #         'text': '\r',
+    #         'unmodifiedText': '\r',
+    #         'autoRepeat': False,
+    #         'location': 0,
+    #         'isKeypad': False,
+    #     })
+    #     await asyncio.sleep(0.05)
+    #     await cdp.send('Input.dispatchKeyEvent', {
+    #         'type': 'keyUp',
+    #         'key': 'Enter',
+    #         'code': 'Enter',
+    #         'keyCode': 13,
+    #         'windowsVirtualKeyCode': 13,
+    #         'nativeVirtualKeyCode': 13,
+    #         'text': '\r',
+    #         'unmodifiedText': '\r',
+    #         'autoRepeat': False,
+    #         'location': 0,
+    #         'isKeypad': False,
+    #     })
+    #     # 4. 等待页面跳转
+    #     try:
+    #         await page.wait_for_load_state('networkidle', timeout=self.timeout)
+    #     except Exception:
+    #         pass
+    #     # 5. 释放 CDP session（可选，但推荐）
+    #     await cdp.detach()
 
     async def _read(self, url: str) -> str:
         if not url:
@@ -249,8 +273,7 @@ class AsyncCrawler:
         page = await self._get_page()
         try:
             try:
-                await page.goto(url, wait_until="domcontentloaded")
-                await self._wait_for_network_idle(page, i=self.web_idle_time)
+                await page.goto(url, wait_until="networkidle", timeout=self.timeout)
             except PwTimeoutError:
                 return "Page Timeout!"
 
@@ -266,8 +289,10 @@ class AsyncCrawler:
                 body_text = await page.text_content('body')
                 return re.sub(r"\n{2,}", "\n", body_text)
             except Exception as e:
+                logger.exception(f"读取网页内容失败: {url}")
                 return f"Internal Server Error: {e}! But this is not your fault ヽ(*。>Д<)o゜"
         except Exception:
+            logger.exception(f"访问网页失败: {url}")
             return "Internal Server Error, this is not your fault ヽ(*。>Д<)o゜"
         finally:
             await self._release_page(page)
@@ -524,6 +549,7 @@ class OCR:
             self.sha256_text_cache.put(image_hash, result)
             return result
         except Exception as e:
+            logger.exception("OCR 识别失败")
             raise Exception(f"OCR failed: {str(e)}")
 
 class InviteManager:
@@ -1130,7 +1156,7 @@ class Webchat:
                         try:
                             del user.chat_cache[chat_id]
                         except:
-                            pass
+                            logger.debug(f"删除聊天缓存失败，可能已被其他线程删除: user={user.user_id}, chat={chat_id}")
     
     def _init_user_table(self, user_id: int):
         with self.conn:
@@ -1421,7 +1447,7 @@ if __name__ != "__main__":
         usermanager = UserManager()
 
     if is_bing_crawler_enabled:
-        browser = AsyncCrawler(config["bing_crawler"].get("dom_timeout", 5000), config["bing_crawler"].get("bing_idle_time", 3), config["bing_crawler"].get("web_idle_time", 4))
+        browser = AsyncCrawler(config["bing_crawler"].get("timeout", 8000))
 
     if is_ncm_enabled:
         ncm = Ncm()
@@ -1484,7 +1510,7 @@ if __name__ != "__main__":
                 try:
                     asyncio.run_coroutine_threadsafe(websocket_connect.send_text(json.dumps(message, ensure_ascii=False)), event_loop)
                 except Exception:
-                    pass
+                    logger.exception("发送 WebSocket 消息失败")
                 return True
             else:
                 logger.error("发送消息失败，WebSocket 未连接")

@@ -228,6 +228,7 @@ if is_ncm_enabled:
         except HTTPException:
             raise
         except:
+            logger.exception(f"获取网易云歌词失败: id={id}, url={url}")
             raise HTTPException(status_code=400, detail="Invalid id or url")
 
 if is_bilibili_enabled:
