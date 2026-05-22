@@ -55,7 +55,7 @@ const buildMessageChain = (nodeId: string, scrollToBottomFlag = true) => {
     const targetNode: any = messageTree.value[currId];
     if (!targetNode) break;
     
-    const node: ChatNode = { ...targetNode, id: currId, clientId: currId };
+    const node: ChatNode = reactive({ ...targetNode, id: currId, clientId: currId });
     chain.unshift(node);
     currId = targetNode.parent === 'root' ? null : targetNode.parent;
   }
@@ -79,7 +79,7 @@ const buildMessageChain = (nodeId: string, scrollToBottomFlag = true) => {
   while (downId) {
     const targetNode = messageTree.value[downId];
     if (!targetNode) break;
-    const node: ChatNode = { ...targetNode, id: downId, clientId: downId };
+    const node: ChatNode = reactive({ ...targetNode, id: downId, clientId: downId });
     chain.push(node);
     downId = getNextDownId(downId);
   }
@@ -251,6 +251,12 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
             throw new Error('404_NOT_FOUND');
           }
         },
+        onclose() {
+          // Prevent auto-retry on clean close (since this is a GET request, fetchEventSource auto-retries by default)
+          if (!currentController.signal.aborted) {
+            currentController.abort();
+          }
+        },
         onmessage(ev) {
           processSSEEvent(ev, targetMsg, sseState, parentId);
         },
@@ -276,6 +282,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
       }
       activeStreamingNodeId.value = null;
       abortController.value = null;
+      messages.value = [...messages.value];
     }
   }
 };

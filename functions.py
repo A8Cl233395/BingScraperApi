@@ -32,6 +32,7 @@ class AsyncCrawler:
         self._page_semaphore: asyncio.Semaphore = None
         self._loop: asyncio.AbstractEventLoop = None
         self._thread: threading.Thread = None
+        self._warmed_up = False
     
     def start(self):
         self._thread = threading.Thread(target=self._run_loop, daemon=True) # 启动事件循环线程并初始化浏览器
@@ -97,6 +98,7 @@ class AsyncCrawler:
             pass
         self._context = None
         self._browser = None
+        self._warmed_up = False
         await self._launch_browser()
         logger.info("Firefox 重启成功")
 
@@ -145,6 +147,22 @@ class AsyncCrawler:
         page = await self._get_page()
         try:
             results = []
+
+            if not self._warmed_up:
+                for _ in range(3):
+                    try:
+                        logger.info("预热必应搜索")
+                        await page.goto(
+                            "https://www.bing.com/search?pc=MOZI&form=MOZLBR&q=bing",
+                            wait_until="networkidle",
+                            timeout=self.timeout,
+                        )
+                        self._warmed_up = True
+                        break
+                    except PwTimeoutError:
+                        pass
+                else:
+                    raise RuntimeError("预热失败！连上网了吗？")
 
             while True:
                 for _ in range(2):
