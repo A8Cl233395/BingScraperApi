@@ -3,12 +3,12 @@ from dataclasses import dataclass
 from datetime import datetime
 import re
 import sqlite3
-from typing import Generator
+from typing import AsyncGenerator
 from urllib.parse import quote_plus, urlparse
 from playwright.async_api import async_playwright, Browser, TimeoutError as PwTimeoutError
 from collections import OrderedDict
 from fastapi import HTTPException
-from openai import OpenAI
+from openai import AsyncOpenAI
 import time
 import threading
 from fastapi import WebSocket
@@ -21,7 +21,6 @@ import logging
 import lz4.frame
 from hashlib import sha256
 import trafilatura
-from concurrent.futures import ThreadPoolExecutor
 
 class AsyncCrawler:
     def __init__(self, timeout=8000):
@@ -157,6 +156,7 @@ class AsyncCrawler:
                             wait_until="networkidle",
                             timeout=self.timeout,
                         )
+                        await self._press_inputbox_enter(page)
                         self._warmed_up = True
                         break
                     except PwTimeoutError:
@@ -204,6 +204,19 @@ class AsyncCrawler:
         finally:
             await self._release_page(page)
 
+    async def _press_inputbox_enter(self, page):
+        """用 Playwright 的 click + press('Enter')"""
+        search_box = page.locator('#sb_form_q')
+        await search_box.wait_for(state="visible", timeout=self.timeout)
+        await asyncio.sleep(0.1)
+        await search_box.click()
+        await asyncio.sleep(0.1)
+        await search_box.press('Enter')
+        try:
+            await page.wait_for_load_state('networkidle', timeout=self.timeout)
+        except Exception:
+            pass
+
     async def _read(self, url: str) -> str:
         if not url:
             return "require url"
@@ -220,7 +233,9 @@ class AsyncCrawler:
             try:
                 await page.goto(url, wait_until="networkidle", timeout=self.timeout)
             except PwTimeoutError:
-                return "Page Timeout!"
+                ready = await page.evaluate("document.readyState")
+                if ready == "loading":
+                    return "Page Timeout!"
 
             web_source = await page.content()
             if not web_source:
@@ -571,9 +586,9 @@ class Link:
 
 @dataclass
 class StreamingCache:
-    __slots__ = ("data", "condition")
     data: list
-    condition: threading.Condition
+    condition: asyncio.Condition
+    current_task: asyncio.Task | None = None
 
 class User:
     def __init__(self, user_id: int):
@@ -683,36 +698,6 @@ class User:
         self.token = None
         self.expire = 0
 
-class DelayedOutput: # TODO: WHAT THE FUCK IS THIS
-    __slots__ = ("tool_call", "executor", "future")
-    def __init__(self, tool_call: dict, instance: "ChatInstance"):
-        self.tool_call = tool_call
-        self.executor: ThreadPoolExecutor | None = ThreadPoolExecutor(max_workers=1)
-        self.future = self.executor.submit(instance._handle_tool_call, tool_call)
-
-    def get_sse(self):
-        result = self.future.result()["content"]
-        try:
-            if self.executor is not None:
-                self.executor.shutdown()
-                self.executor = None
-        except Exception as e:
-            logger.error(f"关闭执行器出错: {e}")
-        return self._sse(result)
-
-    def get_raw(self):
-        result = self.future.result()
-        try:
-            if self.executor is not None:
-                self.executor.shutdown()
-                self.executor = None
-        except Exception as e:
-            logger.error(f"关闭执行器出错: {e}")
-        return result
-
-    def _sse(self, data: str) -> str:
-        return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-
 class ChatInstance:
     tools = [
         {
@@ -776,8 +761,9 @@ class ChatInstance:
         self.system_prompt = self._build_system_message(user)
         self.user = user
         self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "vision": False, "iteration": -1}}
+        self.streaming = False
 
-    def _ai(self, model, messages, thinking, enable_function):
+    async def _ai(self, model, messages, thinking, enable_function):
         params = {
             "model": model,
             "messages": messages,
@@ -791,11 +777,11 @@ class ChatInstance:
             else:
                 params["extra_body"] = MODELS[model]["thinking-extra-body"]["false"]
         client = get_oclient(model)
-        completion = client.chat.completions.create(**params)
-        return completion
+        return await client.chat.completions.create(**params)
 
-    def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None) -> Generator[str | DelayedOutput]:
+    async def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None) -> AsyncGenerator[str, None]:
         try:
+            self.streaming = True
             # 检查多模态
             if not self.chat_tree["root"]["vision"]:
                 if isinstance(content, list) and content[0]["type"] == "image_url": # 应该先在网关校验
@@ -809,14 +795,14 @@ class ChatInstance:
                 current_messages.append({"role": "user", "content": content})
             current_node_assistant_messages = current_node_assistant_messages or [] # 初始化或继承当前节点助手消息
             # 开始生成
-            completion = self._ai(_model, current_messages, thinking, enable_function)
+            completion = await self._ai(_model, current_messages, thinking, enable_function)
             answering_content = ""
             reasoning_content = ""
             is_thinking = False
             is_answering = False
             tool_calls = []
-            tool_threads: list[DelayedOutput] = []
-            for chunk in completion:
+            tool_tasks: list[asyncio.Task] = []
+            async for chunk in completion:
                 if not chunk.choices: # 兼容mimo
                     continue
                 delta = chunk.choices[0].delta
@@ -838,8 +824,9 @@ class ChatInstance:
                             if tool_calls: # 处理旧的（完成生成的）tool call
                                 yield self._sse(self._tool_call_json_parser(tool_calls[-1]))
                                 yield self._sse("tool_response", "signal")
-                                tool_threads.append(DelayedOutput(tool_calls[-1], self))
-                                yield tool_threads[-1] # hot potato !
+                                task = asyncio.create_task(asyncio.to_thread(self._handle_tool_call, tool_calls[-1]))
+                                tool_tasks.append(task)
+                                yield task
                             tool_calls.append({
                                 "id": tool_call.id,
                                 "function": {
@@ -857,6 +844,7 @@ class ChatInstance:
                                 tool_calls[-1]["function"]["arguments"] += tool_call.function.arguments
             
             if not tool_calls: # 结束
+                self.streaming = False
                 # 丢弃current_messages
                 current_node_assistant_messages.append({"role": "assistant", "content": answering_content})
                 if is_thinking:
@@ -867,9 +855,9 @@ class ChatInstance:
                 # 处理最后一个tool call
                 yield self._sse(self._tool_call_json_parser(tool_calls[-1]))
                 yield self._sse("tool_response", "signal")
-                tool_response = self._handle_tool_call(tool_calls[-1]) # last one. just wait for it
+                tool_response = await asyncio.to_thread(self._handle_tool_call, tool_calls[-1]) # last one. just wait for it
                 yield self._sse(tool_response["content"])
-                tool_responses = [r.get_raw() for r in tool_threads]
+                tool_responses = [await t for t in tool_tasks]
                 tool_responses.append(tool_response)
                 current_node_assistant_messages.append({"role": "assistant", "content": answering_content, "tool_calls": tool_calls})
                 current_messages.append({"role": "assistant", "content": answering_content, "tool_calls": tool_calls})
@@ -878,7 +866,7 @@ class ChatInstance:
                     current_messages[-1]["reasoning_content"] = reasoning_content
                 current_messages.extend(tool_responses)
                 current_node_assistant_messages.extend(tool_responses)
-                yield from self.__call__(
+                async for data in self.__call__(
                     node_id,
                     content,
                     current_messages = current_messages,
@@ -886,14 +874,30 @@ class ChatInstance:
                     thinking = thinking,
                     enable_function = enable_function,
                     _model = _model
-                ) # 直到ai完成所有操作
+                ): # 直到ai完成所有操作
+                    yield data
+        except asyncio.CancelledError:
+            self.streaming = False
+            self._remove_node(node_id)
+            # 注意：tool_tasks 中的后台任务未取消，它们在线程池中运行且有超时保护，会自然退出
+            raise
         except Exception as e:
-            parent_id = self.chat_tree[node_id]["parent"]
-            del self.chat_tree[node_id]
-            self.chat_tree[parent_id]["child"].remove(node_id)
+            self.streaming = False
+            self._remove_node(node_id)
             id = os.urandom(4).hex()
             yield self._sse(f"发生错误！Trace ID: {id}", "error")
             logger.error(f"Trace ID {id}\n错误: {e}")
+
+    def _remove_node(self, node_id):
+        """安全移除节点（幂等）"""
+        node = self.chat_tree.pop(node_id, None)
+        if node is not None:
+            try:
+                self.chat_tree[node["parent"]]["child"].remove(node_id)
+            except ValueError:
+                pass
+            if self.chat_tree["root"]["current"] == node_id:
+                self.chat_tree["root"]["current"] = node["parent"]
     
     def _handle_tool_call(self, tool_call: dict):
         tool_call_id = tool_call["id"]
@@ -1012,7 +1016,7 @@ class ChatInstance:
             memory_block=("\n".join(f"- {p}" if i == 0 else f"  {p}" for item in user.memory for i, p in enumerate(item.split("\n")))) if user.memory else "暂无记忆",
             time=datetime.now().strftime("%Y-%m-%d %A"))
     
-    def generate_title(self):
+    async def generate_title(self):
         try:
             if "0" not in self.chat_tree:
                 return "新对话"
@@ -1032,7 +1036,7 @@ class ChatInstance:
             }
             if "thinking-extra-body" in MODELS[title_model]:
                 params["extra_body"] = MODELS[title_model]["thinking-extra-body"]["false"]
-            r = get_oclient(config["webchat"]["title-model"]).chat.completions.create(**params)
+            r = await get_oclient(config["webchat"]["title-model"]).chat.completions.create(**params)
             return r.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"生成标题失败：{e}")
@@ -1097,6 +1101,8 @@ class Webchat:
                 chat_cache_copy = user.chat_cache.copy()
                 for chat_id, k in chat_cache_copy.items():
                     if time.time() - k[1] > 60 * 5: # 5min
+                        if k[0].streaming: # 正在流中，不保存
+                            continue
                         self._save_chat(user, chat_id)
                         try:
                             del user.chat_cache[chat_id]
@@ -1142,47 +1148,49 @@ class Webchat:
         user.chat_cache[chat_id] = [chat_instance, time.time()]
         return chat_instance
     
-    def _generate(self, streaming_cache: StreamingCache, request_body: dict, chat_instance: ChatInstance, node_id: str, generate_title: bool = False, user: User = None, chat_id: int = None):
+    async def _generate(self, streaming_cache: StreamingCache, request_body: dict, chat_instance: ChatInstance, node_id: str, generate_title: bool = False, user: User = None, chat_id: int = None):
         try:
-            for data in chat_instance(node_id, request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), thinking=request_body.get("thinking"), enable_function=request_body.get("enable_function")):
-                with streaming_cache.condition:
+            async for data in chat_instance(node_id, request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), thinking=request_body.get("thinking"), enable_function=request_body.get("enable_function")):
+                async with streaming_cache.condition:
                     streaming_cache.data.append(data)
                     streaming_cache.condition.notify_all()
             if generate_title:
-                title = self._generate_title(chat_instance, user.user_id, chat_id)
-                with streaming_cache.condition:
+                title = await self._generate_title(chat_instance, user.user_id, chat_id)
+                async with streaming_cache.condition:
                     streaming_cache.data.append(f"event: title\ndata: {json.dumps(title, ensure_ascii=False)}\n\n")
                     streaming_cache.condition.notify_all()
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             logger.error(f"生成对话失败: {e}")
         finally:
-            with streaming_cache.condition:
+            async with streaming_cache.condition:
                 streaming_cache.data.append(None)
                 streaming_cache.condition.notify_all()
-            time.sleep(10)
-            del user.streaming_cache[(chat_id, node_id)]
+            user.streaming_cache.pop((chat_id, node_id), None)
     
-    def _generate_title(self, chat_instance: ChatInstance, user_id: int, chat_id: int):
-        title = chat_instance.generate_title()
+    async def _generate_title(self, chat_instance: ChatInstance, user_id: int, chat_id: int):
+        title = await chat_instance.generate_title()
         with self.conn:
             cursor = self.conn.cursor()
             cursor.execute(f"UPDATE u{user_id} SET title = ? WHERE id = ?", (title, chat_id))
             self.conn.commit()
         return title
         
-    def _pusher(self, streaming_cache: StreamingCache):
+    async def _pusher(self, streaming_cache: StreamingCache):
         current_index = 0
         while True:
-            with streaming_cache.condition:
+            async with streaming_cache.condition:
                 while current_index == len(streaming_cache.data):
-                    streaming_cache.condition.wait()
+                    await streaming_cache.condition.wait()
                 data = streaming_cache.data[current_index]
                 if data is None:
                     break
                 current_index += 1
 
-            if isinstance(data, DelayedOutput):
-                data = data.get_sse()
+            if asyncio.isfuture(data): # super hacky!
+                result = await data
+                data = f"data: {json.dumps(result['content'], ensure_ascii=False)}\n\n"
 
             yield data
     
@@ -1227,7 +1235,7 @@ class Webchat:
             raise HTTPException(status_code=404, detail="bad chat id")
         return self._decompress(compressed[0])
     
-    def chat(self, user_id: int, request_body: dict):
+    async def chat(self, user_id: int, request_body: dict):
         user = usermanager.get_user(user_id)
         chat_id = request_body.get("id")
         if chat_id is None:
@@ -1235,21 +1243,20 @@ class Webchat:
                 raise HTTPException(status_code=400, detail="parent is not allowed in new chat")
             chat_id, chat_instance = self._prepare_new_chat(user)
             node_id = chat_instance.create_placehold_node("root", request_body["content"])
-            streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], threading.Condition())
-            with streaming_cache.condition:
+            streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], asyncio.Condition())
+            async with streaming_cache.condition:
                 streaming_cache.data.append(f"event: id\ndata: {chat_id}\n\n")
                 streaming_cache.data.append(f"event: node_id\ndata: \"{node_id}\"\n\n")
-            generate_thread = threading.Thread(target=self._generate, args=(streaming_cache, request_body, chat_instance, node_id, True, user, chat_id))
+            streaming_cache.current_task = asyncio.create_task(self._generate(streaming_cache, request_body, chat_instance, node_id, True, user, chat_id))
         else:
             chat_instance = self._prepare_chat(user, chat_id)
             if request_body["parent"] is not None and not chat_instance.verify_parent(request_body["parent"]):
                 raise HTTPException(status_code=400, detail="bad parent")
             node_id = chat_instance.create_placehold_node(request_body["parent"], request_body["content"])
-            streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], threading.Condition())
-            with streaming_cache.condition:
+            streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], asyncio.Condition())
+            async with streaming_cache.condition:
                 streaming_cache.data.append(f"event: node_id\ndata: \"{node_id}\"\n\n")
-            generate_thread = threading.Thread(target=self._generate, args=(streaming_cache, request_body, chat_instance, node_id, False, user, chat_id))
-        generate_thread.start()
+            streaming_cache.current_task = asyncio.create_task(self._generate(streaming_cache, request_body, chat_instance, node_id, False, user, chat_id))
         return self._pusher(streaming_cache)
 
     def reconnect(self, user_id: int, id: int, node_id: int):
@@ -1427,10 +1434,10 @@ if __name__ != "__main__":
         oclients = {}
         MODELS: dict[str, dict] = config["webchat"]["models"]
         RAW_PROMPT: str = config["webchat"]["prompt_raw"]
-        def get_oclient(model) -> OpenAI:
+        def get_oclient(model) -> AsyncOpenAI:
             url = MODELS[model]["url"]
             if url not in oclients:
-                oclients[url] = OpenAI(api_key=MODELS[model]["api_key"], base_url=MODELS[model]["url"])
+                oclients[url] = AsyncOpenAI(api_key=MODELS[model]["api_key"], base_url=MODELS[model]["url"])
             return oclients[url]
 
     if is_invite_enabled:

@@ -65,8 +65,8 @@ const buildMessageChain = (nodeId: string, scrollToBottomFlag = true) => {
   const getNextDownId = (id: string): string | undefined => {
     const node = messageTree.value[id];
     if (!node) return undefined;
-    // 优先使用 current 字段
-    if (node.current) return node.current;
+    // 优先使用 current 字段（排除自引用，防止无限循环）
+    if (node.current && node.current !== id) return node.current;
     // 如果没有 current 字段，使用最后一个子节点
     const children = node.child;
     if (children && children.length > 0) {
@@ -326,6 +326,12 @@ const navigateSiblings = (nodeId: string, direction: number) => {
 
 const handleSend = async (content: any, parent?: string) => {
   const parentId = parent || lastNodeId.value;
+
+  // 如果发送内容包含图片，立即标记会话需要视觉模型，
+  // 防止 clearImages 清空草稿图片后 isVisionMode 短暂变为 false
+  if (Array.isArray(content) && content.some((c: any) => c.type === 'image_url')) {
+    state.chatRequiresVision = true;
+  }
   
   const tempId = 'temp-' + Date.now();
   const userMsg: ChatNode = reactive({
@@ -603,7 +609,71 @@ const getMsgPreview = (node: ChatNode) => {
   return '空消息';
 };
 
-defineExpose({ handleSend, messages, scrollToTop });
+/** 取消正在进行的 AI 生成，回滚节点，返回用户输入内容 */
+const handleCancel = async () => {
+  const chatId = state.currentChatId;
+  const nodeId = activeStreamingNodeId.value;
+
+  if (!nodeId) return null;
+
+  // 获取用户输入内容，用于恢复到输入框
+  const targetMsg = messages.value.find(m => m.id === nodeId || m.clientId === nodeId);
+  const userContent = targetMsg?.user ?? null;
+
+  // 先将 abortController 置空，防止 handleSend/handleReconnect 的 finally 重复清理
+  const controller = abortController.value;
+  abortController.value = null;
+  if (controller) {
+    controller.abort();
+  }
+  state.isStreaming = false;
+  activeStreamingNodeId.value = null;
+
+  // 调用后端取消 API（幂等，不会报错）
+  if (chatId && nodeId && !nodeId.startsWith('temp-')) {
+    try {
+      await api.get('/api/cancel', { params: { id: chatId, node_id: nodeId } });
+    } catch (e) {
+      console.error('取消请求失败', e);
+    }
+  }
+
+  // 回滚前端节点
+  const realNodeId = targetMsg?.id || nodeId;
+  const clientId = targetMsg?.clientId || nodeId;
+
+  // 从 messages 中移除
+  const idx = messages.value.findIndex(m => m.id === realNodeId || m.clientId === clientId);
+  if (idx >= 0) {
+    messages.value = messages.value.slice(0, idx);
+  }
+
+  // 从 messageTree 中移除（真实 ID 和临时 ID 都要清理）
+  for (const id of [realNodeId, clientId]) {
+    if (id && messageTree.value[id]) {
+      const parentId = messageTree.value[id].parent;
+      delete messageTree.value[id];
+      if (parentId && messageTree.value[parentId]) {
+        const children = messageTree.value[parentId].child;
+        if (children) {
+          const childIdx = children.indexOf(id);
+          if (childIdx >= 0) children.splice(childIdx, 1);
+        }
+      }
+    }
+  }
+
+  // 更新 lastNodeId
+  if (messages.value.length > 0) {
+    lastNodeId.value = messages.value[messages.value.length - 1].id;
+  } else {
+    lastNodeId.value = 'root';
+  }
+
+  return userContent;
+};
+
+defineExpose({ handleSend, handleCancel, messages, scrollToTop });
 </script>
 
 <template>

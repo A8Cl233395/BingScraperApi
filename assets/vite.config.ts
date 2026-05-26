@@ -19,14 +19,20 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('vue') || id.includes('vue-router') || id.includes('axios')) {
+            if (id.includes('vue')) {
               return 'vendor';
+            }
+            if (id.includes('axios') || id.includes('dompurify')) {
+              return 'core';
+            }
+            if (id.includes('@microsoft')) {
+              return 'sse';
             }
             if (id.includes('marked') || id.includes('katex') || id.includes('highlight.js')) {
               return 'markdown';
             }
-            if (id.includes('@microsoft')) {
-              return 'fetch-event-source';
+            if (id.includes('@fortawesome')) {
+              return 'icons';
             }
           }
         }

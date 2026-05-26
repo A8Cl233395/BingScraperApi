@@ -11,7 +11,7 @@ const props = defineProps<{
   isChatStarted: boolean;
 }>();
 
-const emit = defineEmits(['send', 'mobile-focus', 'mobile-blur']);
+const emit = defineEmits(['send', 'stop', 'mobile-focus', 'mobile-blur']);
 
 const textInput = ref('');
 const showOptions = ref(false);
@@ -115,6 +115,26 @@ const handleBlur = () => {
 onUnmounted(() => {
   if (blurTimeout) clearTimeout(blurTimeout);
 });
+
+const handleStop = () => {
+  emit('stop');
+};
+
+const restoreInput = (content: any) => {
+  if (!content) return;
+  if (typeof content === 'string') {
+    textInput.value = content;
+  } else if (Array.isArray(content)) {
+    const textObj = content.find((c: any) => c.type === 'text');
+    if (textObj) {
+      textInput.value = textObj.text;
+    }
+    const imageObjs = content.filter((c: any) => c.type === 'image_url');
+    images.value = imageObjs.map((c: any) => c.image_url.url);
+  }
+};
+
+defineExpose({ restoreInput });
 
 const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boolean) => {
   try {
@@ -267,13 +287,21 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           <FontAwesomeIcon :icon="['far', 'image']" class="text-lg" />
         </button>
         <button 
+          v-if="state.isStreaming"
+          @click="handleStop"
+          @mousedown.prevent
+          class="bg-danger-main text-primary-text hover:opacity-80 w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          title="停止生成"
+        >
+          <FontAwesomeIcon :icon="['fas', 'stop']" class="text-sm" />
+        </button>
+        <button 
+          v-else
           @click="handleSend"
           @mousedown.prevent
-          class="bg-primary-main text-primary-text hover:bg-primary-hover w-8 h-8 flex items-center justify-center rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          :disabled="state.isStreaming"
+          class="bg-primary-main text-primary-text hover:bg-primary-hover w-8 h-8 flex items-center justify-center rounded-md transition-colors"
         >
-          <FontAwesomeIcon v-if="state.isStreaming" :icon="['fas', 'spinner']" spin class="text-sm" />
-          <FontAwesomeIcon v-else :icon="['fas', 'paper-plane']" class="text-sm" />
+          <FontAwesomeIcon :icon="['fas', 'paper-plane']" class="text-sm" />
         </button>
       </div>
 

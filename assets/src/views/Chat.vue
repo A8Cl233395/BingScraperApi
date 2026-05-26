@@ -10,6 +10,7 @@ import ImagePreview from '../components/ImagePreview.vue';
 import TextSelectionOverlay from '../components/TextSelectionOverlay.vue';
 
 const messageListRef = ref<any>(null);
+const chatInputRef = ref<any>(null);
 const mobileKeyboardActive = ref(false);
 
 const isChatStarted = computed(() => {
@@ -18,6 +19,13 @@ const isChatStarted = computed(() => {
 
 const handleSend = (content: any) => {
   messageListRef.value?.handleSend(content);
+};
+
+const handleStop = async () => {
+  const userContent = await messageListRef.value?.handleCancel();
+  if (userContent) {
+    chatInputRef.value?.restoreInput(userContent);
+  }
 };
 
 const checkDevice = () => {
@@ -149,7 +157,7 @@ watch(() => state.currentChatId, (newId) => {
           ]"
         />
   
-        <ChatInput :isChatStarted="isChatStarted" @send="handleSend" @mobile-focus="mobileKeyboardActive = true" @mobile-blur="mobileKeyboardActive = false" />
+        <ChatInput ref="chatInputRef" :isChatStarted="isChatStarted" @send="handleSend" @stop="handleStop" @mobile-focus="mobileKeyboardActive = true" @mobile-blur="mobileKeyboardActive = false" />
       </div>
     </main>
     

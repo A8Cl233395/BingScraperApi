@@ -9,7 +9,9 @@ from pydantic import BaseModel, Field, field_validator
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from PIL import Image
+import asyncio
 import base64
+import inspect
 import io
 import time
 import uvicorn
@@ -20,19 +22,34 @@ def user_rate_limit(qpm: int):
     """滑动窗口速率限制装饰器，基于uid请求头的每分钟请求数限制（每个函数独立计算）"""
     _window: dict[int, deque] = defaultdict(lambda: deque())
     def decorator(func):
-        @wraps(func)
-        def wrapper(request: Request, *args, **kwargs):
-            uid = int(request.headers.get('uid', 0))
-            now = time.time()
-            threshold = now - 60
-            dq = _window[uid]
-            while dq and dq[0] < threshold:
-                dq.popleft()
-            if len(dq) >= qpm:
-                raise HTTPException(status_code=429, detail="Too Many Requests")
-            dq.append(now)
-            return func(request, *args, **kwargs)
-        return wrapper
+        if inspect.iscoroutinefunction(func):
+            @wraps(func)
+            async def async_wrapper(request: Request, *args, **kwargs):
+                uid = int(request.headers.get('uid', 0))
+                now = time.time()
+                threshold = now - 60
+                dq = _window[uid]
+                while dq and dq[0] < threshold:
+                    dq.popleft()
+                if len(dq) >= qpm:
+                    raise HTTPException(status_code=429, detail="Too Many Requests")
+                dq.append(now)
+                return await func(request, *args, **kwargs)
+            return async_wrapper
+        else:
+            @wraps(func)
+            def wrapper(request: Request, *args, **kwargs):
+                uid = int(request.headers.get('uid', 0))
+                now = time.time()
+                threshold = now - 60
+                dq = _window[uid]
+                while dq and dq[0] < threshold:
+                    dq.popleft()
+                if len(dq) >= qpm:
+                    raise HTTPException(status_code=429, detail="Too Many Requests")
+                dq.append(now)
+                return func(request, *args, **kwargs)
+            return wrapper
     return decorator
 
 @asynccontextmanager
@@ -70,7 +87,7 @@ async def verify_key_middleware(request: Request, call_next):
         return await call_next(request)
     elif is_web_function_enabled and request.url.path in web_paths:
         return await call_next(request)
-    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat", "/api/reconnect", "/api/ocr"]:
+    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat", "/api/reconnect", "/api/cancel", "/api/ocr"]:
         uid = request.headers.get('uid')
         try:
             uid = int(uid)
@@ -470,14 +487,24 @@ if is_webchat_enabled:
     
     @app.post("/api/chat", response_class=StreamingResponse)
     @user_rate_limit(10)
-    def api_chat(request: Request, data: ChatPost = Body(...)):
-        generator = webchat.chat(int(request.headers["uid"]), data.model_dump())
+    async def api_chat(request: Request, data: ChatPost = Body(...)):
+        generator = await webchat.chat(int(request.headers["uid"]), data.model_dump())
         return StreamingResponse(generator, media_type="text/event-stream")
 
     @app.get("/api/reconnect", response_class=StreamingResponse)
-    def api_reconnect(request: Request, id: int = Query(...), node_id: str = Query(...)):
+    async def api_reconnect(request: Request, id: int = Query(...), node_id: str = Query(...)):
         generator = webchat.reconnect(int(request.headers["uid"]), id, node_id)
         return StreamingResponse(generator, media_type="text/event-stream")
+
+    @app.get("/api/cancel", response_class=PlainTextResponse)
+    @user_rate_limit(30)
+    def api_cancel(request: Request, id: int = Query(...), node_id: str = Query(...)):
+        uid = int(request.headers["uid"])
+        user = usermanager.get_user(uid)
+        sc = user.streaming_cache.get((id, node_id))
+        if sc and sc.current_task:
+            sc.current_task.cancel()
+        return "success"
 
     @app.post("/api/default", response_class=PlainTextResponse)
     def api_default(request: Request, data: DefaultPost = Body(...)):
