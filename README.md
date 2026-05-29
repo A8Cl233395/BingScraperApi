@@ -160,7 +160,7 @@ invite:
   turnstile-secret: "your_turnstile_secret"
   invite-code-key: your_invite_code_gen_key
 
-# AI 聊天（需要 bing_crawler 和 link 同时启用）
+# AI 聊天（需要 bing_crawler、link 和 ocr 同时启用）
 webchat:
   default-model: "deepseek-chat"           # 默认文本模型
   default-vision-model: "qwen3.5-plus"     # 默认视觉模型（需支持视觉输入）
@@ -181,7 +181,7 @@ webchat:
 ### 功能依赖关系
 
 ```
-webchat ─> bing_crawler + link
+webchat ─> bing_crawler + link + ocr
 bilibili ─> VoiceRecognition（音频转录）
 aliyun VoiceRecognition ─> server.public_address
 invite ─> Cloudflare Turnstile
@@ -211,20 +211,22 @@ invite ─> Cloudflare Turnstile
 
 ### 聊天接口（需要 `uid` + `token` 请求头）
 
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/login` | GET | 登录页面 |
-| `/webchat` | GET | 聊天页面 |
-| `/gettoken` | GET | 获取/注册令牌（参数：`uid`） |
-| `/api/login` | POST | 验证令牌 |
-| `/api/home` | GET | 首页数据（对话列表 + 用户设置） |
-| `/api/chat` | POST | 发送消息（SSE 流式响应） |
-| `/api/reconnect` | GET | 重连进行中的生成 |
-| `/api/history` | GET | 对话历史（分页，参数：`before`） |
-| `/api/message` | GET | 获取单个对话详情 |
-| `/api/models` | GET | 可用模型列表 |
-| `/api/default` | POST | 更新用户默认设置 |
-| `/api/delete` | GET | 删除对话 |
+| 接口 | 方法 | 说明 | 速率限制 |
+|------|------|------|----------|
+| `/login` | GET | 登录页面 | - |
+| `/webchat` | GET | 聊天页面 | - |
+| `/gettoken` | GET | 获取/注册令牌（参数：`uid`） | - |
+| `/api/login` | POST | 验证令牌 | - |
+| `/api/home` | GET | 首页数据（对话列表 + 用户设置） | - |
+| `/api/chat` | POST | 发送消息（SSE 流式响应） | 10 QPM |
+| `/api/reconnect` | GET | 重连进行中的生成（参数：`id`, `node_id`） | - |
+| `/api/cancel` | GET | 取消进行中的生成（参数：`id`, `node_id`） | 30 QPM |
+| `/api/history` | GET | 对话历史（分页，参数：`before`） | - |
+| `/api/message` | GET | 获取单个对话详情（参数：`id`） | - |
+| `/api/models` | GET | 可用模型列表 | - |
+| `/api/default` | POST | 更新用户默认设置 | - |
+| `/api/delete` | GET | 删除对话（参数：`id`） | - |
+| `/api/ocr` | POST | 图片 OCR（JSON：`image` 为 base64） | 10 QPM |
 
 ### 邀请接口
 
@@ -241,7 +243,9 @@ invite ─> Cloudflare Turnstile
 web_search_api/
 ├── main.py               # FastAPI 应用入口、路由定义、中间件
 ├── functions.py          # 所有服务类、配置加载、模块初始化
+├── updater.py            # 数据库结构更新工具
 ├── config.yaml.example   # 配置模板
+├── config.schema.json    # 配置 JSON Schema
 ├── requirements.txt      # Python 依赖
 ├── assets/               # 前端项目
 │   ├── src/
@@ -262,7 +266,6 @@ web_search_api/
 
 ### 待修复（已知问题）
 
-- 多处裸 `except:` 会吞掉 `KeyboardInterrupt` 等系统异常
 - `LRUCache`、`InviteManager` 等共享对象在多线程下无锁保护
 
 ### 待重构

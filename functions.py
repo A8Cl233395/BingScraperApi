@@ -21,9 +21,10 @@ import logging
 import lz4.frame
 from hashlib import sha256
 import trafilatura
+import bcrypt
 
 class AsyncCrawler:
-    def __init__(self, timeout=8000):
+    def __init__(self, timeout=8000, strict_anti_crawl_model=False):
         self.timeout = timeout
         self._browser: Browser = None
         self._context = None
@@ -31,7 +32,9 @@ class AsyncCrawler:
         self._page_semaphore: asyncio.Semaphore = None
         self._loop: asyncio.AbstractEventLoop = None
         self._thread: threading.Thread = None
-        self._warmed_up = False
+        self.strict_anti_crawl_model = strict_anti_crawl_model
+        if not strict_anti_crawl_model:
+            self._warmed_up = False
     
     def start(self):
         self._thread = threading.Thread(target=self._run_loop, daemon=True) # 启动事件循环线程并初始化浏览器
@@ -97,7 +100,8 @@ class AsyncCrawler:
             pass
         self._context = None
         self._browser = None
-        self._warmed_up = False
+        if not self.strict_anti_crawl_model:
+            self._warmed_up = False
         await self._launch_browser()
         logger.info("Firefox 重启成功")
 
@@ -147,7 +151,7 @@ class AsyncCrawler:
         try:
             results = []
 
-            if not self._warmed_up:
+            if not self.strict_anti_crawl_model and not self._warmed_up:
                 for _ in range(3):
                     try:
                         logger.info("预热必应搜索")
@@ -162,7 +166,7 @@ class AsyncCrawler:
                     except PwTimeoutError:
                         pass
                 else:
-                    raise RuntimeError("预热失败！连上网了吗？")
+                    raise RuntimeError("预热失败！")
 
             while True:
                 for _ in range(2):
@@ -173,7 +177,12 @@ class AsyncCrawler:
                     )
                     try:
                         await page.goto(url, wait_until="networkidle", timeout=self.timeout)
+                        if self.strict_anti_crawl_model:
+                            await self._press_inputbox_enter(page)
                     except PwTimeoutError:
+                        continue
+                    except Exception:
+                        logger.exception("搜索失败")
                         continue
                     break
                 else:
@@ -236,6 +245,8 @@ class AsyncCrawler:
                 ready = await page.evaluate("document.readyState")
                 if ready == "loading":
                     return "Page Timeout!"
+            except Exception:
+                return "Internal Server Error, this is not your fault ヽ(*。>Д<)o゜"
 
             web_source = await page.content()
             if not web_source:
@@ -264,7 +275,7 @@ class AsyncCrawler:
             try:
                 response = requests.head(short_url, allow_redirects=True, timeout=10)
                 return response.url
-            except:
+            except Exception:
                 # 如果HEAD失败，使用GET但只读取头部
                 response = requests.get(short_url, allow_redirects=False, timeout=10)
                 
@@ -605,6 +616,7 @@ class User:
                 self.enable_function = None
                 self.token = None
                 self.expire = 0
+                self.secret = None
         else:
             with open(f"link_datas/{user_id}.json", "r", encoding="utf-8") as f:
                 logger.debug(f"正在从文件加载用户 {user_id} 数据")
@@ -617,6 +629,7 @@ class User:
                     self.enable_function = data.get("enable_function", False)
                     self.token = data.get("token", None)
                     self.expire = data.get("expire", 0)
+                    self.secret = data["secret"].encode() if data.get("secret") else None
         self.chat_cache: dict[int, list[ChatInstance, float]] = {}
         # tuple: (chat_id, node_id)
         self.streaming_cache: dict[tuple[int, str], StreamingCache] = {}
@@ -631,6 +644,7 @@ class User:
             "enable_function": self.enable_function,
             "token": self.token,
             "expire": self.expire,
+            "secret": self.secret.decode() if self.secret else None,
         }
     
     def handle_memory(self, data):
@@ -697,6 +711,13 @@ class User:
     def destroy_token(self):
         self.token = None
         self.expire = 0
+
+    def checkpwd(self, pwd: str, secret: bytes) -> bool:
+        return bcrypt.checkpw(pwd.encode(), secret)
+
+    def setpwd(self, pwd: str) -> str:
+        self.secret = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt(BCRYPT_COST))
+        return pwd
 
 class ChatInstance:
     tools = [
@@ -1077,7 +1098,7 @@ class ChatInstance:
                     return bili.get_bili_text(url=url)
                 case _:
                     return browser.read(url)
-        except:
+        except Exception:
             return browser.read(url)
 
 class Webchat:
@@ -1106,7 +1127,7 @@ class Webchat:
                         self._save_chat(user, chat_id)
                         try:
                             del user.chat_cache[chat_id]
-                        except:
+                        except Exception:
                             logger.debug(f"删除聊天缓存失败，可能已被其他线程删除: user={user.user_id}, chat={chat_id}")
     
     def _init_user_table(self, user_id: int):
@@ -1399,7 +1420,7 @@ if __name__ != "__main__":
         usermanager = UserManager()
 
     if is_bing_crawler_enabled:
-        browser = AsyncCrawler(config["bing_crawler"].get("timeout", 8000))
+        browser = AsyncCrawler(config["bing_crawler"].get("timeout", 8000), config["bing_crawler"].get("strict_anti_crawl_model", False))
 
     if is_ncm_enabled:
         ncm = Ncm()
@@ -1439,6 +1460,7 @@ if __name__ != "__main__":
             if url not in oclients:
                 oclients[url] = AsyncOpenAI(api_key=MODELS[model]["api_key"], base_url=MODELS[model]["url"])
             return oclients[url]
+        BCRYPT_COST = config["webchat"].get("bcrypt_cost", 10)
 
     if is_invite_enabled:
         invitemanager = InviteManager()

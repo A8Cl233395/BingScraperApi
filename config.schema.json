@@ -53,6 +53,11 @@
               "type": "integer",
               "default": 10000,
               "description": "Playwright 页面加载基础超时（毫秒）"
+            },
+            "strict_anti_crawl_model": {
+              "type": "boolean",
+              "default": false,
+              "description": "如果开启，会在每次搜索后都按下回车键，模拟用户输入，会造成一次搜索花费两倍时间"
             }
           }
         }
@@ -179,6 +184,13 @@
             "prompt_raw": {
               "type": "string",
               "description": "系统提示词，支持 {memory_block}、{time} 占位符"
+            },
+            "bcrypt_cost": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 31,
+              "default": 10,
+              "description": "bcrypt 哈希轮数，越高越安全但越慢"
             },
             "models": {
               "type": "object",

@@ -91,7 +91,7 @@ async def verify_key_middleware(request: Request, call_next):
         uid = request.headers.get('uid')
         try:
             uid = int(uid)
-        except:
+        except (ValueError, TypeError):
             return PlainTextResponse(status_code=401, content="require key")
         if not usermanager.is_user_exist(uid):
             return PlainTextResponse(status_code=401, content="require key")
@@ -184,7 +184,7 @@ def status():
         "invite": is_invite_enabled,
         "link": is_link_enabled,
         "webchat": is_webchat_enabled,
-        "version": "5"
+        "version": "6"
     }
 
 # 下载服务，仅内部逻辑使用，不要写入文档
@@ -244,7 +244,7 @@ if is_ncm_enabled:
             return data
         except HTTPException:
             raise
-        except:
+        except Exception:
             logger.exception(f"获取网易云歌词失败: id={id}, url={url}")
             raise HTTPException(status_code=400, detail="Invalid id or url")
 
@@ -346,7 +346,7 @@ if is_link_enabled:
 if is_webchat_enabled:
     class LoginPost(BaseModel):
         uid: int
-        token: str
+        pwd: str
     
     class ChatPost(BaseModel):
         id: int | None = Field(None)
@@ -391,7 +391,7 @@ if is_webchat_enabled:
                         width, height = img.size
                         if width > 1600 or height > 1600:
                             raise ValueError
-                except:
+                except Exception:
                     raise ValueError
             return v
         
@@ -453,7 +453,7 @@ if is_webchat_enabled:
                     width, height = img.size
                     if width > 1600 or height > 1600:
                         raise ValueError
-            except:
+            except Exception:
                 raise ValueError
             return image_bytes
     
@@ -465,20 +465,37 @@ if is_webchat_enabled:
     def chat_get():
         return FileResponse("assets/dist/index.html")
     
-    @app.get("/gettoken", response_class=PlainTextResponse)
-    def gettoken(uid: int = Query(...)): # register only happens here
+    @app.get("/checkpwd", response_class=PlainTextResponse)
+    def checkpwd(uid: int = Query(...)):
         if not usermanager.is_user_exist(uid):
             webchat.init_user(uid)
-        return usermanager.get_user(uid).get_web_token()
+        user = usermanager.get_user(uid)
+        if user.secret:
+            return Response(status_code=204)
+        pwd = os.urandom(16).hex()
+        user.setpwd(pwd)
+        return pwd
+
+    @app.get("/resetpwd", response_class=PlainTextResponse)
+    def resetpwd(uid: int = Query(...)):
+        if not usermanager.is_user_exist(uid):
+            webchat.init_user(uid)
+        user = usermanager.get_user(uid)
+        pwd = os.urandom(16).hex()
+        user.setpwd(pwd)
+        return pwd
     
     @app.post("/api/login", response_class=PlainTextResponse)
     def api_login(data: LoginPost = Body(...)):
         if not usermanager.is_user_exist(data.uid):
-            raise HTTPException(status_code=401, detail="Invalid token")
+            raise HTTPException(status_code=401, detail="Invalid Password")
+        # user = usermanager.get_user(data.uid)
+        # if not user.verify_token(data.token):
+        #     raise HTTPException(status_code=401, detail="Invalid token")
         user = usermanager.get_user(data.uid)
-        if not user.verify_token(data.token):
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return "success"
+        if not user.checkpwd(data.pwd, user.secret):
+            raise HTTPException(status_code=401, detail="Invalid Password")
+        return user.get_web_token()
     
     @app.get("/api/home", response_class=JSONResponse)
     def api_home(request: Request):

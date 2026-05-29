@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 
 const uid = ref('');
-const token = ref('');
+const pwd = ref('');
 const isSubmitting = ref(false);
 const errorMessage = ref('');
 const toastMessage = ref('');
@@ -27,7 +27,7 @@ const onUidInput = () => {
   errorMessage.value = '';
 };
 
-const onTokenInput = () => {
+const onPwdInput = () => {
   updateValidation();
   errorMessage.value = '';
 };
@@ -45,7 +45,7 @@ const handleSubmit = async () => {
   if (isSubmitting.value) return;
 
   const uidVal = uid.value.trim();
-  const tokenVal = token.value.trim();
+  const pwdVal = pwd.value.trim();
 
   if (!/^\d+$/.test(uidVal)) {
     errorMessage.value = '用户ID只能包含数字';
@@ -60,12 +60,13 @@ const handleSubmit = async () => {
     const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: uidVal, token: tokenVal })
+      body: JSON.stringify({ uid: parseInt(uidVal), pwd: pwdVal })
     });
 
     if (response.status === 200) {
+      const serverToken = await response.text();
       localStorage.setItem('uid', uidVal);
-      localStorage.setItem('token', tokenVal);
+      localStorage.setItem('token', serverToken);
       
       showToast('登录成功，正在跳转...', 'success');
       setTimeout(() => {
@@ -73,8 +74,8 @@ const handleSubmit = async () => {
       }, 500);
     } else {
       const errorText = await response.text();
-      errorMessage.value = errorText || '登录失败，请检查用户ID和令牌';
-      token.value = '';
+      errorMessage.value = errorText || '登录失败，请检查用户ID和密码';
+      pwd.value = '';
       showToast('登录失败', 'error');
     }
   } catch (error) {
@@ -117,14 +118,14 @@ onMounted(() => {
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="token">令牌</label>
+          <label class="form-label" for="pwd">密码</label>
           <input 
             type="password" 
-            id="token" 
-            v-model="token"
-            @input="onTokenInput"
+            id="pwd" 
+            v-model="pwd"
+            @input="onPwdInput"
             class="form-input" 
-            placeholder="请输入令牌"
+            placeholder="请输入密码"
             required
             autocomplete="current-password"
           >
@@ -138,7 +139,7 @@ onMounted(() => {
           type="submit" 
           class="submit-btn" 
           :class="{ loading: isSubmitting }"
-          :disabled="isSubmitting || !uid.trim() || !token.trim() || isUidError"
+          :disabled="isSubmitting || !uid.trim() || !pwd.trim() || isUidError"
         >
           登录
         </button>

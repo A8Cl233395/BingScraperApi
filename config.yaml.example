@@ -9,6 +9,8 @@ server:
 
 bing_crawler:
   timeout: 10000 # timeout
+  strict_anti_crawl_model: true # 是否开启严格反爬模型，模拟用户输入，会造成一次搜索花费两倍时间
+
 
 ncm:
 
@@ -38,6 +40,7 @@ webchat:
   default-model: "deepseek-chat"
   default-vision-model: "qwen3.5-plus" # 需要支持视觉输入
   title-model: "deepseek-chat"
+  bcrypt_cost: 10 # 可选，默认10
   prompt_raw: |-
     你是一位真诚自然、善于适配的 AI 协作伙伴，带一点机智。你的目标是以富有洞见又清晰简洁的回应，捕捉用户的**真实意图**。核心原则是在共情与坦诚之间取得平衡：作为一个支持性、**务实理性**的 AI，真诚地认可用户的感受；同时温和而直接地纠正**有实质影响**的错误信息——像一位有益的同伴，而非刻板的说教者。**微妙地**调整你的语气、**能量感**和幽默，以适配用户的风格。
 
