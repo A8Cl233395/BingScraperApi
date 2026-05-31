@@ -37,7 +37,7 @@ class AsyncCrawler:
             self._warmed_up = False
     
     def start(self):
-        self._thread = threading.Thread(target=self._run_loop, daemon=True) # 启动事件循环线程并初始化浏览器
+        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="BrowserThread") # 启动事件循环线程并初始化浏览器
         self._thread.start()
         logger.info("浏览器已启动")
     
@@ -712,8 +712,8 @@ class User:
         self.token = None
         self.expire = 0
 
-    def checkpwd(self, pwd: str, secret: bytes) -> bool:
-        return bcrypt.checkpw(pwd.encode(), secret)
+    def checkpwd(self, pwd: str) -> bool:
+        return bcrypt.checkpw(pwd.encode(), self.secret)
 
     def setpwd(self, pwd: str) -> str:
         self.secret = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt(BCRYPT_COST))
@@ -931,11 +931,18 @@ class ChatInstance:
                     content = browser.search(arguments_json["query"])
                 case "manageMemory":
                     if arguments_json["operation"] == "add":
-                        success = self.user.add_memory(arguments_json["memory"])
-                        if success:
-                            content = f"记忆 \"{arguments_json['memory']}\" 已添加！"
+                        if len(arguments_json["memory"]) > 100:
+                            content = f"错误：记忆长度不能超过100个字符！"
+                        elif arguments_json["memory"] in self.user.memory:
+                            content = f"错误：记忆已存在！"
+                        elif len(self.user.memory) >= 50:
+                            content = f"记忆已满！"
                         else:
-                            content = f"后端错误！无法添加记忆！"
+                            success = self.user.add_memory(arguments_json["memory"])
+                            if success:
+                                content = f"记忆 \"{arguments_json['memory']}\" 已添加！"
+                            else:
+                                content = f"后端错误！无法添加记忆！"
                     elif arguments_json["operation"] == "remove":
                         if arguments_json["memory"] not in self.user.memory:
                             content = f"错误：记忆不存在！"
@@ -1105,7 +1112,7 @@ class Webchat:
     def __init__(self):
         is_db_exist = os.path.exists("chatdata.db")
         self.conn = sqlite3.connect("chatdata.db", check_same_thread=False, timeout=5)
-        self.daemon_thread = threading.Thread(target=self._daemon, daemon=True)
+        self.daemon_thread = threading.Thread(target=self._daemon, daemon=True, name="WebchatDaemonThread")
         self.daemon_thread.start()
         with self.conn:
             cursor = self.conn.cursor()
@@ -1327,6 +1334,39 @@ class Webchat:
     
     def ocr(self, image: bytes):
         return ocr_service.extract_text_from_data(image)
+
+    def get_profile_data(self, user_id: int):
+        user = usermanager.get_user(user_id)
+        with self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute(f"SELECT COUNT(*) FROM u{user_id}")
+            conv_count = cursor.fetchone()[0]
+        memory = user.memory
+        return {"conv_count": conv_count, "memory": memory}
+
+    def add_memory(self, user_id: int, memory: str):
+        user = usermanager.get_user(user_id)
+        if not memory:
+            raise HTTPException(status_code=400, detail="记忆不能为空！")
+        if len(memory) > 100:
+            raise HTTPException(status_code=400, detail="记忆长度不能超过100个字符！")
+        elif memory in user.memory:
+            raise HTTPException(status_code=400, detail="记忆已存在！")
+        elif len(user.memory) >= 50:
+            raise HTTPException(status_code=400, detail="记忆已满！")
+        else:
+            result = user.add_memory(memory)
+            if not result:
+                raise HTTPException(status_code=500, detail="添加记忆失败！")
+    
+    def remove_memory(self, user_id: int, memory: str):
+        user = usermanager.get_user(user_id)
+        if memory not in user.memory:
+            raise HTTPException(status_code=400, detail="记忆不存在！")
+        else:
+            result = user.remove_memory(memory)
+            if not result:
+                raise HTTPException(status_code=500, detail="删除记忆失败！")
 
 class LRUCache:
     def __init__(self, capacity=50, allow_reverse=False):

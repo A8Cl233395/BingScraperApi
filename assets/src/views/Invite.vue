@@ -146,9 +146,9 @@ const copyToClipboard = async () => {
 </script>
 
 <template>
-  <div class="invite-container">
+  <div class="page-container">
     <div class="card">
-      <h1 class="title">验证码获取</h1>
+      <h1 class="card-title">验证码获取</h1>
       
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
@@ -213,131 +213,12 @@ const copyToClipboard = async () => {
 </template>
 
 <style scoped>
-.invite-container {
-  --vscode-bg: var(--bg-main);
-  --vscode-modalBg: var(--bg-panel);
-  --vscode-text: var(--text-main);
-  --vscode-blue: var(--primary);
-  --vscode-blueHover: var(--primary-hover);
-  --vscode-input: var(--bg-main);
-  --vscode-inputBorder: var(--border-input);
-  --vscode-hover: var(--bg-hover);
-
-  background-color: var(--vscode-bg);
-  color: var(--vscode-text);
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  width: 100%;
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
-
-.card {
-  background-color: var(--vscode-modalBg);
-  border-radius: 8px;
-  padding: 24px;
-  width: 100%;
-  max-width: 448px;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  border: 1px solid var(--border-color);
-  transition: all 0.3s ease;
-}
-
-.title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: 24px;
-  text-align: center;
-  color: var(--vscode-text);
-}
-
-.form-group {
-  margin-bottom: 16px;
-}
-
-.form-label {
-  display: block;
-  font-size: 0.85rem;
-  margin-bottom: 6px;
-  color: var(--text-muted);
-}
-
-.form-input {
-  width: 100%;
-  padding: 12px 16px;
-  background-color: var(--vscode-input);
-  border: 1px solid var(--vscode-inputBorder);
-  border-radius: 8px;
-  color: var(--vscode-text);
-  font-size: 0.95rem;
-  transition: all 0.15s ease;
-  outline: none;
-}
-
-.form-input:focus {
-  border-color: var(--vscode-blue);
-  box-shadow: 0 0 0 1px var(--vscode-blue);
-}
-
-.form-input::placeholder {
-  color: var(--text-placeholder);
-}
-
+/* Invite.vue 特殊样式 */
 .turnstile-container {
   margin: 20px 0;
   display: flex;
   justify-content: center;
   min-height: 65px;
-}
-
-.submit-btn {
-  width: 100%;
-  padding: 12px 24px;
-  background-color: var(--vscode-blue);
-  color: var(--primary-text);
-  border: none;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  margin-top: 8px;
-}
-
-.submit-btn:hover:not(:disabled) {
-  background-color: var(--vscode-blueHover);
-  box-shadow: 0 0 20px rgba(0, 120, 212, 0.2);
-}
-
-.submit-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.submit-btn.loading {
-  position: relative;
-  color: transparent;
-}
-
-.submit-btn.loading::after {
-  content: "";
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  top: 50%;
-  left: 50%;
-  margin-left: -10px;
-  margin-top: -10px;
-  border: 2px solid var(--primary-text);
-  border-radius: 50%;
-  border-top-color: transparent;
-  animation: spinner 0.8s linear infinite;
-}
-
-@keyframes spinner {
-  to { transform: rotate(360deg); }
 }
 
 .result-container {
@@ -352,11 +233,6 @@ const copyToClipboard = async () => {
 .result-container.show {
   display: block;
   animation: fadeIn 0.2s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 .result-label {
@@ -385,10 +261,10 @@ const copyToClipboard = async () => {
 
 .copy-btn {
   padding: 8px 16px;
-  background-color: var(--vscode-input);
-  border: 1px solid var(--vscode-inputBorder);
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-input);
   border-radius: 6px;
-  color: var(--vscode-text);
+  color: var(--text-main);
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -396,57 +272,13 @@ const copyToClipboard = async () => {
 }
 
 .copy-btn:hover {
-  background-color: var(--vscode-hover);
-  border-color: var(--vscode-blue);
+  background-color: var(--bg-hover);
+  border-color: var(--primary);
 }
 
 .copy-btn.copied {
   background-color: var(--success-bg);
   border-color: var(--success-border);
   color: var(--success);
-}
-
-.toast {
-  position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%) translateY(-20px);
-  padding: 12px 24px;
-  background-color: var(--vscode-modalBg);
-  border: 1px solid var(--vscode-inputBorder);
-  border-radius: 8px;
-  font-size: 0.9rem;
-  opacity: 0;
-  transition: all 0.2s ease;
-  z-index: 1000;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
-  pointer-events: none;
-}
-
-.toast.show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-.toast.success {
-  border-color: var(--success-border);
-  color: var(--success);
-}
-
-.toast.error {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-@media (max-width: 640px) {
-  .invite-container {
-    padding: 12px;
-  }
-  .card {
-    padding: 20px;
-  }
-  .title {
-    font-size: 1.1rem;
-  }
 }
 </style>

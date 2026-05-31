@@ -15,6 +15,7 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         login: resolve(__dirname, 'login.html'),
         invite: resolve(__dirname, 'invite.html'),
+        profile: resolve(__dirname, 'profile.html'),
       },
       output: {
         manualChunks(id) {
@@ -22,13 +23,13 @@ export default defineConfig({
             if (id.includes('vue')) {
               return 'vendor';
             }
-            if (id.includes('axios') || id.includes('dompurify')) {
+            if (id.includes('axios')) {
               return 'core';
             }
             if (id.includes('@microsoft')) {
               return 'sse';
             }
-            if (id.includes('marked') || id.includes('katex') || id.includes('highlight.js')) {
+            if (id.includes('marked') || id.includes('katex') || id.includes('highlight.js') || id.includes('dompurify')) {
               return 'markdown';
             }
             if (id.includes('@fortawesome')) {

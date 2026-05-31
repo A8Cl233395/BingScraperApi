@@ -152,6 +152,16 @@ const handleScroll = () => {
           ></div>
         </Transition>
       </div>
+
+      <div class="p-3 border-t border-border-main">
+        <a 
+          href="/profile"
+          class="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors"
+        >
+          <FontAwesomeIcon :icon="['fas', 'user-gear']" />
+          <span>个人资料</span>
+        </a>
+      </div>
     </div>
   </aside>
   

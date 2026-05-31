@@ -83,11 +83,11 @@ app.add_middleware(GZipMiddleware, minimum_size=10000)
 async def verify_key_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
-    if request.url.path in ["/ping", "/download", "/invitecodegen", "/api/login", "/invite", "/favicon.ico", "/login", "/webchat"]:
+    if request.url.path in ["/ping", "/download", "/invitecodegen", "/api/login", "/invite", "/favicon.ico", "/login", "/webchat", "/profile"]:
         return await call_next(request)
     elif is_web_function_enabled and request.url.path in web_paths:
         return await call_next(request)
-    elif is_webchat_enabled and request.url.path in ["/api/home", "/api/history", "/api/message", "/api/default", "/api/models", "/api/delete", "/api/chat", "/api/reconnect", "/api/cancel", "/api/ocr"]:
+    elif is_webchat_enabled and request.url.path.startswith("/api/"):
         uid = request.headers.get('uid')
         try:
             uid = int(uid)
@@ -165,8 +165,6 @@ async def internal_error_handler(request: Request, exc: Exception):
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     return PlainTextResponse(content=exc.detail, status_code=exc.status_code)
-
-
 
 @app.get("/ping", response_class=PlainTextResponse)
 def ping():
@@ -305,7 +303,7 @@ if is_invite_enabled:
     @app.get("/invitecodegen", response_class=PlainTextResponse)
     def invitecodegen(key: str = Query(...)):
         if key != INVITE_CODE_KEY:
-            raise HTTPException(status_code=400, detail="Invalid key")
+            raise HTTPException(status_code=401, detail="require key")
         return invitemanager.generate_invite_code()
 
     @app.get("/invitecheck", response_class=JSONResponse)
@@ -344,9 +342,55 @@ if is_link_enabled:
             set_websocket_connect(None)
 
 if is_webchat_enabled:
+    @app.get("/login")
+    def login_get():
+        return FileResponse("assets/dist/login.html")
+    
+    @app.get("/webchat")
+    def chat_get():
+        return FileResponse("assets/dist/index.html")
+    
+    @app.get("/profile")
+    def profile_get():
+        return FileResponse("assets/dist/profile.html")
+    
+    @app.get("/checkpwd", response_class=PlainTextResponse)
+    def checkpwd(uid: int = Query(...)):
+        if not usermanager.is_user_exist(uid):
+            webchat.init_user(uid)
+        user = usermanager.get_user(uid)
+        if user.secret:
+            return Response(status_code=204)
+        pwd = os.urandom(16).hex()
+        user.setpwd(pwd)
+        return pwd
+
+    @app.get("/resetpwd", response_class=PlainTextResponse)
+    def resetpwd(uid: int = Query(...)):
+        if not usermanager.is_user_exist(uid):
+            webchat.init_user(uid)
+        user = usermanager.get_user(uid)
+        pwd = os.urandom(16).hex()
+        user.setpwd(pwd)
+        return pwd
+
     class LoginPost(BaseModel):
         uid: int
         pwd: str
+    
+    @app.post("/api/login", response_class=PlainTextResponse)
+    def api_login(data: LoginPost = Body(...)):
+        if not usermanager.is_user_exist(data.uid):
+            raise HTTPException(status_code=401, detail="Invalid Password")
+        user = usermanager.get_user(data.uid)
+        if not user.checkpwd(data.pwd):
+            raise HTTPException(status_code=401, detail="Invalid Password")
+        return user.get_web_token()
+    
+    @app.get("/api/home", response_class=JSONResponse)
+    def api_home(request: Request):
+        uid = int(request.headers["uid"])
+        return webchat.get_home_data(uid)
     
     class ChatPost(BaseModel):
         id: int | None = Field(None)
@@ -413,6 +457,27 @@ if is_webchat_enabled:
                 raise ValueError
             return v
     
+    @app.post("/api/chat", response_class=StreamingResponse)
+    @user_rate_limit(10)
+    async def api_chat(request: Request, data: ChatPost = Body(...)):
+        generator = await webchat.chat(int(request.headers["uid"]), data.model_dump())
+        return StreamingResponse(generator, media_type="text/event-stream")
+
+    @app.get("/api/reconnect", response_class=StreamingResponse)
+    async def api_reconnect(request: Request, id: int = Query(...), node_id: str = Query(...)):
+        generator = webchat.reconnect(int(request.headers["uid"]), id, node_id)
+        return StreamingResponse(generator, media_type="text/event-stream")
+
+    @app.get("/api/cancel", response_class=PlainTextResponse)
+    @user_rate_limit(30)
+    def api_cancel(request: Request, id: int = Query(...), node_id: str = Query(...)):
+        uid = int(request.headers["uid"])
+        user = usermanager.get_user(uid)
+        sc = user.streaming_cache.get((id, node_id))
+        if sc and sc.current_task:
+            sc.current_task.cancel()
+        return "success"
+    
     class DefaultPost(BaseModel):
         model: str | None = Field(None)
         vmodel: str | None = Field(None)
@@ -436,92 +501,6 @@ if is_webchat_enabled:
             if not MODELS[v].get("vision", False):
                 raise ValueError
             return v
-    
-    class OCRPost(BaseModel):
-        image: str = Field(...)
-
-        @field_validator('image')
-        def validate_image(v):
-            try:
-                image_bytes = base64.b64decode(v)
-            except Exception:
-                raise ValueError
-            if len(image_bytes) > 1024 * 1024 * 10: # 10MB
-                raise ValueError
-            try:
-                with Image.open(io.BytesIO(image_bytes)) as img:
-                    width, height = img.size
-                    if width > 1600 or height > 1600:
-                        raise ValueError
-            except Exception:
-                raise ValueError
-            return image_bytes
-    
-    @app.get("/login")
-    def login_get():
-        return FileResponse("assets/dist/login.html")
-    
-    @app.get("/webchat")
-    def chat_get():
-        return FileResponse("assets/dist/index.html")
-    
-    @app.get("/checkpwd", response_class=PlainTextResponse)
-    def checkpwd(uid: int = Query(...)):
-        if not usermanager.is_user_exist(uid):
-            webchat.init_user(uid)
-        user = usermanager.get_user(uid)
-        if user.secret:
-            return Response(status_code=204)
-        pwd = os.urandom(16).hex()
-        user.setpwd(pwd)
-        return pwd
-
-    @app.get("/resetpwd", response_class=PlainTextResponse)
-    def resetpwd(uid: int = Query(...)):
-        if not usermanager.is_user_exist(uid):
-            webchat.init_user(uid)
-        user = usermanager.get_user(uid)
-        pwd = os.urandom(16).hex()
-        user.setpwd(pwd)
-        return pwd
-    
-    @app.post("/api/login", response_class=PlainTextResponse)
-    def api_login(data: LoginPost = Body(...)):
-        if not usermanager.is_user_exist(data.uid):
-            raise HTTPException(status_code=401, detail="Invalid Password")
-        # user = usermanager.get_user(data.uid)
-        # if not user.verify_token(data.token):
-        #     raise HTTPException(status_code=401, detail="Invalid token")
-        user = usermanager.get_user(data.uid)
-        if not user.checkpwd(data.pwd, user.secret):
-            raise HTTPException(status_code=401, detail="Invalid Password")
-        return user.get_web_token()
-    
-    @app.get("/api/home", response_class=JSONResponse)
-    def api_home(request: Request):
-        uid = int(request.headers["uid"])
-        return webchat.get_home_data(uid)
-    
-    @app.post("/api/chat", response_class=StreamingResponse)
-    @user_rate_limit(10)
-    async def api_chat(request: Request, data: ChatPost = Body(...)):
-        generator = await webchat.chat(int(request.headers["uid"]), data.model_dump())
-        return StreamingResponse(generator, media_type="text/event-stream")
-
-    @app.get("/api/reconnect", response_class=StreamingResponse)
-    async def api_reconnect(request: Request, id: int = Query(...), node_id: str = Query(...)):
-        generator = webchat.reconnect(int(request.headers["uid"]), id, node_id)
-        return StreamingResponse(generator, media_type="text/event-stream")
-
-    @app.get("/api/cancel", response_class=PlainTextResponse)
-    @user_rate_limit(30)
-    def api_cancel(request: Request, id: int = Query(...), node_id: str = Query(...)):
-        uid = int(request.headers["uid"])
-        user = usermanager.get_user(uid)
-        sc = user.streaming_cache.get((id, node_id))
-        if sc and sc.current_task:
-            sc.current_task.cancel()
-        return "success"
 
     @app.post("/api/default", response_class=PlainTextResponse)
     def api_default(request: Request, data: DefaultPost = Body(...)):
@@ -558,10 +537,63 @@ if is_webchat_enabled:
         webchat.delete_chat(user_id, id)
         return "success"
     
+    class OCRPost(BaseModel):
+        image: str
+
+        @field_validator('image')
+        def validate_image(v):
+            try:
+                image_bytes = base64.b64decode(v)
+            except Exception:
+                raise ValueError
+            if len(image_bytes) > 1024 * 1024 * 10: # 10MB
+                raise ValueError
+            try:
+                with Image.open(io.BytesIO(image_bytes)) as img:
+                    width, height = img.size
+                    if width > 1600 or height > 1600:
+                        raise ValueError
+            except Exception:
+                raise ValueError
+            return image_bytes
+    
     @app.post("/api/ocr", response_class=PlainTextResponse)
     @user_rate_limit(10)
     def api_ocr(request: Request, data: OCRPost = Body(...)):
         return webchat.ocr(data.image)
+    
+    class ChangePwdPost(BaseModel):
+        old_pwd: str
+        new_pwd: str
+    
+    @app.post("/api/changepwd", response_class=PlainTextResponse)
+    def api_changepwd(request: Request, data: ChangePwdPost = Body(...)):
+        user = usermanager.get_user(int(request.headers["uid"]))
+        if not user.checkpwd(data.old_pwd):
+            raise HTTPException(status_code=403, detail="旧密码错误")
+        if user.checkpwd(data.new_pwd):
+            raise HTTPException(status_code=409, detail="新密码不能与旧密码相同")
+        user.setpwd(data.new_pwd)
+        return "success"
+    
+    @app.get("/api/profile", response_class=JSONResponse)
+    def api_profile(request: Request):
+        uid = int(request.headers["uid"])
+        return webchat.get_profile_data(uid)
+    
+    @app.post("/api/addmem", response_class=PlainTextResponse)
+    @user_rate_limit(30)
+    def api_addmem(request: Request, data: str = Body(...)):
+        uid = int(request.headers["uid"])
+        webchat.add_memory(uid, data.strip())
+        return "success"
+    
+    @app.post("/api/removemem", response_class=PlainTextResponse)
+    @user_rate_limit(30)
+    def api_removemem(request: Request, data: str = Body(...)):
+        uid = int(request.headers["uid"])
+        webchat.remove_memory(uid, data.strip())
+        return "success"
 
 if __name__ == '__main__':
     if "cert" in config["server"] and "key" in config["server"]:
