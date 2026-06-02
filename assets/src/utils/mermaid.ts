@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify'
+import hljs from 'highlight.js/lib/common'
 
 interface MermaidInstance {
   initialize: (config: Record<string, unknown>) => void
@@ -97,21 +98,43 @@ export function protectMermaidPlaceholders(html: string): { html: string; restor
 }
 
 export async function renderMermaidPlaceholders(root: Element | Document = document): Promise<void> {
-  const placeholders = root.querySelectorAll('.mermaid-placeholder:not(.rendered)')
-  if (placeholders.length === 0) return
+  const blocks = root.querySelectorAll('.mermaid-block:not(.rendered)')
+  if (blocks.length === 0) return
 
   const mermaid = await getMermaid()
   await initMermaid()
 
-  for (const el of Array.from(placeholders)) {
-    const code = el.getAttribute('data-code')
+  for (const block of Array.from(blocks)) {
+    const chartEl = block.querySelector('.mermaid-chart') as HTMLElement
+    const sourceEl = block.querySelector('.mermaid-source') as HTMLElement
+    if (!chartEl || !sourceEl) continue
+
+    const code = sourceEl.querySelector('code')?.textContent || ''
     if (!code) continue
-    el.classList.add('rendered')
+
+    block.classList.add('rendered')
+
+    // 对源码进行hljs高亮
+    const codeEl = sourceEl.querySelector('code')
+    if (codeEl) {
+      try {
+        const highlighted = hljs.highlight(code, { language: 'mermaid' }).value
+        codeEl.innerHTML = highlighted
+      } catch {
+        // 如果mermaid语言不支持，尝试自动检测
+        try {
+          const highlighted = hljs.highlightAuto(code).value
+          codeEl.innerHTML = highlighted
+        } catch {
+          // 保持原始文本
+        }
+      }
+    }
 
     const cached = svgCache.get(code)
     if (cached) {
-      el.innerHTML = cached
-      enableInteractivity(el as HTMLElement)
+      chartEl.innerHTML = cached
+      enableInteractivity(chartEl)
       continue
     }
 
@@ -124,83 +147,21 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
         ADD_ATTR: ['transform', 'style', 'class']
       })
       svgCache.set(code, sanitized)
-      el.innerHTML = sanitized
-      enableInteractivity(el as HTMLElement)
+      chartEl.innerHTML = sanitized
+      enableInteractivity(chartEl)
     } catch (error) {
       console.warn('Mermaid 渲染失败:', error)
-      el.innerHTML = `<div class="mermaid-error"><strong>图表渲染失败</strong><pre>${escapeHtml(code)}</pre></div>`
+      chartEl.innerHTML = `<div class="mermaid-error"><strong>图表渲染失败</strong><pre>${escapeHtml(code)}</pre></div>`
     }
   }
 }
 
-const containerCleanupMap = new WeakMap<HTMLElement, AbortController>()
-
 function enableInteractivity(container: HTMLElement): void {
-  // 清理之前的事件监听器
-  const existingController = containerCleanupMap.get(container)
-  if (existingController) {
-    existingController.abort()
-  }
-
   const svg = container.querySelector('svg') as SVGSVGElement | null
   if (!svg) return
 
-  const controller = new AbortController()
-  containerCleanupMap.set(container, controller)
-  const { signal } = controller
-
   svg.style.maxWidth = '100%'
   svg.style.height = 'auto'
-  svg.style.cursor = 'grab'
-
-  let scale = 1
-  let translateX = 0
-  let translateY = 0
-  let isPanning = false
-  let startX = 0
-  let startY = 0
-
-  function updateTransform() {
-    svg!.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`
-    svg!.style.transformOrigin = 'center center'
-  }
-
-  svg.addEventListener('wheel', (e) => {
-    e.preventDefault()
-    const delta = e.deltaY > 0 ? -0.1 : 0.1
-    scale = Math.min(Math.max(scale + delta, 0.5), 3)
-    updateTransform()
-  }, { passive: false, signal })
-
-  svg.addEventListener('mousedown', (e) => {
-    isPanning = true
-    startX = e.clientX - translateX
-    startY = e.clientY - translateY
-    svg!.style.cursor = 'grabbing'
-  }, { signal })
-
-  window.addEventListener('mousemove', (e) => {
-    if (!isPanning) return
-    translateX = e.clientX - startX
-    translateY = e.clientY - startY
-    updateTransform()
-  }, { signal })
-
-  window.addEventListener('mouseup', () => {
-    isPanning = false
-    svg!.style.cursor = 'grab'
-  }, { signal })
-
-  svg.addEventListener('dblclick', () => {
-    scale = 1
-    translateX = 0
-    translateY = 0
-    svg!.style.transition = 'transform 0.3s ease'
-    updateTransform()
-    setTimeout(() => { svg!.style.transition = '' }, 300)
-  }, { signal })
-
-  svg.setAttribute('title', '滚轮缩放 | 拖拽平移 | 双击重置')
 }
 
 function escapeHtml(str: string): string {
