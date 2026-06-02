@@ -18,6 +18,16 @@ marked.use({
   renderer: {
     code(token) {
       const lang = token.lang || 'text';
+      
+      if (lang === 'mermaid') {
+        const escapedCode = token.text
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        return `<div class="mermaid-placeholder" data-code="${escapedCode}" style="min-height: 2rem;"></div>`;
+      }
+
       let highlightedCode;
       try {
         if (lang && hljs.getLanguage(lang)) {
@@ -140,11 +150,22 @@ marked.use({
 </script>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, reactive, onBeforeUnmount, onBeforeUpdate, onUpdated } from 'vue';
+import { ref, computed, watch, nextTick, reactive, onBeforeUnmount, onBeforeUpdate, onUpdated, onMounted } from 'vue';
 import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
 import { useImageEditor } from '../composables/useImageEditor';
 import ImageEditorGrid from './ImageEditorGrid.vue';
+
+const MERMAID_RE = /<div class="mermaid-placeholder" data-code="([^"]*)" style="min-height: 2rem;"><\/div>/g;
+function protectMermaid(html: string): { html: string; restore: (h: string) => string } {
+  const codes = new Map<string, string>();
+  let idx = 0;
+  const processed = html.replace(MERMAID_RE, (_, code) => { const k = `__MRM_${idx++}__`; codes.set(k, code); return k; });
+  return { html: processed, restore: (h: string) => { for (const [k, c] of codes) h = h.replace(k, `<div class="mermaid-placeholder" data-code="${c}" style="min-height: 2rem;"></div>`); return h; } };
+}
+
+let mermaidModule: any = null;
+let mermaidModulePromise: Promise<any> | null = null;
 
 const props = defineProps<{
   message: any;
@@ -197,6 +218,27 @@ onUpdated(() => {
       }
     });
   }
+  if (mermaidModule) {
+    mermaidModule.renderMermaidPlaceholders();
+  } else if (mermaidModulePromise) {
+    mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
+  } else {
+    mermaidModulePromise = import('../utils/mermaid').then(m => {
+      mermaidModule = m;
+      return m;
+    });
+    mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
+  }
+});
+
+onMounted(() => {
+  if (!mermaidModulePromise) {
+    mermaidModulePromise = import('../utils/mermaid').then(m => {
+      mermaidModule = m;
+      return m;
+    });
+  }
+  mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
 });
 
 const isThinkingExpanded = ref(false);
@@ -421,7 +463,13 @@ watch(() => props.isUser ? null : props.message?.assistant, (arr) => {
     if (item.role === 'assistant' && item.content) {
       try {
         const raw = marked.parse(item.content) as string;
-        const r = DOMPurify.sanitize(raw);
+        let r: string;
+        if (raw.includes('mermaid-placeholder')) {
+          const { html, restore } = protectMermaid(raw);
+          r = restore(DOMPurify.sanitize(html));
+        } else {
+          r = DOMPurify.sanitize(raw);
+        }
         map[i] = r;
         if (segmentHtml[i] !== r) {
           hasChanges = true;

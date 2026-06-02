@@ -27,7 +27,9 @@ import {
   faCircleInfo,
   faFileLines,
   faStop,
-  faUserGear
+  faUserGear,
+  faBolt,
+  faThumbtack
 } from '@fortawesome/free-solid-svg-icons'
 
 import {
@@ -62,6 +64,8 @@ library.add(
   faFileLines,
   faStop,
   faUserGear,
+  faBolt,
+  faThumbtack,
   faCopy,
   faPenToSquare,
   faImage

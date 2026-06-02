@@ -144,6 +144,11 @@ const handleAddMemory = async () => {
     });
     memories.value.push(mem);
     newMemory.value = '';
+    nextTick(() => {
+      if (memoryTextareaRef.value) {
+        memoryTextareaRef.value.style.height = '';
+      }
+    });
     showToast('记忆添加成功');
   } catch (error: any) {
     memError.value = error.response?.data || error.response?.data?.detail || '添加记忆失败';
@@ -619,6 +624,7 @@ onMounted(() => {
   font-size: 0.85rem;
   word-break: break-all;
   line-height: 1.4;
+  white-space: pre-wrap;
 }
 
 .remove-btn {
