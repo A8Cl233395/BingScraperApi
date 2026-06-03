@@ -173,6 +173,7 @@ webchat:
       api_key: your_key
       url: https://api.example.com/v1
       vision: true                         # 可选，标记为视觉模型
+      hidden: false                        # 可选，标记为隐藏模型（不会在前端显示且不可选择）
       thinking-extra-body:                 # 可选，思维链参数
         'false': { thinking: { type: disabled } }
         'true': { thinking: { type: enabled } }

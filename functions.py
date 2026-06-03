@@ -716,6 +716,7 @@ class User:
         return bcrypt.checkpw(pwd.encode(), self.secret)
 
     def setpwd(self, pwd: str) -> str:
+        self._recreate_token()
         self.secret = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt(BCRYPT_COST))
         return pwd
 
@@ -1309,6 +1310,8 @@ class Webchat:
     def get_models(self):
         data = {}
         for model, v in MODELS.items():
+            if v.get("hidden", False):
+                continue
             data[model] = {"desc": v["desc"]}
             if "vision" in v:
                 data[model]["vision"] = v["vision"]

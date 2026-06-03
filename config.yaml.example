@@ -117,3 +117,7 @@ webchat:
           thinking:
             type: enabled
       url: https://token-plan-cn.xiaomimimo.com/v1
+    LongCat-2.0-Preview:
+      hidden: true
+      api_key: xxx
+      url: https://api.longcat.chat/openai

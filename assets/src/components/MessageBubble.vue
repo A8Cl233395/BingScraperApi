@@ -237,10 +237,13 @@ onUpdated(() => {
     });
   }
   if (mermaidModule) {
+    // 已加载过，直接调用（内部有空检查，开销很小）
     mermaidModule.renderMermaidPlaceholders();
   } else if (mermaidModulePromise) {
     mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
   } else {
+    // 仅在页面上存在未渲染的 mermaid 块时才加载模块
+    if (!document.querySelector('.mermaid-block:not(.rendered)')) return;
     mermaidModulePromise = import('../utils/mermaid').then(m => {
       mermaidModule = m;
       return m;
@@ -250,13 +253,13 @@ onUpdated(() => {
 });
 
 onMounted(() => {
-  if (!mermaidModulePromise) {
+  if (!mermaidModulePromise && document.querySelector('.mermaid-block:not(.rendered)')) {
     mermaidModulePromise = import('../utils/mermaid').then(m => {
       mermaidModule = m;
       return m;
     });
   }
-  mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
+  mermaidModulePromise?.then(m => m.renderMermaidPlaceholders());
 });
 
 const isThinkingExpanded = ref(false);

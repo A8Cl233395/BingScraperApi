@@ -197,12 +197,17 @@
               "minProperties": 1,
               "additionalProperties": {
                 "type": "object",
-                "required": ["desc", "api_key", "url"],
+                "required": ["api_key", "url"],
                 "additionalProperties": false,
                 "properties": {
                   "desc": {
                     "type": "string",
                     "description": "模型显示名称"
+                  },
+                  "hidden": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "标记为隐藏模型，不会在前端显示且不可选择"
                   },
                   "api_key": {
                     "type": "string",
@@ -233,6 +238,13 @@
                       }
                     }
                   }
+                },
+                "if": {
+                  "properties": { "hidden": { "const": true } }
+                },
+                "then": {},
+                "else": {
+                  "required": ["desc"]
                 }
               },
               "description": "模型配置表，key 为模型标识符"

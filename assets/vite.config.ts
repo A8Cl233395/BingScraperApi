@@ -32,9 +32,6 @@ export default defineConfig({
             if (id.includes('marked') || id.includes('katex') || id.includes('highlight.js') || id.includes('dompurify')) {
               return 'markdown';
             }
-            if (id.includes('mermaid')) {
-              return 'mermaid';
-            }
             if (id.includes('@fortawesome')) {
               return 'icons';
             }

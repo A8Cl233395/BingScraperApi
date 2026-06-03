@@ -443,7 +443,7 @@ if is_webchat_enabled:
         def validate_model(v):
             if v is None:
                 return v
-            if v not in MODELS:
+            if v not in MODELS or MODELS[v].get("hidden", False):
                 raise ValueError
             return v
         
@@ -451,7 +451,7 @@ if is_webchat_enabled:
         def validate_vmodel(v):
             if v is None:
                 return v
-            if v not in MODELS:
+            if v not in MODELS or MODELS[v].get("hidden", False):
                 raise ValueError
             if not MODELS[v].get("vision", False):
                 raise ValueError
@@ -488,7 +488,7 @@ if is_webchat_enabled:
         def validate_model(v):
             if v is None:
                 return v
-            if v not in MODELS:
+            if v not in MODELS or MODELS[v].get("hidden", False):
                 raise ValueError
             return v
         
@@ -496,7 +496,7 @@ if is_webchat_enabled:
         def validate_vmodel(v):
             if v is None:
                 return v
-            if v not in MODELS:
+            if v not in MODELS or MODELS[v].get("hidden", False):
                 raise ValueError
             if not MODELS[v].get("vision", False):
                 raise ValueError
