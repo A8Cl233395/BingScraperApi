@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { state } from '../store';
 import { ref, watch, nextTick, onUnmounted } from 'vue';
-import api from '../utils/api';
 import { isMobileDevice } from '../utils/device';
 import { useImageEditor } from '../composables/useImageEditor';
 import ImageEditorGrid from './ImageEditorGrid.vue';
@@ -148,7 +147,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
       state.defaultSettings.enable_function = value;
       state.isEnableFunction = value;
     }
-    await api.post('/api/default', payload);
+    await state.updateConfig(payload);
   } catch (e) {
     console.error('Failed to set default option', e);
   }

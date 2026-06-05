@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { state } from '../store';
 import { ref, onMounted, onUnmounted } from 'vue';
-import api from '../utils/api';
 
 const isOpen = ref(false);
 const isLoading = ref(false);
@@ -42,7 +41,7 @@ const setDefaultModel = async (model: string, isVision: boolean) => {
       state.defaultSettings.model = model;
       state.currentModel = model;
     }
-    await api.post('/api/default', payload);
+    await state.updateConfig(payload);
   } catch (e) {
     console.error('Failed to set default model', e);
   }

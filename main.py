@@ -392,6 +392,11 @@ if is_webchat_enabled:
         uid = int(request.headers["uid"])
         return webchat.get_home_data(uid)
     
+    @app.get("/api/config", response_class=JSONResponse)
+    def api_config(request: Request):
+        uid = int(request.headers["uid"])
+        return webchat.get_config(uid)
+    
     class ChatPost(BaseModel):
         id: int | None = Field(None)
         parent: str | None = Field(None)
@@ -502,18 +507,11 @@ if is_webchat_enabled:
                 raise ValueError
             return v
 
-    @app.post("/api/default", response_class=PlainTextResponse)
-    def api_default(request: Request, data: DefaultPost = Body(...)):
+    @app.post("/api/config", response_class=PlainTextResponse)
+    def api_config_set(request: Request, data: DefaultPost = Body(...)):
         user = usermanager.get_user(int(request.headers["uid"]))
-        if data.model is not None:
-            user.model = data.model
-        elif data.vmodel is not None:
-            user.vision_model = data.vmodel
-        elif data.thinking is not None:
-            user.thinking = data.thinking
-        elif data.enable_function is not None:
-            user.enable_function = data.enable_function
-        return "success"
+        config_version = user.set_config(data.model_dump(exclude_unset=True))
+        return config_version
     
     @app.get("/api/history", response_class=JSONResponse)
     def api_history(request: Request, before: int = Query(None)):

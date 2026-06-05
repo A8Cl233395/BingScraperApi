@@ -617,19 +617,21 @@ class User:
                 self.token = None
                 self.expire = 0
                 self.secret = None
+                self.config_version = ""
         else:
             with open(f"link_datas/{user_id}.json", "r", encoding="utf-8") as f:
                 logger.debug(f"正在从文件加载用户 {user_id} 数据")
                 data = json.load(f)
                 self.memory: list[str] = data["memory"]
                 if is_webchat_enabled:
-                    self.model = data.get("model", config["webchat"]["default-model"])
-                    self.vision_model = data.get("vision_model", config["webchat"]["default-vision-model"])
-                    self.thinking = data.get("thinking", False)
-                    self.enable_function = data.get("enable_function", False)
-                    self.token = data.get("token", None)
-                    self.expire = data.get("expire", 0)
-                    self.secret = data["secret"].encode() if data.get("secret") else None
+                    self.model: str = data.get("model", config["webchat"]["default-model"])
+                    self.vision_model: str = data.get("vision_model", config["webchat"]["default-vision-model"])
+                    self.thinking: bool = data.get("thinking", False)
+                    self.enable_function: bool = data.get("enable_function", False)
+                    self.token: str | None = data.get("token", None)
+                    self.expire: int = data.get("expire", 0)
+                    self.secret: bytes | None = data["secret"].encode() if data.get("secret") else None
+                    self.config_version: str = data.get("config_version", "0")
         self.chat_cache: dict[int, list[ChatInstance, float]] = {}
         # tuple: (chat_id, node_id)
         self.streaming_cache: dict[tuple[int, str], StreamingCache] = {}
@@ -645,6 +647,7 @@ class User:
             "token": self.token,
             "expire": self.expire,
             "secret": self.secret.decode() if self.secret else None,
+            "config_version": self.config_version,
         }
     
     def handle_memory(self, data):
@@ -719,6 +722,18 @@ class User:
         self._recreate_token()
         self.secret = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt(BCRYPT_COST))
         return pwd
+    
+    def set_config(self, data: dict):
+        if "model" in data:
+            self.model = data["model"]
+        if "vmodel" in data:
+            self.vision_model = data["vmodel"]
+        if "thinking" in data:
+            self.thinking = data["thinking"]
+        if "enable_function" in data:
+            self.enable_function = data["enable_function"]
+        self.config_version = str(int(time.time()))
+        return self.config_version
 
 class ChatInstance:
     tools = [
@@ -1218,7 +1233,7 @@ class Webchat:
                 current_index += 1
 
             if asyncio.isfuture(data): # super hacky!
-                result = await data
+                result = await asyncio.shield(data) # 防止cancel向上传播导致取消生成。mlgb卡我三天
                 data = f"data: {json.dumps(result['content'], ensure_ascii=False)}\n\n"
 
             yield data
@@ -1233,11 +1248,17 @@ class Webchat:
             cursor.execute(f"SELECT id, title FROM u{user_id} ORDER BY id DESC LIMIT 20")
             chats = cursor.fetchall()
         user = usermanager.get_user(user_id)
-        model = user.model
-        vmodel = user.vision_model
-        thinking = user.thinking
-        enable_function = user.enable_function
-        return {"chats": chats, "model": model, "vmodel": vmodel, "thinking": thinking, "enable_function": enable_function}
+        return {"chats": chats, "config_version": user.config_version}
+    
+    def get_config(self, user_id: int):
+        user = usermanager.get_user(user_id)
+        return {
+            "model": user.model,
+            "vmodel": user.vision_model,
+            "thinking": user.thinking,
+            "enable_function": user.enable_function,
+            "config_version": user.config_version
+        }
     
     def get_history(self, user_id: int, before: int = None):
         if before:
