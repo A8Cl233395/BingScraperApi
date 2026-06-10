@@ -4,6 +4,7 @@ import hljs from 'highlight.js/lib/common'
 interface MermaidInstance {
   initialize: (config: Record<string, unknown>) => void
   render: (id: string, code: string) => Promise<{ svg: string }>
+  parse: (code: string) => Promise<boolean>
 }
 
 let mermaidPromise: Promise<MermaidInstance> | null = null
@@ -140,6 +141,7 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
 
     const id = `mermaid-${++renderCounter}-${Date.now()}`
     try {
+      await mermaid.parse(code)
       const { svg } = await mermaid.render(id, code)
       const sanitized = DOMPurify.sanitize(svg, {
         USE_PROFILES: { svg: true },
@@ -149,8 +151,7 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
       svgCache.set(code, sanitized)
       chartEl.innerHTML = sanitized
       enableInteractivity(chartEl)
-    } catch (error) {
-      console.warn('Mermaid 渲染失败:', error)
+    } catch {
       chartEl.innerHTML = `<div class="mermaid-error"><strong>图表渲染失败</strong><pre>${escapeHtml(code)}</pre></div>`
     }
   }

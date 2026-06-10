@@ -37,11 +37,11 @@ const startNewChat = () => {
   state.currentChatId = null;
 };
 
-const handlePopState = () => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const idFromUrl = urlParams.get('id');
-  if (idFromUrl) {
-    const parsedId = parseInt(idFromUrl, 10);
+const handleHashChange = () => {
+  const hash = window.location.hash;
+  const match = hash.match(/^#\/(\d+)$/);
+  if (match) {
+    const parsedId = parseInt(match[1], 10);
     if (!isNaN(parsedId)) {
       state.currentChatId = parsedId;
     }
@@ -73,10 +73,10 @@ const handleSelectionChange = () => {
 };
 
 onMounted(() => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const idFromUrl = urlParams.get('id');
-  if (idFromUrl) {
-    const parsedId = parseInt(idFromUrl, 10);
+  const hash = window.location.hash;
+  const match = hash.match(/^#\/(\d+)$/);
+  if (match) {
+    const parsedId = parseInt(match[1], 10);
     if (!isNaN(parsedId)) {
       state.currentChatId = parsedId;
     }
@@ -84,7 +84,7 @@ onMounted(() => {
 
   checkDevice();
   window.addEventListener('resize', checkDevice);
-  window.addEventListener('popstate', handlePopState);
+  window.addEventListener('hashchange', handleHashChange);
   window.addEventListener('mousedown', handleMouseDown);
   window.addEventListener('mouseup', handleMouseUp);
   window.addEventListener('touchstart', handleTouchStart, { passive: true });
@@ -96,7 +96,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkDevice);
-  window.removeEventListener('popstate', handlePopState);
+  window.removeEventListener('hashchange', handleHashChange);
   window.removeEventListener('mousedown', handleMouseDown);
   window.removeEventListener('mouseup', handleMouseUp);
   window.removeEventListener('touchstart', handleTouchStart);
@@ -106,17 +106,9 @@ onUnmounted(() => {
 });
 
 watch(() => state.currentChatId, (newId) => {
-  const url = new URL(window.location.href);
-  const oldId = url.searchParams.get('id');
-  const newIdStr = newId !== null ? newId.toString() : null;
-  
-  if (oldId !== newIdStr) {
-    if (newId) {
-      url.searchParams.set('id', newId.toString());
-    } else {
-      url.searchParams.delete('id');
-    }
-    window.history.pushState({}, '', url);
+  const newHash = newId ? `#/${newId}` : '#/';
+  if (window.location.hash !== newHash) {
+    window.history.pushState({}, '', newHash);
   }
 });
 </script>

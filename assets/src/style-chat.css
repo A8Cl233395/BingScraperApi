@@ -67,10 +67,8 @@
   background-color: rgba(0, 0, 0, 0.02);
 }
 
-@media (prefers-color-scheme: dark) {
-  .prose tr:nth-child(even) {
-    background-color: rgba(255, 255, 255, 0.02);
-  }
+html.dark .prose tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.02);
 }
 
 .prose a {
@@ -215,6 +213,25 @@
   display: block;
   padding: 1rem;
   overflow: auto;
+}
+
+.mermaid-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1rem;
+  color: var(--text-placeholder);
+  font-size: 0.8rem;
+}
+
+.mermaid-placeholder-icon {
+  animation: mermaid-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes mermaid-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 
 .mermaid-chart svg {

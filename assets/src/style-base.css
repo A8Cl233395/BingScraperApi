@@ -36,42 +36,40 @@
   --hljs-built-in: #267f99;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-main: #1F1F1F;
-    --bg-panel: #181818;
-    --bg-hover: #2B2B2B;
-    --bg-active: #313131;
-    --text-main: #CCCCCC;
-    --text-muted: #868686;
-    --text-placeholder: #989898;
-    --border-color: #2B2B2B;
-    --border-input: #3C3C3C;
-    --primary: #0078D4;
-    --primary-hover: #026EC1;
-    --primary-text: #FFFFFF;
-    --danger: #F85149;
-    --btn-secondary-bg: #00000000;
-    --btn-secondary-text: #CCCCCC;
-    --code-bg: #2B2B2B;
-    --link: #4daafc;
-    --success: #3FB950;
-    --success-border: #3c8c3c;
-    --success-bg: #2d5a27;
-    --danger-bg: rgba(248, 81, 73, 0.1);
+html.dark {
+  --bg-main: #1F1F1F;
+  --bg-panel: #181818;
+  --bg-hover: #2B2B2B;
+  --bg-active: #313131;
+  --text-main: #CCCCCC;
+  --text-muted: #868686;
+  --text-placeholder: #989898;
+  --border-color: #2B2B2B;
+  --border-input: #3C3C3C;
+  --primary: #0078D4;
+  --primary-hover: #026EC1;
+  --primary-text: #FFFFFF;
+  --danger: #F85149;
+  --btn-secondary-bg: #00000000;
+  --btn-secondary-text: #CCCCCC;
+  --code-bg: #2B2B2B;
+  --link: #4daafc;
+  --success: #3FB950;
+  --success-border: #3c8c3c;
+  --success-bg: #2d5a27;
+  --danger-bg: rgba(248, 81, 73, 0.1);
 
-    /* hljs vs-code dark style */
-    --hljs-bg: transparent;
-    --hljs-color: #d4d4d4;
-    --hljs-comment: #6a9955;
-    --hljs-keyword: #569cd6;
-    --hljs-section: #dcdcaa;
-    --hljs-literal: #b5cea8;
-    --hljs-string: #ce9178;
-    --hljs-attr: #9cdcfe;
-    --hljs-symbol: #d7ba7d;
-    --hljs-built-in: #4ec9b0;
-  }
+  /* hljs vs-code dark style */
+  --hljs-bg: transparent;
+  --hljs-color: #d4d4d4;
+  --hljs-comment: #6a9955;
+  --hljs-keyword: #569cd6;
+  --hljs-section: #dcdcaa;
+  --hljs-literal: #b5cea8;
+  --hljs-string: #ce9178;
+  --hljs-attr: #9cdcfe;
+  --hljs-symbol: #d7ba7d;
+  --hljs-built-in: #4ec9b0;
 }
 
 @theme {
@@ -170,7 +168,6 @@ body {
   border-radius: 8px;
   padding: 24px;
   width: 100%;
-  max-width: 448px;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   border: 1px solid var(--border-color);
   transition: all 0.3s ease;

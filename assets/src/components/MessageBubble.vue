@@ -40,7 +40,7 @@ marked.use({
     </div>
   </div>
   <div class="mermaid-content">
-    <div class="mermaid-chart"></div>
+    <div class="mermaid-chart"><div class="mermaid-placeholder"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="14" height="14" fill="currentColor" class="mermaid-placeholder-icon"><path d="M222.7 32.1c5 16.9-4.6 34.8-21.5 39.8C164.9 86.6 128 137.3 128 197.4c0 5.6-.3 11.1-.8 16.6H384.8c-.5-5.5-.8-11.1-.8-16.6 0-60.1-36.9-110.8-72.2-125.5-16.9-5-26.5-22.9-21.5-39.8C297.9-2.2 320 12 320 32.1V48H192V32.1c0-20.1 22.1-34.3 30.7-0zM128 256H32v224c0 17.7 14.3 32 32 32H320V256H128zm352 224c17.7 0 32-14.3 32-32V256H384V480h96z"/></svg><span>图表生成中...</span></div></div>
     <pre class="mermaid-source !m-0 !p-3 !bg-code-bg overflow-x-auto"><code class="hljs language-mermaid">${escapedCode}</code></pre>
   </div>
 </div>`;
@@ -236,13 +236,13 @@ onUpdated(() => {
       }
     });
   }
+  // 流式输出期间跳过 mermaid 渲染，避免渲染不完整的代码块
+  if (props.message?.isStreaming) return;
   if (mermaidModule) {
-    // 已加载过，直接调用（内部有空检查，开销很小）
     mermaidModule.renderMermaidPlaceholders();
   } else if (mermaidModulePromise) {
     mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
   } else {
-    // 仅在页面上存在未渲染的 mermaid 块时才加载模块
     if (!document.querySelector('.mermaid-block:not(.rendered)')) return;
     mermaidModulePromise = import('../utils/mermaid').then(m => {
       mermaidModule = m;
@@ -259,7 +259,29 @@ onMounted(() => {
       return m;
     });
   }
-  mermaidModulePromise?.then(m => m.renderMermaidPlaceholders());
+  // 仅在非流式状态时渲染 mermaid
+  if (!props.message?.isStreaming) {
+    mermaidModulePromise?.then(m => m.renderMermaidPlaceholders());
+  }
+});
+
+// 流式输出结束后触发 mermaid 渲染
+watch(() => props.message?.isStreaming, (isStreaming, wasStreaming) => {
+  if (wasStreaming && !isStreaming) {
+    nextTick(() => {
+      if (mermaidModule) {
+        mermaidModule.renderMermaidPlaceholders();
+      } else if (mermaidModulePromise) {
+        mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
+      } else if (document.querySelector('.mermaid-block:not(.rendered)')) {
+        mermaidModulePromise = import('../utils/mermaid').then(m => {
+          mermaidModule = m;
+          return m;
+        });
+        mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
+      }
+    });
+  }
 });
 
 const isThinkingExpanded = ref(false);

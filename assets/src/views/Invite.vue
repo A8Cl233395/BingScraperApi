@@ -213,6 +213,10 @@ const copyToClipboard = async () => {
 </template>
 
 <style scoped>
+.card {
+  max-width: 448px;
+}
+
 /* Invite.vue 特殊样式 */
 .turnstile-container {
   margin: 20px 0;

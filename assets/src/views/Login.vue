@@ -88,6 +88,12 @@ const handleSubmit = async () => {
 };
 
 onMounted(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const uidParam = urlParams.get('uid');
+  if (uidParam) {
+    uid.value = uidParam;
+    updateValidation();
+  }
   if (uidInput.value) uidInput.value.focus();
   updateValidation();
 });
@@ -153,5 +159,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Login.vue 特殊样式 */
+.card {
+  max-width: 448px;
+}
 </style>

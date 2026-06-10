@@ -1365,8 +1365,9 @@ class Webchat:
             cursor = self.conn.cursor()
             cursor.execute(f"SELECT COUNT(*) FROM u{user_id}")
             conv_count = cursor.fetchone()[0]
-        memory = user.memory
-        return {"conv_count": conv_count, "memory": memory}
+        file_path = f"link_datas/{user_id}.json"
+        created_at = int(os.path.getctime(file_path)) if os.path.exists(file_path) else 0
+        return {"conv_count": conv_count, "memory": user.memory, "created_at": created_at}
 
     def add_memory(self, user_id: int, memory: str):
         user = usermanager.get_user(user_id)

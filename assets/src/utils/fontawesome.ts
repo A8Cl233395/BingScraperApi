@@ -29,7 +29,20 @@ import {
   faStop,
   faUserGear,
   faBolt,
-  faThumbtack
+  faThumbtack,
+  faHouse,
+  faKey,
+  faRightFromBracket,
+  faMemory,
+  faGauge,
+  faUser,
+  faComments,
+  faClock,
+  faGear,
+  faPalette,
+  faSun,
+  faMoon,
+  faDesktop
 } from '@fortawesome/free-solid-svg-icons'
 
 import {
@@ -66,6 +79,19 @@ library.add(
   faUserGear,
   faBolt,
   faThumbtack,
+  faHouse,
+  faKey,
+  faRightFromBracket,
+  faMemory,
+  faGauge,
+  faUser,
+  faComments,
+  faClock,
+  faGear,
+  faPalette,
+  faSun,
+  faMoon,
+  faDesktop,
   faCopy,
   faPenToSquare,
   faImage
