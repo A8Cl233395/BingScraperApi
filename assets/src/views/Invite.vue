@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useToast } from '../composables/useToast';
+import ToastMessage from '../components/ToastMessage.vue';
+
+const { showToast } = useToast();
 
 const invite = ref('');
 const qqid = ref('');
@@ -9,20 +13,8 @@ const resultText = ref('');
 const showResultContainer = ref(false);
 const copyBtnText = ref('复制');
 const isCopied = ref(false);
-const toastMessage = ref('');
-const toastType = ref('success');
-const showToastMsg = ref(false);
 const turnstileContainer = ref<HTMLElement | null>(null);
 let widgetId: string | undefined = undefined;
-
-const showToast = (message: string, type = 'success') => {
-  toastMessage.value = message;
-  toastType.value = type;
-  showToastMsg.value = true;
-  setTimeout(() => {
-    showToastMsg.value = false;
-  }, 3000);
-};
 
 const initTurnstile = () => {
   if ((window as any).turnstile && turnstileContainer.value) {
@@ -206,9 +198,7 @@ const copyToClipboard = async () => {
       </div>
     </div>
 
-    <div class="toast" :class="[toastType, { show: showToastMsg }]">
-      {{ toastMessage }}
-    </div>
+    <ToastMessage />
   </div>
 </template>
 

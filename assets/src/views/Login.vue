@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { useToast } from '../composables/useToast';
+import ToastMessage from '../components/ToastMessage.vue';
+
+const { showToast } = useToast();
 
 const uid = ref('');
 const pwd = ref('');
 const isSubmitting = ref(false);
 const errorMessage = ref('');
-const toastMessage = ref('');
-const toastType = ref('success');
-const showToastMsg = ref(false);
 const isUidError = ref(false);
 
 const uidInput = ref<HTMLInputElement | null>(null);
@@ -30,15 +31,6 @@ const onUidInput = () => {
 const onPwdInput = () => {
   updateValidation();
   errorMessage.value = '';
-};
-
-const showToast = (message: string, type = 'success') => {
-  toastMessage.value = message;
-  toastType.value = type;
-  showToastMsg.value = true;
-  setTimeout(() => {
-    showToastMsg.value = false;
-  }, 3000);
 };
 
 const handleSubmit = async () => {
@@ -152,9 +144,7 @@ onMounted(() => {
       </form>
     </div>
 
-    <div class="toast" :class="[toastType, { show: showToastMsg }]">
-      {{ toastMessage }}
-    </div>
+    <ToastMessage />
   </div>
 </template>
 

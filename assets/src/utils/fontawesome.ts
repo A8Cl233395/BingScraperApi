@@ -42,7 +42,8 @@ import {
   faPalette,
   faSun,
   faMoon,
-  faDesktop
+  faDesktop,
+  faPaw
 } from '@fortawesome/free-solid-svg-icons'
 
 import {
@@ -92,6 +93,7 @@ library.add(
   faSun,
   faMoon,
   faDesktop,
+  faPaw,
   faCopy,
   faPenToSquare,
   faImage

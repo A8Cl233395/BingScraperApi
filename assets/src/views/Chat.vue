@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed, watch } from 'vue';
+import { onMounted, onUnmounted, ref, computed, watch, defineAsyncComponent } from 'vue';
 import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
 import Sidebar from '../components/Sidebar.vue';
@@ -8,6 +8,9 @@ import ChatInput from '../components/ChatInput.vue';
 import MessageList from '../components/MessageList.vue';
 import ImagePreview from '../components/ImagePreview.vue';
 import TextSelectionOverlay from '../components/TextSelectionOverlay.vue';
+import ToastMessage from '../components/ToastMessage.vue';
+
+const PetAvatar = defineAsyncComponent(() => import('../components/PetAvatar.vue'));
 
 const messageListRef = ref<any>(null);
 const chatInputRef = ref<any>(null);
@@ -155,5 +158,7 @@ watch(() => state.currentChatId, (newId) => {
     
     <ImagePreview />
     <TextSelectionOverlay />
+    <ToastMessage />
+    <PetAvatar v-if="state.petEnabled" />
   </div>
 </template>

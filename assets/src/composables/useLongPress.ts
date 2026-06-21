@@ -9,6 +9,8 @@ export interface LongPressOptions {
   menuWidth?: number;
   /** 菜单高度 (px)，用于边界计算 */
   menuHeight?: number;
+  /** 预延迟触发后的回调（用于设置 pressingChatId 等视觉反馈状态） */
+  onPressStart?: () => void;
 }
 
 /**
@@ -21,6 +23,7 @@ export function useLongPress(options: LongPressOptions = {}) {
     pressDelay = 400,
     menuWidth = 160,
     menuHeight = 100,
+    onPressStart,
   } = options;
 
   const showMenu = ref(false);
@@ -52,6 +55,7 @@ export function useLongPress(options: LongPressOptions = {}) {
     menuPos.value = { x: touch.clientX, y: touch.clientY };
     preLongPressTimer.value = window.setTimeout(() => {
       isPressing.value = true;
+      onPressStart?.();
       longPressTimer.value = window.setTimeout(() => {
         onTriggered?.();
         showMenu.value = true;

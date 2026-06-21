@@ -24,12 +24,14 @@
     "mermaid": "^11.15.0",
     "postcss": "^8.5.10",
     "tailwindcss": "^4.2.2",
+    "upng-js": "^2.1.0",
     "vue": "^3.5.32"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^24.12.2",
+    "@types/upng-js": "^2.1.5",
     "@vitejs/plugin-vue": "^6.0.6",
     "@vue/tsconfig": "^0.9.1",
     "typescript": "~6.0.2",

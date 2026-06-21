@@ -4,6 +4,9 @@ import { state } from '../store';
 import MessageBubble from './MessageBubble.vue';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import api from '../utils/api';
+import { useToast } from '../composables/useToast';
+
+const { showToast } = useToast();
 
 interface AssistantMessage {
   role: 'assistant' | 'tool';
@@ -139,6 +142,10 @@ const processSSEEvent = (
       sseState.toolEntry = null;
       sseState.assistantEntry = null;
     }
+    if (sseState.signal === 'thinking') state.aiSignal = 'thinking';
+    else if (sseState.signal === 'answering') state.aiSignal = 'answering';
+    else if (sseState.signal === 'tool_call') state.aiSignal = 'tool_calling';
+    else state.aiSignal = 'idle';
   } else if (eventType === 'tool_name') {
     const callId = 'tc-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
     sseState.toolCallId = callId;
@@ -180,7 +187,7 @@ const processSSEEvent = (
       parentNode.current = data; // Update current pointer to this new node
     }
   } else if (eventType === 'error') {
-    alert('Error: ' + data);
+    showToast('Error: ' + data, 'error');
   } else {
     if (sseState.signal === 'thinking') {
       if (!sseState.assistantEntry) {
@@ -231,6 +238,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
   const currentController = new AbortController();
   abortController.value = currentController;
   state.isStreaming = true;
+  state.aiSignal = 'thinking';
   activeStreamingNodeId.value = nodeId;
 
   if (messageTree.value[nodeId]) {
@@ -276,6 +284,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
   } finally {
     if (abortController.value === currentController) {
       state.isStreaming = false;
+      state.aiSignal = 'idle';
       targetMsg.isStreaming = false;
       if (messageTree.value[nodeId]) {
         messageTree.value[nodeId].isStreaming = false;
@@ -381,6 +390,7 @@ const handleSend = async (content: any, parent?: string) => {
   const currentController = new AbortController();
   abortController.value = currentController;
   state.isStreaming = true;
+  state.aiSignal = 'thinking';
 
   // Track whether we received a node_id (needed for disconnect reconnect)
   let receivedNodeId: string | null = null;
@@ -422,6 +432,7 @@ const handleSend = async (content: any, parent?: string) => {
   } finally {
     if (abortController.value === currentController) {
       state.isStreaming = false;
+      state.aiSignal = 'idle';
       userMsg.isStreaming = false;
       if (receivedNodeId && messageTree.value[receivedNodeId]) {
         messageTree.value[receivedNodeId].isStreaming = false;

@@ -39,6 +39,8 @@ export const state = reactive({
   isThinking: storedConfig?.thinking ?? false,
   isStreaming: false,
   isEnableFunction: storedConfig?.enable_function ?? true,
+  aiSignal: 'idle' as 'idle' | 'thinking' | 'answering' | 'tool_calling',
+  petEnabled: localStorage.getItem('pet_enabled') === 'true',
   chatRequiresVision: false,
   hasDraftImages: false,
   get isVisionMode(): boolean {

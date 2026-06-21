@@ -3,7 +3,12 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { state } from '../store';
 import api from '../utils/api';
 import ConfirmModal from '../components/ConfirmModal.vue';
+import ToastMessage from '../components/ToastMessage.vue';
+import PetSettings from '../components/PetSettings.vue';
 import { type ThemeMode, applyTheme, storeTheme, getCurrentTheme } from '../utils/theme';
+import { useToast } from '../composables/useToast';
+
+const { showToast } = useToast();
 
 const uid = localStorage.getItem('uid') || '';
 const convCount = ref(0);
@@ -34,7 +39,7 @@ const isAddingMemory = ref(false);
 const memError = ref('');
 const memoryTextareaRef = ref<HTMLTextAreaElement | null>(null);
 
-const activeTab = ref<'account' | 'memory' | 'appearance'>('account');
+const activeTab = ref<'account' | 'memory' | 'appearance' | 'pet'>('account');
 const isSidebarOpen = ref(true);
 const isMobile = ref(false);
 
@@ -79,19 +84,6 @@ const handleMemoryKeydown = (e: KeyboardEvent) => {
       handleAddMemory();
     }
   }
-};
-
-const toastMessage = ref('');
-const toastType = ref('success');
-const showToastMsg = ref(false);
-
-const showToast = (message: string, type = 'success') => {
-  toastMessage.value = message;
-  toastType.value = type;
-  showToastMsg.value = true;
-  setTimeout(() => {
-    showToastMsg.value = false;
-  }, 3000);
 };
 
 const loadProfile = async () => {
@@ -168,8 +160,8 @@ const handleAddMemory = async () => {
     memError.value = '请输入记忆内容';
     return;
   }
-  if (mem.length > 100) {
-    memError.value = '记忆长度不能超过100个字符';
+  if (mem.length > 500) {
+    memError.value = '记忆长度不能超过500个字符';
     return;
   }
   if (memories.value.includes(mem)) {
@@ -227,7 +219,7 @@ const goBack = () => {
   window.location.href = '/webchat';
 };
 
-const switchTab = (tab: 'account' | 'memory' | 'appearance') => {
+const switchTab = (tab: 'account' | 'memory' | 'appearance' | 'pet') => {
   activeTab.value = tab;
   if (isMobile.value) {
     isSidebarOpen.value = false;
@@ -236,9 +228,9 @@ const switchTab = (tab: 'account' | 'memory' | 'appearance') => {
 
 const handleHashChange = () => {
   const hash = window.location.hash;
-  const match = hash.match(/^#\/(account|memory|appearance)$/);
+  const match = hash.match(/^#\/(account|memory|appearance|pet)$/);
   if (match) {
-    activeTab.value = match[1] as 'account' | 'memory' | 'appearance';
+    activeTab.value = match[1] as 'account' | 'memory' | 'appearance' | 'pet';
   } else {
     activeTab.value = 'account';
   }
@@ -250,9 +242,9 @@ onMounted(() => {
   window.addEventListener('resize', checkMobile);
 
   const hash = window.location.hash;
-  const match = hash.match(/^#\/(account|memory|appearance)$/);
+  const match = hash.match(/^#\/(account|memory|appearance|pet)$/);
   if (match) {
-    activeTab.value = match[1] as 'account' | 'memory' | 'appearance';
+    activeTab.value = match[1] as 'account' | 'memory' | 'appearance' | 'pet';
   }
   window.addEventListener('hashchange', handleHashChange);
 });
@@ -330,6 +322,14 @@ watch(activeTab, (newTab) => {
             >
               <FontAwesomeIcon :icon="['fas', 'palette']" />
               <span>外观设置</span>
+            </button>
+            <button
+              class="w-full flex items-center gap-2 p-2.5 rounded-md cursor-pointer text-sm transition-colors"
+              :class="activeTab === 'pet' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
+              @click="switchTab('pet')"
+            >
+              <FontAwesomeIcon :icon="['fas', 'paw']" />
+              <span>宠物设置</span>
             </button>
           </div>
         </div>
@@ -502,8 +502,8 @@ watch(activeTab, (newTab) => {
                 ref="memoryTextareaRef"
                 v-model="newMemory"
                 class="form-input memory-textarea"
-                placeholder="添加新记忆（最多100字符）"
-                maxlength="100"
+                placeholder="添加新记忆（最多500字符）"
+                maxlength="500"
                 rows="1"
                 @input="adjustMemoryHeight"
                 @keydown="handleMemoryKeydown"
@@ -582,6 +582,11 @@ watch(activeTab, (newTab) => {
             </button>
           </div>
         </div>
+
+        <!-- Pet Settings -->
+        <div v-else-if="activeTab === 'pet'" class="pet-tab-content">
+          <PetSettings />
+        </div>
       </div>
     </div>
 
@@ -597,10 +602,7 @@ watch(activeTab, (newTab) => {
       @cancel="showLogoutConfirm = false"
     />
 
-    <div class="toast" :class="[toastType, { show: showToastMsg }]">
-      <FontAwesomeIcon :icon="toastType === 'success' ? ['fas', 'check'] : ['fas', 'triangle-exclamation']" />
-      {{ toastMessage }}
-    </div>
+    <ToastMessage />
   </div>
 </template>
 
@@ -656,7 +658,9 @@ watch(activeTab, (newTab) => {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: auto auto auto;
   gap: 16px;
-  max-width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .user-summary {
@@ -819,6 +823,15 @@ watch(activeTab, (newTab) => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.pet-tab-content {
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .appearance-header {
@@ -895,12 +908,10 @@ watch(activeTab, (newTab) => {
   opacity: 0.7;
 }
 
-/* 通用卡片 */
-.card {
-  background-color: var(--bg-panel);
-  border-radius: 8px;
-  padding: 24px;
-  border: 1px solid var(--border-color);
+/* 通用卡片 - 覆盖全局样式中的 box-shadow 和 transition */
+.profile-container .card {
+  box-shadow: none;
+  transition: none;
 }
 
 .card-header {
@@ -922,107 +933,51 @@ watch(activeTab, (newTab) => {
   margin: 0;
 }
 
-/* 表单 */
-.form-group {
-  margin-bottom: 16px;
-}
-
+/* 表单 - 覆盖全局样式中的差异 */
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
 
-.form-label {
-  display: block;
+.profile-container .form-label {
   font-size: 0.8rem;
-  margin-bottom: 6px;
-  color: var(--text-muted);
   font-weight: 500;
 }
 
-.form-input {
-  width: 100%;
+.profile-container .form-input {
   padding: 10px 14px;
-  background-color: var(--bg-main);
-  border: 1px solid var(--border-input);
-  border-radius: 8px;
-  color: var(--text-main);
   font-size: 0.9rem;
-  transition: all 0.15s ease;
-  outline: none;
   box-sizing: border-box;
 }
 
-.form-input:focus {
-  border-color: var(--primary);
+.profile-container .form-input:focus {
   box-shadow: 0 0 0 2px var(--primary-bg);
 }
 
-.form-input::placeholder {
-  color: var(--text-placeholder);
-}
-
-.error-message {
+.profile-container .error-message,
+.profile-container .success-message {
   margin-top: 12px;
   padding: 10px 14px;
-  background-color: var(--danger-bg);
-  border: 1px solid var(--danger);
-  border-radius: 8px;
-  color: var(--danger);
-  font-size: 0.85rem;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.success-message {
-  margin-top: 12px;
-  padding: 10px 14px;
-  background-color: var(--success-bg);
-  border: 1px solid var(--success-border);
-  border-radius: 8px;
-  color: var(--success);
-  font-size: 0.85rem;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.submit-btn {
-  width: 100%;
+.profile-container .submit-btn {
   padding: 12px 20px;
-  background-color: var(--primary);
-  color: var(--primary-text);
-  border: none;
-  border-radius: 8px;
   font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  margin-top: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
 }
 
-.submit-btn:hover:not(:disabled) {
-  background-color: var(--primary-hover);
-  box-shadow: 0 0 20px rgba(0, 120, 212, 0.2);
-}
-
-.submit-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.submit-btn.loading {
-  position: relative;
+.profile-container .submit-btn.loading {
   color: transparent;
 }
 
-.submit-btn.loading svg {
+.profile-container .submit-btn.loading svg {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -1058,6 +1013,8 @@ watch(activeTab, (newTab) => {
 }
 
 .memory-section {
+  max-width: 800px;
+  margin: 0 auto;
   width: 100%;
   flex: 1;
   display: flex;

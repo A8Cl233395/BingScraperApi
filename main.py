@@ -227,7 +227,7 @@ if is_ncm_enabled:
                         else:
                             raise HTTPException(status_code=400, detail="Invalid url")
                     else:
-                        final_url = Browser.get_final_url(url)
+                        final_url = browser.get_final_url(url)
                         if final_url and "music.163.com" in final_url:
                             match = re.search(r"id=(\d+)", final_url)
                             if match:
@@ -602,15 +602,16 @@ if __name__ == '__main__':
                 port=config["server"]["port"],
                 ssl_keyfile=config["server"]["key"],
                 ssl_certfile=config["server"]["cert"],
-                use_colors=False
+                use_colors=False,
+                timeout_graceful_shutdown=5
             )
         else:
             logger.warning('未找到证书或密钥')
             logger.info("回退到 HTTP 模式...")
             logger.warning("服务器正在以 HTTP 模式运行！")
             logger.warning("请勿将此服务器暴露到公网！")
-            uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False)
+            uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False, timeout_graceful_shutdown=5)
     else:
         logger.warning("服务器正在以 HTTP 模式运行！")
         logger.warning("请勿将此服务器暴露到公网！")
-        uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False)
+        uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False, timeout_graceful_shutdown=5)

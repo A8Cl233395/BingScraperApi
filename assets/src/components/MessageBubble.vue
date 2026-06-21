@@ -168,10 +168,11 @@ marked.use({
 </script>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, reactive, onBeforeUnmount, onBeforeUpdate, onUpdated, onMounted } from 'vue';
+import { ref, computed, watch, nextTick, reactive, onBeforeUpdate, onUpdated, onMounted, onBeforeUnmount } from 'vue';
 import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
 import { useImageEditor } from '../composables/useImageEditor';
+import { useLongPress } from '../composables/useLongPress';
 import ImageEditorGrid from './ImageEditorGrid.vue';
 
 const MERMAID_RE = /<div class="mermaid-placeholder" data-code="([^"]*)" style="min-height: 2rem;"><\/div>/g;
@@ -315,6 +316,11 @@ const handleEditImageOcr = (index: number) => {
 const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
+onBeforeUnmount(() => {
+  preScrollPositions.clear();
+  if (copiedTimer) clearTimeout(copiedTimer);
+});
+
 watch(() => props.nodeId, () => {
   isThinkingExpanded.value = false;
   expandedThinkingSegments.value = {};
@@ -323,27 +329,25 @@ watch(() => props.nodeId, () => {
 });
 
 // === MOBILE LONG PRESS & MENU ===
-const showMobileMenu = ref(false);
-const longPressTimer = ref<number | null>(null);
-const preLongPressTimer = ref<number | null>(null);
-const isPressing = ref(false);
-
-const menuPosition = ref({ x: 0, y: 0 });
+const {
+  showMenu: showMobileMenu,
+  isPressing,
+  menuStyle,
+  startLongPress: startLongPressBase,
+  cancelLongPress,
+  closeMenu,
+} = useLongPress({ menuWidth: 160, menuHeight: 200 });
 
 const startLongPress = (e: TouchEvent) => {
   if (!state.isMobile || isEditing.value) return;
   
-  // Disable long press while streaming to avoid issues with DOM updates and auto-scrolling
   if (props.isUser) {
-    // For user messages, we don't have an easy isStreaming prop here 
-    // but usually they don't change. However, if we want to be safe:
-    // if (props.message.isStreaming) return; 
+    // 用户消息无需额外检查
   } else {
     if (props.message.isStreaming) return;
   }
   
   const target = e.target as HTMLElement;
-  // If both text and image exist, long press on image has no effect
   if (props.isUser) {
     if (userTextContent.value && target.closest('img')) return;
   } else {
@@ -352,42 +356,13 @@ const startLongPress = (e: TouchEvent) => {
     if ((hasAssistantText || hasThinkingText) && target.closest('img')) return;
   }
   
-  const touch = e.touches[0];
-  // Capture coordinates for menu positioning
-  menuPosition.value = { x: touch.clientX, y: touch.clientY };
-  
-  cancelLongPress();
-  preLongPressTimer.value = window.setTimeout(() => {
-    isPressing.value = true;
-    longPressTimer.value = window.setTimeout(() => {
-      showMobileMenu.value = true;
-      isPressing.value = false;
-    }, 400);
-  }, 150);
+  startLongPressBase(e);
 };
-
-const cancelLongPress = () => {
-  if (preLongPressTimer.value) {
-    clearTimeout(preLongPressTimer.value);
-    preLongPressTimer.value = null;
-  }
-  if (longPressTimer.value) {
-    clearTimeout(longPressTimer.value);
-    longPressTimer.value = null;
-  }
-  isPressing.value = false;
-};
-
-onBeforeUnmount(() => {
-  cancelLongPress();
-  preScrollPositions.clear();
-  if (copiedTimer) clearTimeout(copiedTimer);
-});
 
 const handleCopyAction = () => {
   if (props.isUser) handleCopy();
   else handleCopyAssistant();
-  showMobileMenu.value = false;
+  closeMenu();
 };
 
 const handleSelectTextAction = () => {
@@ -403,45 +378,18 @@ const handleSelectTextAction = () => {
   }
   state.selectionText = text;
   state.showSelectionOverlay = true;
-  showMobileMenu.value = false;
+  closeMenu();
 };
 
 const handleEditAction = () => {
   handleEdit();
-  showMobileMenu.value = false;
+  closeMenu();
 };
 
 const handleRegenerateAction = () => {
   emit('regenerate', props.nodeId);
-  showMobileMenu.value = false;
+  closeMenu();
 };
-
-const menuStyle = computed(() => {
-  if (!showMobileMenu.value) return {};
-  
-  const x = menuPosition.value.x;
-  const y = menuPosition.value.y;
-  const screenWidth = window.innerWidth;
-  const screenHeight = window.innerHeight;
-  
-  const menuWidth = 160; 
-  const menuHeight = 200; 
-  
-  let left = x - 20;
-  let top = y - 20;
-  
-  // Keep on screen
-  if (left + menuWidth > screenWidth - 10) left = screenWidth - menuWidth - 10;
-  if (left < 10) left = 10;
-  if (top + menuHeight > screenHeight - 10) top = screenHeight - menuHeight - 10;
-  if (top < 10) top = 10;
-  
-  return {
-    left: `${left}px`,
-    top: `${top}px`,
-    width: `${menuWidth}px`
-  };
-});
 
 // === USER message rendering ===
 const userTextContent = computed(() => {
@@ -918,7 +866,7 @@ const handleContentClick = (e: MouseEvent) => {
     </div>
 
     <!-- Mobile Context Menu -->
-    <div v-if="showMobileMenu" class="fixed inset-0 z-1100" @click="showMobileMenu = false" @contextmenu.prevent>
+    <div v-if="showMobileMenu" class="fixed inset-0 z-1100" @click="closeMenu" @contextmenu.prevent>
       <div class="fixed inset-0 bg-black/5"></div>
       <div 
         class="absolute bg-bg-panel border border-border-main rounded-lg shadow-xl overflow-hidden animate-in fade-in zoom-in duration-150 py-1" 

@@ -947,8 +947,8 @@ class ChatInstance:
                     content = browser.search(arguments_json["query"])
                 case "manageMemory":
                     if arguments_json["operation"] == "add":
-                        if len(arguments_json["memory"]) > 100:
-                            content = f"错误：记忆长度不能超过100个字符！"
+                        if len(arguments_json["memory"]) > 500:
+                            content = f"错误：记忆长度不能超过500个字符！"
                         elif arguments_json["memory"] in self.user.memory:
                             content = f"错误：记忆已存在！"
                         elif len(self.user.memory) >= 50:

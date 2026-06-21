@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { state } from '../store';
-import { ref, onBeforeUnmount } from 'vue';
+import { ref } from 'vue';
 import ConfirmModal from './ConfirmModal.vue';
+import { useLongPress } from '../composables/useLongPress';
 
-const longPressTimer = ref<number | null>(null);
-const preLongPressTimer = ref<number | null>(null);
 const chatListRef = ref<HTMLElement | null>(null);
 const showDeleteConfirm = ref(false);
 const chatToDelete = ref<number | null>(null);
 const pressingChatId = ref<number | null>(null);
 const isAtBottom = ref(false);
+
+const { startLongPress, cancelLongPress } = useLongPress({
+  onPressStart: () => {
+    // pressingChatId 在 startLongPress 调用前已通过闭包设置
+  },
+});
 
 const checkScrollBottom = () => {
   const el = chatListRef.value;
@@ -21,35 +26,20 @@ const handleChatClick = (id: number) => {
   state.currentChatId = id;
 };
 
-const startLongPress = (id: number) => {
-  if (state.isMobile) {
-    cancelLongPress();
-    preLongPressTimer.value = window.setTimeout(() => {
-      pressingChatId.value = id;
-      longPressTimer.value = window.setTimeout(() => {
-        chatToDelete.value = id;
-        showDeleteConfirm.value = true;
-        pressingChatId.value = null;
-      }, 400);
-    }, 150); // Delay before starting long-press animation and timer
-  }
+const handleTouchStart = (e: TouchEvent, id: number) => {
+  if (!state.isMobile) return;
+  pressingChatId.value = id;
+  chatToDelete.value = id;
+  startLongPress(e, () => {
+    showDeleteConfirm.value = true;
+    pressingChatId.value = null;
+  });
 };
 
-const cancelLongPress = () => {
-  if (preLongPressTimer.value) {
-    clearTimeout(preLongPressTimer.value);
-    preLongPressTimer.value = null;
-  }
-  if (longPressTimer.value) {
-    clearTimeout(longPressTimer.value);
-    longPressTimer.value = null;
-  }
+const handleTouchEnd = () => {
+  cancelLongPress();
   pressingChatId.value = null;
 };
-
-onBeforeUnmount(() => {
-  cancelLongPress();
-});
 
 const handleDelete = (id: number) => {
   chatToDelete.value = id;
@@ -108,10 +98,10 @@ const handleScroll = () => {
             v-for="chat in state.chats" 
             :key="chat[0]"
             @click="handleChatClick(chat[0])"
-            @touchstart="startLongPress(chat[0])"
-            @touchend="cancelLongPress"
-            @touchmove="cancelLongPress"
-            @touchcancel="cancelLongPress"
+            @touchstart="handleTouchStart($event, chat[0])"
+            @touchend="handleTouchEnd"
+            @touchmove="handleTouchEnd"
+            @touchcancel="handleTouchEnd"
             @contextmenu="state.isMobile ? $event.preventDefault() : null"
             class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors"
             :class="[
