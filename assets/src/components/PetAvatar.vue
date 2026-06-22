@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { usePet } from '../composables/usePet';
 import { state } from '../store';
 
 const { currentImageUrl } = usePet();
+const petRef = ref<HTMLElement | null>(null);
 
 const PET_SIZE_KEY = 'pet_size';
 const PET_POS_KEY = 'pet_pos';
@@ -180,7 +181,7 @@ const handleTouchMove = (e: TouchEvent) => {
     const distance = getTouchDistance(e.touches);
     if (lastTouchDistance > 0) {
       const ratio = distance / lastTouchDistance;
-      size.value = Math.round(Math.min(MAX_SIZE, Math.max(MIN_SIZE, resizeStart.value.size * ratio)));
+      size.value = Math.round(Math.min(MAX_SIZE, Math.max(MIN_SIZE, size.value * ratio)));
     }
     lastTouchDistance = distance;
   } else if (e.touches.length === 1 && isDragging.value) {
@@ -195,15 +196,17 @@ const handleTouchMove = (e: TouchEvent) => {
 };
 
 const handleTouchEnd = (e: TouchEvent) => {
-  if (e.touches.length < 2) lastTouchDistance = 0;
+  if (e.touches.length < 2) {
+    lastTouchDistance = 0;
+    if (isResizing.value) {
+      isResizing.value = false;
+      saveSize();
+    }
+  }
   if (e.touches.length === 0) {
     if (isDragging.value) {
       isDragging.value = false;
       savePos();
-    }
-    if (isResizing.value) {
-      isResizing.value = false;
-      saveSize();
     }
   }
 };
@@ -212,6 +215,11 @@ const handleWindowResize = () => {
   windowWidth.value = window.innerWidth;
   windowHeight.value = window.innerHeight;
 };
+
+watch(petRef, (newEl, oldEl) => {
+  if (oldEl) oldEl.removeEventListener('touchstart', handleTouchStart);
+  if (newEl) newEl.addEventListener('touchstart', handleTouchStart, { passive: false });
+});
 
 onMounted(() => {
   document.addEventListener('mousemove', handleMouseMove);
@@ -234,6 +242,7 @@ onUnmounted(() => {
   <Teleport to="body">
     <div
       v-if="state.petEnabled && currentImageUrl"
+      ref="petRef"
       class="pet-avatar"
       :class="{ dragging: isDragging, resizing: isResizing }"
       :style="{
@@ -245,7 +254,6 @@ onUnmounted(() => {
       @mousedown="handleMouseDown"
       @mousemove="handleElementMouseMove"
       @mouseleave="handleElementMouseLeave"
-      @touchstart.passive="handleTouchStart"
     >
       <img
         :src="currentImageUrl"
