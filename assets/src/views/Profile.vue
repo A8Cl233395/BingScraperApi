@@ -40,8 +40,7 @@ const memError = ref('');
 const memoryTextareaRef = ref<HTMLTextAreaElement | null>(null);
 
 const activeTab = ref<'account' | 'memory' | 'appearance' | 'pet'>('account');
-const isSidebarOpen = ref(true);
-const isMobile = ref(false);
+const isSidebarOpen = ref(!state.isMobile);
 
 const showLogoutConfirm = ref(false);
 
@@ -51,13 +50,6 @@ const setTheme = (theme: ThemeMode) => {
   currentTheme.value = theme;
   applyTheme(theme);
   storeTheme(theme);
-};
-
-const checkMobile = () => {
-  isMobile.value = window.innerWidth < 768;
-  if (!isMobile.value) {
-    isSidebarOpen.value = true;
-  }
 };
 
 const adjustMemoryHeight = () => {
@@ -221,7 +213,7 @@ const goBack = () => {
 
 const switchTab = (tab: 'account' | 'memory' | 'appearance' | 'pet') => {
   activeTab.value = tab;
-  if (isMobile.value) {
+  if (state.isMobile) {
     isSidebarOpen.value = false;
   }
 };
@@ -238,8 +230,6 @@ const handleHashChange = () => {
 
 onMounted(() => {
   loadProfile();
-  checkMobile();
-  window.addEventListener('resize', checkMobile);
 
   const hash = window.location.hash;
   const match = hash.match(/^#\/(account|memory|appearance|pet)$/);
@@ -250,7 +240,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', checkMobile);
   window.removeEventListener('hashchange', handleHashChange);
 });
 
@@ -265,7 +254,7 @@ watch(activeTab, (newTab) => {
 <template>
   <div class="profile-container">
     <!-- Sidebar Overlay -->
-    <div v-if="isMobile && isSidebarOpen" class="sidebar-overlay" @click="isSidebarOpen = false"></div>
+    <div v-if="state.isMobile && isSidebarOpen" class="sidebar-overlay" @click="isSidebarOpen = false"></div>
 
     <div class="profile-layout">
       <!-- Left Sidebar -->
@@ -273,15 +262,15 @@ watch(activeTab, (newTab) => {
         class="sidebar"
         :class="[
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
-          isMobile ? 'fixed inset-y-0 left-0 w-72' : 'relative w-64',
-          !isSidebarOpen && !isMobile ? 'md:-ml-64 md:translate-x-0 md:border-r-0' : 'border-r border-border-main md:ml-0'
+          state.isMobile ? 'fixed inset-y-0 left-0 w-72' : 'relative w-64',
+          !isSidebarOpen && !state.isMobile ? 'md:-ml-64 md:translate-x-0 md:border-r-0' : 'border-r border-border-main md:ml-0'
         ]"
       >
-        <div :class="isMobile ? 'w-72' : 'w-64'" class="h-full flex flex-col shrink-0">
+        <div :class="state.isMobile ? 'w-72' : 'w-64'" class="h-full flex flex-col shrink-0">
           <!-- Header -->
           <div class="p-4 flex justify-between items-center">
             <span class="font-bold text-lg text-text-main">个人资料</span>
-            <button @click="isSidebarOpen = false" class="md:hidden text-text-muted hover:text-text-main">
+            <button @click="isSidebarOpen = false" v-if="state.isMobile" class="text-text-muted hover:text-text-main">
               <FontAwesomeIcon :icon="['fas', 'xmark']" />
             </button>
           </div>
@@ -337,7 +326,7 @@ watch(activeTab, (newTab) => {
 
       <!-- Mobile Toggle Button -->
       <button 
-        v-if="isMobile && !isSidebarOpen" 
+        v-if="state.isMobile && !isSidebarOpen" 
         class="fixed top-4 left-4 z-50 p-2 rounded-md bg-bg-panel border border-border-main text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors shadow-sm"
         @click="isSidebarOpen = true"
       >
@@ -1234,10 +1223,6 @@ watch(activeTab, (newTab) => {
 
 @media (min-width: 768px) {
   .mobile-toggle-btn {
-    display: none;
-  }
-
-  .sidebar-overlay {
     display: none;
   }
 }

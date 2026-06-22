@@ -1,5 +1,6 @@
 import { reactive } from 'vue';
 import api from '../utils/api';
+import { isMobileDevice } from '../utils/device';
 
 const CONFIG_STORAGE_KEY = 'user_config';
 const CONFIG_VERSION_KEY = 'config_version';
@@ -29,8 +30,8 @@ function saveConfigVersion(version: string) {
 const storedConfig = loadConfigFromStorage();
 
 export const state = reactive({
-  isSidebarOpen: true,
-  isMobile: false,
+  isSidebarOpen: !isMobileDevice(),
+  isMobile: isMobileDevice(),
   chats: [] as [number, string][],
   currentChatId: null as number | null,
   currentModel: storedConfig?.model || '',

@@ -12,6 +12,7 @@ api.interceptors.request.use((config) => {
     if (!window.location.pathname.startsWith('/login')) {
       window.location.href = '/login';
     }
+    return Promise.reject(new axios.Cancel('未登录，已跳转到登录页'));
   }
 
   config.headers['uid'] = uid;

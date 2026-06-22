@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed, watch, defineAsyncComponent } from 'vue';
 import { state } from '../store';
-import { isMobileDevice } from '../utils/device';
 import Sidebar from '../components/Sidebar.vue';
 import ModelSelector from '../components/ModelSelector.vue';
 import ChatInput from '../components/ChatInput.vue';
@@ -32,7 +31,6 @@ const handleStop = async () => {
 };
 
 const checkDevice = () => {
-  state.isMobile = isMobileDevice();
   state.isSidebarOpen = !state.isMobile;
 };
 
@@ -86,7 +84,6 @@ onMounted(() => {
   }
 
   checkDevice();
-  window.addEventListener('resize', checkDevice);
   window.addEventListener('hashchange', handleHashChange);
   window.addEventListener('mousedown', handleMouseDown);
   window.addEventListener('mouseup', handleMouseUp);
@@ -98,7 +95,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', checkDevice);
   window.removeEventListener('hashchange', handleHashChange);
   window.removeEventListener('mousedown', handleMouseDown);
   window.removeEventListener('mouseup', handleMouseUp);

@@ -76,7 +76,7 @@ const handleScroll = () => {
     <div :class="state.isMobile ? 'w-72' : 'w-64'" class="h-full flex flex-col shrink-0">
       <div class="p-4 flex justify-between items-center">
         <span class="font-bold text-lg text-text-main">AI Chat</span>
-        <button @click="state.isSidebarOpen = false" class="md:hidden text-text-muted hover:text-text-main">
+        <button @click="state.isSidebarOpen = false" v-if="state.isMobile" class="text-text-muted hover:text-text-main">
           <FontAwesomeIcon :icon="['fas', 'xmark']" />
         </button>
       </div>
