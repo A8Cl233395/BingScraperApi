@@ -44,6 +44,7 @@ export const state = reactive({
   petEnabled: localStorage.getItem('pet_enabled') === 'true',
   chatRequiresVision: false,
   hasDraftImages: false,
+  hasDraftFiles: false,
   get isVisionMode(): boolean {
     return this.chatRequiresVision || this.hasDraftImages;
   },

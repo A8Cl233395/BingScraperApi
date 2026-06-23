@@ -173,7 +173,7 @@ import { state } from '../store';
 import { isMobileDevice } from '../utils/device';
 import { useImageEditor } from '../composables/useImageEditor';
 import { useLongPress } from '../composables/useLongPress';
-import ImageEditorGrid from './ImageEditorGrid.vue';
+import FileEditorGrid from './FileEditorGrid.vue';
 
 const MERMAID_RE = /<div class="mermaid-placeholder" data-code="([^"]*)" style="min-height: 2rem;"><\/div>/g;
 function protectMermaid(html: string): { html: string; restore: (h: string) => string } {
@@ -300,18 +300,33 @@ const editText = ref('');
 // 编辑模式图片处理（使用 composable）
 const {
   images: editImages,
+  audioFiles: editAudioFiles,
+  otherFiles: editOtherFiles,
   isProcessingImage: isProcessingEditImage,
   isOcrProcessing: isEditOcrProcessing,
+  isConverting: isEditConverting,
   fileInputRef: editFileInput,
   handleFileUpload: handleEditFileUpload,
   handlePaste: handleEditPaste,
   handleDrop: handleEditDrop,
   removeImage: removeEditImage,
+  removeAudio: removeEditAudio,
+  removeOtherFile: removeEditOtherFile,
   handleOcr: editHandleOcrRaw,
+  handleAudioConvert: editHandleAudioConvertRaw,
+  handleFileConvert: editHandleFileConvertRaw,
 } = useImageEditor();
 
 const handleEditImageOcr = (index: number) => {
   editHandleOcrRaw(index, editText);
+};
+
+const handleEditAudioConvert = (index: number) => {
+  editHandleAudioConvertRaw(index, editText);
+};
+
+const handleEditFileConvert = (index: number) => {
+  editHandleFileConvertRaw(index, editText);
 };
 const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -560,6 +575,7 @@ const handleEdit = () => {
 };
 
 const submitEdit = () => { 
+  if (editAudioFiles.value.length > 0 || editOtherFiles.value.length > 0) return;
   const content = [];
   editImages.value.forEach(url => {
     content.push({ type: 'image_url', image_url: { url } });
@@ -743,15 +759,22 @@ const handleContentClick = (e: MouseEvent) => {
             <div v-if="!isEditing" class="relative z-10 text-text-main break-all whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
             <div v-else class="w-full" @paste="handleEditPaste" @drop="handleEditDrop" @dragover.prevent>
               <!-- Edit Image Previews -->
-              <ImageEditorGrid
+              <FileEditorGrid
                 :images="editImages"
+                :audio-files="editAudioFiles"
+                :other-files="editOtherFiles"
                 :is-processing-image="isProcessingEditImage"
                 :is-ocr-processing="isEditOcrProcessing"
-                @remove="removeEditImage"
+                :is-converting="isEditConverting"
+                @remove-image="removeEditImage"
+                @remove-audio="removeEditAudio"
+                @remove-other="removeEditOtherFile"
                 @ocr="handleEditImageOcr"
+                @convert-audio="handleEditAudioConvert"
+                @convert-file="handleEditFileConvert"
               />
-              <textarea ref="editTextareaRef" v-model="editText" class="w-full bg-bg-main border border-border-input rounded-md p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
-              <input type="file" ref="editFileInput" class="hidden" multiple accept="image/*" @change="handleEditFileUpload" />
+              <textarea ref="editTextareaRef" v-model="editText" maxlength="1000000" class="w-full bg-bg-main border border-border-input rounded-md p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
+              <input type="file" ref="editFileInput" class="hidden" multiple accept="image/*,audio/*,.pdf,.docx,.xlsx,.pptx,.doc,.xls,.ppt,.txt,.md,.json,.xml,.yaml,.yml,.csv,.html,.rtf,.log,.ini,.cfg,.conf,.sh,.bat,.py,.js,.ts,.css,.vue,.tsx,.jsx,.go,.rs,.toml,.env,.gitignore" @change="handleEditFileUpload" />
             </div>
           </div>
           <div class="mt-2 flex items-center justify-end gap-3 transition-opacity w-full" :class="[isEditing ? 'opacity-100' : (state.isMobile ? (siblingCount && siblingCount > 1 ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden') : 'opacity-0 group-hover:opacity-100')]">
@@ -769,7 +792,7 @@ const handleContentClick = (e: MouseEvent) => {
               </button>
             </template>
             <template v-else-if="isEditing">
-              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center rounded-md hover:bg-bg-hover" title="上传图片"><FontAwesomeIcon :icon="['far', 'image']" class="text-base" /></button>
+              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center rounded-md hover:bg-bg-hover" title="上传文件"><FontAwesomeIcon :icon="['far', 'image']" class="text-base" /></button>
               <button @click="isEditing = false" class="text-xs text-text-muted hover:text-text-main">取消</button>
               <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1 rounded hover:bg-primary-hover">确认</button>
             </template>

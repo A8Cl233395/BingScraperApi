@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from pydub import AudioSegment
 from PIL import Image
 import asyncio
 import base64
@@ -419,7 +420,7 @@ if is_webchat_enabled:
                 text_content = item.get("text", "")
                 if not isinstance(text_content, str):
                     raise ValueError
-                if text_content and len(text_content) > 500_000:
+                if text_content and len(text_content) > 1_000_000:
                     raise ValueError
             if len(image_elements) > 10:
                 raise ValueError
@@ -553,12 +554,50 @@ if is_webchat_enabled:
                         raise ValueError
             except Exception:
                 raise ValueError
-            return image_bytes
+            return v
     
     @app.post("/api/ocr", response_class=PlainTextResponse)
     @user_rate_limit(10)
     def api_ocr(request: Request, data: OCRPost = Body(...)):
-        return webchat.ocr(data.image)
+        try:
+            return ocr_service.extract_text_from_b64(data.image)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"OCR错误")
+    
+    def validate_audio(audio: bytes, format: str):
+        try:
+            audio = AudioSegment.from_file(audio, format=format)
+            return True
+        except Exception:
+            return False
+
+    @app.post("/api/vr", response_class=PlainTextResponse)
+    @user_rate_limit(10)
+    def api_vr(request: Request, data: bytes = Body(...)):
+        format = request.headers.get("format", "")
+        if not data or not format:
+            raise HTTPException(status_code=400, detail="require data and format header")
+        if len(data) > 20971520:
+            raise HTTPException(status_code=400, detail="文件过大（超过20MB）")
+        if not validate_audio(data, format):
+            raise HTTPException(status_code=400, detail="invalid audio format")
+        try:
+            return vr.transcribe_from_data(data)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"语音错误")
+
+    @app.post("/api/markitdown", response_class=PlainTextResponse)
+    @user_rate_limit(10)
+    def api_markitdown(request: Request, data: bytes = Body(...)):
+        format = request.headers.get("format", "")
+        if not data or not format:
+            raise HTTPException(status_code=400, detail="require data and format header")
+        if len(data) > 20971520:
+            raise HTTPException(status_code=400, detail="文件过大（超过20MB）")
+        try:
+            return fileconverter.strict_convert_file_to_text(data, format)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"文件错误")
     
     class ChangePwdPost(BaseModel):
         old_pwd: str

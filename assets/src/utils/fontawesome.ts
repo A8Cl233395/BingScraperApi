@@ -43,13 +43,16 @@ import {
   faSun,
   faMoon,
   faDesktop,
-  faPaw
+  faPaw,
+  faMusic,
+  faFile
 } from '@fortawesome/free-solid-svg-icons'
 
 import {
   faCopy,
   faPenToSquare,
-  faImage
+  faImage,
+  faFolder
 } from '@fortawesome/free-regular-svg-icons'
 
 library.add(
@@ -94,6 +97,9 @@ library.add(
   faMoon,
   faDesktop,
   faPaw,
+  faMusic,
+  faFile,
+  faFolder,
   faCopy,
   faPenToSquare,
   faImage

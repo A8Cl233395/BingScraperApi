@@ -8,3 +8,6 @@ openai
 pyyaml
 pillow
 bcrypt
+markitdown[pdf, docx, xlsx, pptx]
+pydub
+audioop-lts

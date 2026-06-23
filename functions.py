@@ -20,6 +20,15 @@ import base64
 import logging
 import lz4.frame
 from hashlib import sha256
+from pydub.utils import which as which_pydub
+import io
+from markitdown import StreamInfo
+from markitdown.converters import (
+    PdfConverter,
+    DocxConverter,
+    XlsxConverter,
+    PptxConverter,
+)
 import trafilatura
 import bcrypt
 
@@ -295,7 +304,7 @@ class Ncm:
         self.cache = LRUCache(100)
 
     def get_details_text(self, song_id, comment_limit=5):
-        if self.cache.check(song_id):
+        if self.cache.get(song_id):
             return self.cache.get(song_id)
         lyric_api = f"https://music.163.com/api/song/lyric?os=pc&id={song_id}&lv=-1&tv=-1"
         comment_api = f"https://music.163.com/api/v1/resource/comments/R_SO_4_{song_id}?offset=0&limit={comment_limit}"
@@ -402,7 +411,7 @@ class Bilibili:
         self.cache.put(bv, final_text)
         return final_text
 
-class VoiceRecognition:
+class VoiceRecognition: # TODO: 检查API是否返回报错，而不是默认api正常返回
     def __init__(self, services):
         self.services = services
         self.balancing_index = 0
@@ -421,12 +430,16 @@ class VoiceRecognition:
                 "file_urls": [file_url],
             }
         }
-        result = requests.post(url, json=data, headers=headers).json()
-        task_id = result["output"]["task_id"]
-        result_url = VoiceRecognition.get_aliyun_stt_result_loop(key, task_id)
-        text_json = requests.get(result_url).json()
-        text = text_json["transcripts"][0]['text']
-        return text
+        try:
+            result = requests.post(url, json=data, headers=headers).json()
+            task_id = result["output"]["task_id"]
+            result_url = VoiceRecognition.get_aliyun_stt_result_loop(key, task_id)
+            text_json = requests.get(result_url).json()
+            text = text_json["transcripts"][0]['text']
+            return text
+        except Exception as e:
+            logger.exception(f"VoiceRecognition 失败: {str(e)}")
+            raise Exception(f"VoiceRecognition failed: {str(e)}")
 
     def get_aliyun_stt_result_loop(key, task_id):
         url = f"https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
@@ -454,11 +467,15 @@ class VoiceRecognition:
             params["data"] = {'definition': json.dumps({"audioUrl": audio_url}, ensure_ascii=False)}
         else:
             raise Exception("audio_data or audio_url is required")
-        response = requests.post(**params).json()
-        text = ""
-        for i in response["phrases"]:
-            text += i["text"] + "\n"
-        return text
+        try:
+            response = requests.post(**params).json()
+            text = ""
+            for i in response["phrases"]:
+                text += i["text"] + "\n"
+            return text
+        except Exception as e:
+            logger.exception(f"VoiceRecognition 失败: {str(e)}")
+            raise Exception(f"VoiceRecognition failed: {str(e)}")
     
     def transcribe_from_url(self, audio_url) -> str:
         service = self.services[self.balancing_index]
@@ -487,27 +504,47 @@ class OCR:
         self.url_sha256_cache = LRUCache(100)
         self.sha256_text_cache = LRUCache(100)
     
-    def url_to_b64(self, url, cache=True):
-        if self.url_sha256_cache.get(url):
-            return self.url_sha256_cache.get(url)
-        response = requests.get(url)
+    def _url_to_b64(self, url):
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+        except Exception as e:
+            logger.exception(f"OCR 失败: {str(e)}")
+            raise Exception(f"OCR failed: {str(e)}")
         img_base64 = base64.b64encode(response.content).decode('utf-8')
-        if cache:
-            self.url_sha256_cache.put(url, img_base64)
         return img_base64
     
     def extract_text_from_url(self, image_url):
-        img_base64 = self.url_to_b64(image_url)
-        return self._extract_text_from_base64(img_base64)
+        if self.url_sha256_cache.get(image_url): # 图片已缓存
+            if self.sha256_text_cache.get(self.url_sha256_cache.get(image_url)): # 文本已缓存
+                return self.sha256_text_cache.get(self.url_sha256_cache.get(image_url))
+        b64 = self._url_to_b64(image_url)
+        image_hash = sha256(b64.encode('utf-8')).hexdigest()
+        self.url_sha256_cache.put(image_url, image_hash)
+        if self.sha256_text_cache.get(image_hash):
+            return self.sha256_text_cache.get(image_hash)
+        result = self._extract_text_from_base64(b64)
+        self.sha256_text_cache.put(image_hash, result)
+        return result
 
     def extract_text_from_data(self, image_data):
         img_base64 = base64.b64encode(image_data).decode('utf-8')
-        return self._extract_text_from_base64(img_base64)
-
-    def _extract_text_from_base64(self, img_base64):
         image_hash = sha256(img_base64.encode('utf-8')).hexdigest()
         if self.sha256_text_cache.get(image_hash):
             return self.sha256_text_cache.get(image_hash)
+        result = self._extract_text_from_base64(img_base64)
+        self.sha256_text_cache.put(image_hash, result)
+        return result
+    
+    def extract_text_from_b64(self, img_base64):
+        image_hash = sha256(img_base64.encode('utf-8')).hexdigest()
+        if self.sha256_text_cache.get(image_hash):
+            return self.sha256_text_cache.get(image_hash)
+        result = self._extract_text_from_base64(img_base64)
+        self.sha256_text_cache.put(image_hash, result)
+        return result
+
+    def _extract_text_from_base64(self, img_base64):
         json_data = json.dumps({
             "base64": img_base64,
             "options": {
@@ -517,11 +554,35 @@ class OCR:
         }, ensure_ascii=False)
         try:
             result = requests.post(self.endpoint, headers={"Content-Type": "application/json"}, data=json_data).json()["data"]
-            self.sha256_text_cache.put(image_hash, result)
             return result
         except Exception as e:
             logger.exception("OCR 识别失败")
             raise Exception(f"OCR failed: {str(e)}")
+
+class FileConverter:
+    mappings: dict[str, PdfConverter | DocxConverter | XlsxConverter | PptxConverter] = {
+        "pdf": PdfConverter(),
+        "docx": DocxConverter(),
+        "xlsx": XlsxConverter(),
+        "pptx": PptxConverter(),
+    }
+    def __init__(self):
+        self.sha256_text_cache = LRUCache(100)
+    
+    def strict_convert_file_to_text(self, file: bytes, format: str) -> str:
+        if format not in self.mappings:
+            raise Exception(f"不支持的文件格式: {format}")
+        file_sha256 = sha256(file).digest()
+        if self.sha256_text_cache.get(file_sha256):
+            return self.sha256_text_cache.get(file_sha256)
+        try:
+            converter_result = self.mappings[format].convert(io.BytesIO(file), StreamInfo(extension=format))
+            result = converter_result.markdown
+        except Exception as e:
+            logger.exception(f"文件转换失败: {str(e)}")
+            raise Exception(f"File conversion failed: {str(e)}")
+        self.sha256_text_cache.put(file_sha256, result)
+        return result
 
 class InviteManager:
     def __init__(self):
@@ -1355,9 +1416,6 @@ class Webchat:
             self.conn.commit()
         if chat_id in user.chat_cache:
             del user.chat_cache[chat_id]
-    
-    def ocr(self, image: bytes):
-        return ocr_service.extract_text_from_data(image)
 
     def get_profile_data(self, user_id: int):
         user = usermanager.get_user(user_id)
@@ -1414,9 +1472,6 @@ class LRUCache:
             self.rev_cache[val] = key
             
         return val
-    
-    def check(self, key):
-        return key in self.cache
     
     def put(self, key, value):
         if key in self.cache:
@@ -1480,9 +1535,13 @@ if __name__ != "__main__":
 
     is_usermanager_required = is_webchat_enabled or is_link_enabled or is_invite_enabled
     is_web_function_enabled = is_webchat_enabled or is_invite_enabled
+    is_fileconverter_required = is_web_function_enabled
 
     if is_usermanager_required:
         usermanager = UserManager()
+    
+    if is_fileconverter_required:
+        fileconverter = FileConverter()
 
     if is_bing_crawler_enabled:
         browser = AsyncCrawler(config["bing_crawler"].get("timeout", 8000), config["bing_crawler"].get("strict_anti_crawl_model", False))
@@ -1516,6 +1575,13 @@ if __name__ != "__main__":
         if not is_ocr_enabled:
             logger.error("聊天功能需要 OCR 模块，但该功能未启用")
             exit(1)
+        if not is_vr_enabled:
+            logger.error("聊天功能需要语音识别功能，但该功能未启用")
+            exit(1)
+        else:
+            if not which_pydub('ffmpeg'):
+                logger.error("聊天功能需要语音识别功能，但ffmpeg未添加到环境变量")
+                exit(1)
         webchat = Webchat()
         oclients = {}
         MODELS: dict[str, dict] = config["webchat"]["models"]

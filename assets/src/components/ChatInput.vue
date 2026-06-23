@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { state } from '../store';
-import { ref, watch, nextTick, onUnmounted } from 'vue';
+import { ref, watch, nextTick, onUnmounted, computed } from 'vue';
 import { isMobileDevice } from '../utils/device';
 import { useImageEditor } from '../composables/useImageEditor';
-import ImageEditorGrid from './ImageEditorGrid.vue';
+import FileEditorGrid from './FileEditorGrid.vue';
 
 
 const props = defineProps<{
@@ -16,22 +16,41 @@ const textInput = ref('');
 const showOptions = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
-// 图片编辑（使用 composable）
+// 文件编辑（使用 composable）
 const {
   images,
+  audioFiles,
+  otherFiles,
   isProcessingImage,
   isOcrProcessing,
+  isConverting,
   fileInputRef: fileInput,
   handleFileUpload,
   handlePaste,
   handleDrop,
   removeImage,
+  removeAudio,
+  removeOtherFile,
   handleOcr,
+  handleAudioConvert,
+  handleFileConvert,
   clearImages,
 } = useImageEditor({ trackDraft: true });
 
+const hasUnconvertedFiles = computed(() =>
+  audioFiles.value.length > 0 || otherFiles.value.length > 0
+);
+
 const handleImageOcr = (index: number) => {
   handleOcr(index, textInput);
+};
+
+const handleAudioConvertAction = (index: number) => {
+  handleAudioConvert(index, textInput);
+};
+
+const handleFileConvertAction = (index: number) => {
+  handleFileConvert(index, textInput);
 };
 
 const adjustHeight = () => {
@@ -48,8 +67,8 @@ watch(textInput, () => {
 const handleSend = () => {
   if (state.isStreaming) return;
   if (textInput.value.trim() || images.value.length > 0) {
+    if (hasUnconvertedFiles.value) return;
     const content = [];
-    // Images before text
     images.value.forEach(url => {
       content.push({ type: 'image_url', image_url: { url } });
     });
@@ -174,19 +193,27 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
       @drop="handleDrop"
       @dragover.prevent
     >
-      <!-- Image Previews -->
-      <ImageEditorGrid
+      <!-- File Previews -->
+      <FileEditorGrid
         :images="images"
+        :audio-files="audioFiles"
+        :other-files="otherFiles"
         :is-processing-image="isProcessingImage"
         :is-ocr-processing="isOcrProcessing"
-        @remove="removeImage"
+        :is-converting="isConverting"
+        @remove-image="removeImage"
+        @remove-audio="removeAudio"
+        @remove-other="removeOtherFile"
         @ocr="handleImageOcr"
+        @convert-audio="handleAudioConvertAction"
+        @convert-file="handleFileConvertAction"
       />
 
       <textarea 
         ref="textareaRef"
         v-model="textInput"
         rows="1" 
+        maxlength="1000000"
         class="w-full resize-none outline-none border-none bg-transparent p-1 text-sm no-scrollbar text-text-main placeholder-text-placeholder min-h-[24px]"
         :placeholder="isMobileDevice() ? '输入消息...' : '输入消息，Shift+Enter 或 Ctrl+Enter 换行，Enter 发送...'"
         @keydown="handleKeydown"
@@ -274,16 +301,16 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           ref="fileInput" 
           class="hidden" 
           multiple 
-          accept="image/*" 
+          accept="image/*,.heic,.heif,.mp3,.wav,.ogg,.aac,.flac,.pdf,.docx,.xlsx,.pptx,.doc,.xls,.ppt,.txt,.md,.json,.xml,.yaml,.yml,.csv,.html,.rtf,.log,.ini,.cfg,.conf,.sh,.bat,.py,.js,.ts,.css,.vue,.tsx,.jsx,.go,.rs,.toml,.env,.gitignore" 
           @change="handleFileUpload"
         />
         <button 
           @click="fileInput?.click()"
           @mousedown.prevent
           class="text-text-placeholder hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md transition-colors" 
-          title="上传图片"
+          title="插入图片和文件"
         >
-          <FontAwesomeIcon :icon="['far', 'image']" class="text-lg" />
+          <FontAwesomeIcon :icon="['far', 'folder']" class="text-lg" />
         </button>
         <button 
           v-if="state.isStreaming"
@@ -298,7 +325,9 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           v-else
           @click="handleSend"
           @mousedown.prevent
-          class="bg-primary-main text-primary-text hover:bg-primary-hover w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          class="w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          :class="hasUnconvertedFiles ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'bg-primary-main text-primary-text hover:bg-primary-hover'"
+          :disabled="hasUnconvertedFiles"
         >
           <FontAwesomeIcon :icon="['fas', 'paper-plane']" class="text-sm" />
         </button>
