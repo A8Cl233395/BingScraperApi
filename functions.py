@@ -29,6 +29,7 @@ from markitdown.converters import (
     XlsxConverter,
     PptxConverter,
 )
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
 import trafilatura
 import bcrypt
 
@@ -1431,8 +1432,8 @@ class Webchat:
         user = usermanager.get_user(user_id)
         if not memory:
             raise HTTPException(status_code=400, detail="记忆不能为空！")
-        if len(memory) > 100:
-            raise HTTPException(status_code=400, detail="记忆长度不能超过100个字符！")
+        if len(memory) > 500:
+            raise HTTPException(status_code=400, detail="记忆长度不能超过500个字符！")
         elif memory in user.memory:
             raise HTTPException(status_code=400, detail="记忆已存在！")
         elif len(user.memory) >= 50:

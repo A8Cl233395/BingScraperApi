@@ -51,7 +51,6 @@ import {
 import {
   faCopy,
   faPenToSquare,
-  faImage,
   faFolder
 } from '@fortawesome/free-regular-svg-icons'
 
@@ -101,8 +100,7 @@ library.add(
   faFile,
   faFolder,
   faCopy,
-  faPenToSquare,
-  faImage
+  faPenToSquare
 )
 
 export function registerFontAwesome(app: App) {

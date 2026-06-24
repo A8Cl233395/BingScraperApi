@@ -792,7 +792,7 @@ const handleContentClick = (e: MouseEvent) => {
               </button>
             </template>
             <template v-else-if="isEditing">
-              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center rounded-md hover:bg-bg-hover" title="上传文件"><FontAwesomeIcon :icon="['far', 'image']" class="text-base" /></button>
+              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center rounded-md hover:bg-bg-hover" title="上传文件"><FontAwesomeIcon :icon="['far', 'folder']" class="text-base" /></button>
               <button @click="isEditing = false" class="text-xs text-text-muted hover:text-text-main">取消</button>
               <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1 rounded hover:bg-primary-hover">确认</button>
             </template>
