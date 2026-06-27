@@ -38,7 +38,7 @@ const {
 } = useImageEditor({ trackDraft: true });
 
 const hasUnconvertedFiles = computed(() =>
-  audioFiles.value.length > 0 || otherFiles.value.length > 0
+  audioFiles.value.length > 0 || otherFiles.value.length > 0 || isOcrProcessing.value
 );
 
 const handleImageOcr = (index: number) => {

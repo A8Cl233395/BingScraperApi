@@ -1433,11 +1433,11 @@ class Webchat:
         if not memory:
             raise HTTPException(status_code=400, detail="记忆不能为空！")
         if len(memory) > 500:
-            raise HTTPException(status_code=400, detail="记忆长度不能超过500个字符！")
+            raise HTTPException(status_code=413, detail="记忆长度不能超过500个字符！")
         elif memory in user.memory:
-            raise HTTPException(status_code=400, detail="记忆已存在！")
+            raise HTTPException(status_code=409, detail="记忆已存在！")
         elif len(user.memory) >= 50:
-            raise HTTPException(status_code=400, detail="记忆已满！")
+            raise HTTPException(status_code=422, detail="记忆已满！")
         else:
             result = user.add_memory(memory)
             if not result:

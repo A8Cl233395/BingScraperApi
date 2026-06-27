@@ -139,7 +139,11 @@ if is_web_function_enabled:
                         })
                         await resp(scope, receive, send)
                         return
-            await super().__call__(scope, receive, send)
+            if os.path.isfile(original):
+                resp = FileResponse(original, headers={"Cache-Control": "public, max-age=2592000"})
+                await resp(scope, receive, send)
+            else:
+                await super().__call__(scope, receive, send)
     
     app.mount("/assets", CachedStaticFiles(directory="assets/dist/assets"))
 

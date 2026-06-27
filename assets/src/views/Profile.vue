@@ -55,13 +55,16 @@ const setTheme = (theme: ThemeMode) => {
 const adjustMemoryHeight = () => {
   if (memoryTextareaRef.value) {
     memoryTextareaRef.value.style.height = 'auto';
-    memoryTextareaRef.value.style.height = memoryTextareaRef.value.scrollHeight + 'px';
+    memoryTextareaRef.value.style.height = Math.min(memoryTextareaRef.value.scrollHeight, 200) + 'px';
   }
 };
 
 const handleMemoryKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter') {
-    if (e.ctrlKey) {
+    if (!state.isMobile && !e.ctrlKey && !e.shiftKey) {
+      e.preventDefault();
+      handleAddMemory();
+    } else if (e.ctrlKey) {
       e.preventDefault();
       const textarea = memoryTextareaRef.value!;
       const start = textarea.selectionStart;
@@ -71,9 +74,6 @@ const handleMemoryKeydown = (e: KeyboardEvent) => {
         textarea.selectionStart = textarea.selectionEnd = start + 1;
         adjustMemoryHeight();
       });
-    } else if (!e.shiftKey) {
-      e.preventDefault();
-      handleAddMemory();
     }
   }
 };
@@ -179,7 +179,20 @@ const handleAddMemory = async () => {
     });
     showToast('记忆添加成功');
   } catch (error: any) {
-    memError.value = error.response?.data || error.response?.data?.detail || '添加记忆失败';
+    const status = error.response?.status;
+    if (status === 400) {
+      memError.value = '添加的记忆为空';
+    } else if (status === 413) {
+      memError.value = '添加的记忆长度过长';
+    } else if (status === 409) {
+      memError.value = '要添加的记忆已经存在';
+    } else if (status === 422) {
+      memError.value = '记忆已满';
+    } else if (status === 500) {
+      memError.value = '后端错误，请勿重试';
+    } else {
+      memError.value = '添加记忆失败';
+    }
   } finally {
     isAddingMemory.value = false;
   }

@@ -245,6 +245,9 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
     messageTree.value[nodeId].isStreaming = true;
   }
 
+  let reconnectRetries = 0;
+  const MAX_RECONNECT_RETRIES = 5;
+
   try {
     await fetchEventSource(
       `${import.meta.env.VITE_API_BASE}/api/reconnect?id=${chatId}&node_id=${nodeId}`,
@@ -270,16 +273,20 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
         },
         onerror(err) {
           if (currentController.signal.aborted || err.message === '404_NOT_FOUND') {
-            throw err; // Stop retrying
+            throw err;
           }
-          console.error('Reconnect SSE Error', err);
-          throw err;
+          reconnectRetries++;
+          if (reconnectRetries > MAX_RECONNECT_RETRIES) {
+            throw err;
+          }
+          showToast(`正在重连（${reconnectRetries}/${MAX_RECONNECT_RETRIES}）`, 'info');
+          return reconnectRetries * 1000;
         }
       }
     );
   } catch (e: any) {
     if (e.name !== 'AbortError' && !currentController.signal.aborted && e.message !== '404_NOT_FOUND') {
-      console.error('Reconnect failed', e);
+      showToast('重连失败', 'error');
     }
   } finally {
     if (abortController.value === currentController) {

@@ -22,6 +22,8 @@
   --success-border: #3c8c3c;
   --success-bg: rgba(46, 160, 67, 0.1);
   --danger-bg: rgba(248, 81, 73, 0.1);
+  --info: #005FB8;
+  --info-border: #005FB8;
 
   /* hljs vs-code light style */
   --hljs-bg: #ffffff;
@@ -58,6 +60,8 @@ html.dark {
   --success-border: #3c8c3c;
   --success-bg: #2d5a27;
   --danger-bg: rgba(248, 81, 73, 0.1);
+  --info: #4daafc;
+  --info-border: #4daafc;
 
   /* hljs vs-code dark style */
   --hljs-bg: transparent;
@@ -97,6 +101,8 @@ html.dark {
   --color-success-border: var(--success-border);
   --color-success-bg: var(--success-bg);
   --color-danger-bg: var(--danger-bg);
+  --color-info-main: var(--info);
+  --color-info-border: var(--info-border);
 }
 
 @utility no-scrollbar {
@@ -321,6 +327,11 @@ body {
 .toast.error {
   border-color: var(--danger);
   color: var(--danger);
+}
+
+.toast.info {
+  border-color: var(--info-border);
+  color: var(--info);
 }
 
 @media (max-width: 640px) {

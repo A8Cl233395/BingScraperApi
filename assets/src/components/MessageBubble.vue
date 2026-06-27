@@ -756,7 +756,7 @@ const handleContentClick = (e: MouseEvent) => {
               ></div>
             </Transition>
             
-            <div v-if="!isEditing" class="relative z-10 text-text-main break-all whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
+            <div v-if="!isEditing" class="relative z-10 text-text-main wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
             <div v-else class="w-full" @paste="handleEditPaste" @drop="handleEditDrop" @dragover.prevent>
               <!-- Edit Image Previews -->
               <FileEditorGrid
@@ -809,7 +809,7 @@ const handleContentClick = (e: MouseEvent) => {
               <FontAwesomeIcon :icon="['fas', 'brain']" class="text-[10px] w-3 text-center" /><span>思考过程</span>
               <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="isThinkingExpanded ? 'rotate-90' : ''" />
             </div>
-            <div v-if="isThinkingExpanded" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ thinkingContent }}</div>
+            <div v-if="isThinkingExpanded" @dblclick="isThinkingExpanded = false" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ thinkingContent }}</div>
           </div>
 
           <!-- Assistant content -->
@@ -846,11 +846,11 @@ const handleContentClick = (e: MouseEvent) => {
                   <FontAwesomeIcon :icon="['fas', 'brain']" class="text-[10px] w-3 text-center" /><span>思考过程</span>
                   <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="expandedThinkingSegments[idx] ? 'rotate-90' : ''" />
                 </div>
-                <div v-if="expandedThinkingSegments[idx]" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ segmentThinking[idx] }}</div>
+                <div v-if="expandedThinkingSegments[idx]" @dblclick="expandedThinkingSegments[idx] = false" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ segmentThinking[idx] }}</div>
               </div>
 
               <!-- Text content -->
-              <div v-if="item.role === 'assistant' && item.content && segmentHtml[idx]" class="relative z-10 prose prose-sm max-w-none text-text-main break-all" v-html="segmentHtml[idx]" @click="handleContentClick"></div>
+              <div v-if="item.role === 'assistant' && item.content && segmentHtml[idx]" class="relative z-10 prose prose-sm max-w-none text-text-main wrap-anywhere" v-html="segmentHtml[idx]" @click="handleContentClick"></div>
 
               <!-- Tool calls -->
               <template v-if="item.role === 'assistant' && item.tool_calls">
@@ -861,8 +861,8 @@ const handleContentClick = (e: MouseEvent) => {
                     <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="expandedTools[call.id] ? 'rotate-90' : ''" />
                   </div>
                   <div v-if="expandedTools[call.id]" class="mt-1">
-                    <div class="text-[11px] font-mono text-text-placeholder break-all whitespace-pre-wrap px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">{{ call.function.arguments }}</div>
-                    <div v-for="resp in getToolResponses(call.id)" :key="resp.tool_call_id" class="mt-1 text-[11px] text-text-placeholder whitespace-pre-wrap break-all px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">
+                    <div @dblclick="expandedTools[call.id] = false" class="text-[11px] font-mono text-text-placeholder break-all whitespace-pre-wrap px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">{{ call.function.arguments }}</div>
+                    <div v-for="resp in getToolResponses(call.id)" :key="resp.tool_call_id" @dblclick="expandedTools[call.id] = false" class="mt-1 text-[11px] text-text-placeholder whitespace-pre-wrap break-all px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">
                       <span class="text-text-muted font-medium">返回：</span>{{ resp.content }}
                     </div>
                   </div>
