@@ -39,7 +39,7 @@ const isAddingMemory = ref(false);
 const memError = ref('');
 const memoryTextareaRef = ref<HTMLTextAreaElement | null>(null);
 
-const activeTab = ref<'account' | 'memory' | 'appearance' | 'pet'>('account');
+const activeTab = ref<'account' | 'memory' | 'custom' | 'pet'>('account');
 const isSidebarOpen = ref(!state.isMobile);
 
 const showLogoutConfirm = ref(false);
@@ -224,7 +224,7 @@ const goBack = () => {
   window.location.href = '/webchat';
 };
 
-const switchTab = (tab: 'account' | 'memory' | 'appearance' | 'pet') => {
+const switchTab = (tab: 'account' | 'memory' | 'custom' | 'pet') => {
   activeTab.value = tab;
   if (state.isMobile) {
     isSidebarOpen.value = false;
@@ -233,21 +233,31 @@ const switchTab = (tab: 'account' | 'memory' | 'appearance' | 'pet') => {
 
 const handleHashChange = () => {
   const hash = window.location.hash;
-  const match = hash.match(/^#\/(account|memory|appearance|pet)$/);
+  const match = hash.match(/^#\/(account|memory|custom|pet)$/);
   if (match) {
-    activeTab.value = match[1] as 'account' | 'memory' | 'appearance' | 'pet';
+    activeTab.value = match[1] as 'account' | 'memory' | 'custom' | 'pet';
   } else {
     activeTab.value = 'account';
   }
+};
+
+const toggleExpandThinking = () => {
+  state.defaultExpandThinking = !state.defaultExpandThinking;
+  localStorage.setItem('expand_thinking', String(state.defaultExpandThinking));
+};
+
+const toggleExpandTools = () => {
+  state.defaultExpandTools = !state.defaultExpandTools;
+  localStorage.setItem('expand_tools', String(state.defaultExpandTools));
 };
 
 onMounted(() => {
   loadProfile();
 
   const hash = window.location.hash;
-  const match = hash.match(/^#\/(account|memory|appearance|pet)$/);
+  const match = hash.match(/^#\/(account|memory|custom|pet)$/);
   if (match) {
-    activeTab.value = match[1] as 'account' | 'memory' | 'appearance' | 'pet';
+    activeTab.value = match[1] as 'account' | 'memory' | 'custom' | 'pet';
   }
   window.addEventListener('hashchange', handleHashChange);
 });
@@ -319,11 +329,11 @@ watch(activeTab, (newTab) => {
             </button>
             <button
               class="w-full flex items-center gap-2 p-2.5 rounded-md cursor-pointer text-sm transition-colors"
-              :class="activeTab === 'appearance' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
-              @click="switchTab('appearance')"
+              :class="activeTab === 'custom' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
+              @click="switchTab('custom')"
             >
-              <FontAwesomeIcon :icon="['fas', 'palette']" />
-              <span>外观设置</span>
+              <FontAwesomeIcon :icon="['fas', 'gear']" />
+              <span>自定义设置</span>
             </button>
             <button
               class="w-full flex items-center gap-2 p-2.5 rounded-md cursor-pointer text-sm transition-colors"
@@ -546,42 +556,80 @@ watch(activeTab, (newTab) => {
           </div>
         </div>
 
-        <!-- Appearance Settings -->
-        <div v-else-if="activeTab === 'appearance'" class="appearance-section">
+        <!-- Custom Settings -->
+        <div v-else-if="activeTab === 'custom'" class="appearance-section">
           <div class="appearance-header">
-            <FontAwesomeIcon :icon="['fas', 'palette']" />
-            <h2>外观设置</h2>
+            <FontAwesomeIcon :icon="['fas', 'gear']" />
+            <h2>自定义设置</h2>
           </div>
-          <p class="appearance-desc">选择你喜欢的界面主题风格。</p>
 
-          <div class="theme-options">
-            <button
-              class="theme-option"
-              :class="{ active: currentTheme === 'light' }"
-              @click="setTheme('light')"
-            >
-              <FontAwesomeIcon :icon="['fas', 'sun']" class="theme-icon" />
-              <span class="theme-label">浅色</span>
-              <span class="theme-desc">明亮清爽</span>
-            </button>
-            <button
-              class="theme-option"
-              :class="{ active: currentTheme === 'dark' }"
-              @click="setTheme('dark')"
-            >
-              <FontAwesomeIcon :icon="['fas', 'moon']" class="theme-icon" />
-              <span class="theme-label">深色</span>
-              <span class="theme-desc">护眼舒适</span>
-            </button>
-            <button
-              class="theme-option"
-              :class="{ active: currentTheme === 'system' }"
-              @click="setTheme('system')"
-            >
-              <FontAwesomeIcon :icon="['fas', 'desktop']" class="theme-icon" />
-              <span class="theme-label">跟随系统</span>
-              <span class="theme-desc">自动切换</span>
-            </button>
+          <div class="setting-group">
+            <p class="setting-group-title">主题风格</p>
+            <div class="theme-options">
+              <button
+                class="theme-option"
+                :class="{ active: currentTheme === 'light' }"
+                @click="setTheme('light')"
+              >
+                <FontAwesomeIcon :icon="['fas', 'sun']" class="theme-icon" />
+                <span class="theme-label">浅色</span>
+                <span class="theme-desc">明亮清爽</span>
+              </button>
+              <button
+                class="theme-option"
+                :class="{ active: currentTheme === 'dark' }"
+                @click="setTheme('dark')"
+              >
+                <FontAwesomeIcon :icon="['fas', 'moon']" class="theme-icon" />
+                <span class="theme-label">深色</span>
+                <span class="theme-desc">护眼舒适</span>
+              </button>
+              <button
+                class="theme-option"
+                :class="{ active: currentTheme === 'system' }"
+                @click="setTheme('system')"
+              >
+                <FontAwesomeIcon :icon="['fas', 'desktop']" class="theme-icon" />
+                <span class="theme-label">跟随系统</span>
+                <span class="theme-desc">自动切换</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <p class="setting-group-title">消息展示</p>
+            <div class="setting-item">
+              <div class="setting-info">
+                <FontAwesomeIcon :icon="['fas', 'brain']" class="setting-icon" />
+                <div>
+                  <span class="setting-label">默认展开思考过程</span>
+                  <span class="setting-desc">新消息的思考过程默认展开显示</span>
+                </div>
+              </div>
+              <button
+                class="toggle-btn"
+                :class="{ active: state.defaultExpandThinking }"
+                @click="toggleExpandThinking"
+              >
+                <span class="toggle-knob"></span>
+              </button>
+            </div>
+            <div class="setting-item">
+              <div class="setting-info">
+                <FontAwesomeIcon :icon="['fas', 'wrench']" class="setting-icon" />
+                <div>
+                  <span class="setting-label">默认展开工具调用</span>
+                  <span class="setting-desc">新消息的工具调用默认展开显示</span>
+                </div>
+              </div>
+              <button
+                class="toggle-btn"
+                :class="{ active: state.defaultExpandTools }"
+                @click="toggleExpandTools"
+              >
+                <span class="toggle-knob"></span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -908,6 +956,94 @@ watch(activeTab, (newTab) => {
 .theme-option.active .theme-desc {
   color: var(--primary);
   opacity: 0.7;
+}
+
+/* 设置分组 */
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.setting-group-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.setting-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setting-icon {
+  font-size: 1rem;
+  color: var(--primary);
+  width: 20px;
+  text-align: center;
+}
+
+.setting-label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.setting-desc {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* 开关按钮 */
+.toggle-btn {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.toggle-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-btn.active .toggle-knob {
+  transform: translateX(20px);
 }
 
 /* 通用卡片 - 覆盖全局样式中的 box-shadow 和 transition */

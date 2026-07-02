@@ -285,14 +285,22 @@ watch(() => props.message?.isStreaming, (isStreaming, wasStreaming) => {
   }
 });
 
-const isThinkingExpanded = ref(false);
-const expandedThinkingSegments = ref<Record<number | string, boolean>>({});
-const expandedTools = ref<Record<string, boolean>>({});
+const isThinkingExpanded = ref(state.defaultExpandThinking);
+const thinkingOverrides = reactive<Record<number | string, boolean>>({});
+const toolOverrides = reactive<Record<string, boolean>>({});
+
+const isThinkingSegmentExpanded = (idx: number | string) => {
+  return idx in thinkingOverrides ? thinkingOverrides[idx] : state.defaultExpandThinking;
+};
+const isToolExpanded = (id: string) => {
+  return id in toolOverrides ? toolOverrides[id] : state.defaultExpandTools;
+};
+
 const toggleThinkingSegment = (idx: number | string) => {
-  expandedThinkingSegments.value[idx] = !expandedThinkingSegments.value[idx];
+  thinkingOverrides[idx] = !isThinkingSegmentExpanded(idx);
 };
 const toggleTool = (id: string) => {
-  expandedTools.value[id] = !expandedTools.value[id];
+  toolOverrides[id] = !isToolExpanded(id);
 };
 const isEditing = ref(false);
 const editText = ref('');
@@ -337,9 +345,9 @@ onBeforeUnmount(() => {
 });
 
 watch(() => props.nodeId, () => {
-  isThinkingExpanded.value = false;
-  expandedThinkingSegments.value = {};
-  expandedTools.value = {};
+  isThinkingExpanded.value = state.defaultExpandThinking;
+  for (const key of Object.keys(thinkingOverrides)) delete thinkingOverrides[key];
+  for (const key of Object.keys(toolOverrides)) delete toolOverrides[key];
   isEditing.value = false;
 });
 
@@ -844,9 +852,9 @@ const handleContentClick = (e: MouseEvent) => {
               <div v-if="item.role === 'assistant' && segmentThinking[idx]" class="relative z-10 my-2 w-full">
                 <div @click="toggleThinkingSegment(idx)" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
                   <FontAwesomeIcon :icon="['fas', 'brain']" class="text-[10px] w-3 text-center" /><span>思考过程</span>
-                  <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="expandedThinkingSegments[idx] ? 'rotate-90' : ''" />
+                  <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="isThinkingSegmentExpanded(idx) ? 'rotate-90' : ''" />
                 </div>
-                <div v-if="expandedThinkingSegments[idx]" @dblclick="expandedThinkingSegments[idx] = false" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ segmentThinking[idx] }}</div>
+                <div v-if="isThinkingSegmentExpanded(idx)" @dblclick="thinkingOverrides[idx] = false" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ segmentThinking[idx] }}</div>
               </div>
 
               <!-- Text content -->
@@ -858,11 +866,11 @@ const handleContentClick = (e: MouseEvent) => {
                   <div @click="toggleTool(call.id)" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
                     <FontAwesomeIcon :icon="['fas', 'wrench']" class="text-[10px] w-3 text-center" />
                     <span>调用 {{ call.function.name }}</span>
-                    <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="expandedTools[call.id] ? 'rotate-90' : ''" />
+                    <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="isToolExpanded(call.id) ? 'rotate-90' : ''" />
                   </div>
-                  <div v-if="expandedTools[call.id]" class="mt-1">
-                    <div @dblclick="expandedTools[call.id] = false" class="text-[11px] font-mono text-text-placeholder break-all whitespace-pre-wrap px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">{{ call.function.arguments }}</div>
-                    <div v-for="resp in getToolResponses(call.id)" :key="resp.tool_call_id" @dblclick="expandedTools[call.id] = false" class="mt-1 text-[11px] text-text-placeholder whitespace-pre-wrap break-all px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">
+                  <div v-if="isToolExpanded(call.id)" class="mt-1">
+                    <div @dblclick="toolOverrides[call.id] = false" class="text-[11px] font-mono text-text-placeholder break-all whitespace-pre-wrap px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">{{ call.function.arguments }}</div>
+                    <div v-for="resp in getToolResponses(call.id)" :key="resp.tool_call_id" @dblclick="toolOverrides[call.id] = false" class="mt-1 text-[11px] text-text-placeholder whitespace-pre-wrap break-all px-3 py-2 pl-4 rounded-none border-l-[3px] border-text-placeholder" style="background-color: var(--bg-hover);">
                       <span class="text-text-muted font-medium">返回：</span>{{ resp.content }}
                     </div>
                   </div>

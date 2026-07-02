@@ -42,6 +42,8 @@ export const state = reactive({
   isEnableFunction: storedConfig?.enable_function ?? true,
   aiSignal: 'idle' as 'idle' | 'thinking' | 'answering' | 'tool_calling',
   petEnabled: localStorage.getItem('pet_enabled') === 'true',
+  defaultExpandThinking: localStorage.getItem('expand_thinking') === 'true',
+  defaultExpandTools: localStorage.getItem('expand_tools') === 'true',
   chatRequiresVision: false,
   hasDraftImages: false,
   hasDraftFiles: false,

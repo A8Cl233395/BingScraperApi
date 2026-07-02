@@ -279,6 +279,13 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
           if (reconnectRetries > MAX_RECONNECT_RETRIES) {
             throw err;
           }
+          // 重置状态，因为重试时后端会从头重放所有数据
+          targetMsg.assistant.splice(0, targetMsg.assistant.length);
+          sseState.signal = 'answering';
+          sseState.toolCallId = '';
+          sseState.toolEntry = null;
+          sseState.assistantEntry = null;
+          messages.value = [...messages.value];
           showToast(`正在重连（${reconnectRetries}/${MAX_RECONNECT_RETRIES}）`, 'info');
           return reconnectRetries * 1000;
         }

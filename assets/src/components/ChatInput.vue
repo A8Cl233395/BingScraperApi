@@ -3,6 +3,7 @@ import { state } from '../store';
 import { ref, watch, nextTick, onUnmounted, computed } from 'vue';
 import { isMobileDevice } from '../utils/device';
 import { useImageEditor } from '../composables/useImageEditor';
+import { useVoiceInput } from '../composables/useVoiceInput';
 import FileEditorGrid from './FileEditorGrid.vue';
 
 
@@ -37,6 +38,8 @@ const {
   clearImages,
 } = useImageEditor({ trackDraft: true });
 
+const { isRecording, isRecognizing, toggleRecording } = useVoiceInput(textInput);
+
 const hasUnconvertedFiles = computed(() =>
   audioFiles.value.length > 0 || otherFiles.value.length > 0 || isOcrProcessing.value
 );
@@ -65,7 +68,7 @@ watch(textInput, () => {
 });
 
 const handleSend = () => {
-  if (state.isStreaming) return;
+  if (state.isStreaming || isRecording.value || isRecognizing.value) return;
   if (textInput.value.trim() || images.value.length > 0) {
     if (hasUnconvertedFiles.value) return;
     const content = [];
@@ -188,7 +191,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
     </div>
 
     <div 
-      class="border border-border-input rounded-lg p-3 flex flex-col focus-within:border-text-muted transition-colors bg-bg-main shadow-[0_2px_10px_rgba(0,0,0,0.05)]"
+      class="relative border border-border-input rounded-lg p-3 flex flex-col focus-within:border-text-muted transition-colors bg-bg-main shadow-[0_2px_10px_rgba(0,0,0,0.05)]"
       @paste="handlePaste"
       @drop="handleDrop"
       @dragover.prevent
@@ -312,6 +315,23 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         >
           <FontAwesomeIcon :icon="['far', 'folder']" class="text-lg" />
         </button>
+        <button
+          @click="toggleRecording()"
+          @mousedown.prevent
+          class="w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          :class="isRecording ? 'bg-danger-main text-primary-text hover:opacity-80' : isRecognizing ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'text-text-placeholder hover:text-text-main'"
+          :disabled="isRecognizing"
+          :title="isRecording ? '停止录音' : isRecognizing ? '识别中...' : '语音输入'"
+        >
+          <FontAwesomeIcon v-if="isRecognizing" :icon="['fas', 'spinner']" class="text-sm animate-spin" />
+          <div v-else-if="isRecording" class="flex items-center gap-[2px] h-3">
+            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full"></span>
+            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.15s"></span>
+            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.3s"></span>
+            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.45s"></span>
+          </div>
+          <FontAwesomeIcon v-else :icon="['fas', 'microphone']" class="text-lg" />
+        </button>
         <button 
           v-if="state.isStreaming"
           @click="handleStop"
@@ -326,8 +346,8 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           @click="handleSend"
           @mousedown.prevent
           class="w-8 h-8 flex items-center justify-center rounded-md transition-colors"
-          :class="hasUnconvertedFiles ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'bg-primary-main text-primary-text hover:bg-primary-hover'"
-          :disabled="hasUnconvertedFiles"
+          :class="(hasUnconvertedFiles || isRecording || isRecognizing) ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'bg-primary-main text-primary-text hover:bg-primary-hover'"
+          :disabled="hasUnconvertedFiles || isRecording || isRecognizing"
         >
           <FontAwesomeIcon :icon="['fas', 'paper-plane']" class="text-sm" />
         </button>

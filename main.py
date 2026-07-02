@@ -570,7 +570,7 @@ if is_webchat_enabled:
     
     def validate_audio(audio: bytes, format: str):
         try:
-            audio = AudioSegment.from_file(audio, format=format)
+            audio = AudioSegment.from_file(io.BytesIO(audio), format=format)
             return True
         except Exception:
             return False
@@ -581,13 +581,15 @@ if is_webchat_enabled:
         format = request.headers.get("format", "")
         if not data or not format:
             raise HTTPException(status_code=400, detail="require data and format header")
+        if format not in ["wav", "mp3", "aac", "m4a", "flac", "ogg", "webm"]:
+            raise HTTPException(status_code=400, detail="invalid audio format")
         if len(data) > 20971520:
             raise HTTPException(status_code=400, detail="文件过大（超过20MB）")
         if not validate_audio(data, format):
-            raise HTTPException(status_code=400, detail="invalid audio format")
+            raise HTTPException(status_code=400, detail="bad audio data")
         try:
             return vr.transcribe_from_data(data)
-        except Exception as e:
+        except Exception:
             raise HTTPException(status_code=400, detail=f"语音错误")
 
     @app.post("/api/markitdown", response_class=PlainTextResponse)
