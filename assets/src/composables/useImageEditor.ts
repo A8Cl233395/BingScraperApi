@@ -1,6 +1,6 @@
 import { ref, watch } from 'vue';
 import { processImage, performOcr } from '../utils/image';
-import { processAudio, processFile, performVr, performMarkitdown, readTextFile } from '../utils/file';
+import { processAudio, processFile, performVr, performMarkitdown, detectAndReadTextFile } from '../utils/file';
 import { state } from '../store';
 import { useToast } from './useToast';
 
@@ -15,7 +15,6 @@ interface FileItem {
 }
 
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'aac', 'flac'];
-const TEXT_EXTENSIONS = ['txt', 'md', 'json', 'xml', 'yaml', 'yml', 'csv', 'html', 'rtf', 'log', 'ini', 'cfg', 'conf', 'sh', 'bat', 'py', 'js', 'ts', 'css', 'vue', 'tsx', 'jsx', 'go', 'rs', 'toml', 'env', 'gitignore'];
 const MARKITDOWN_EXTENSIONS = ['pdf', 'docx', 'xlsx', 'pptx'];
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
@@ -28,20 +27,11 @@ function isAudioFile(name: string): boolean {
   return AUDIO_EXTENSIONS.includes(getExtension(name));
 }
 
-function isTextFile(name: string): boolean {
-  return TEXT_EXTENSIONS.includes(getExtension(name));
-}
-
 function isBadRequest(e: unknown): boolean {
   if (e && typeof e === 'object' && 'response' in e) {
     return (e as { response?: { status?: number } }).response?.status === 400;
   }
   return false;
-}
-
-function isSupportedFile(name: string): boolean {
-  const ext = getExtension(name);
-  return AUDIO_EXTENSIONS.includes(ext) || TEXT_EXTENSIONS.includes(ext) || MARKITDOWN_EXTENSIONS.includes(ext);
 }
 
 /**
@@ -119,36 +109,43 @@ export function useImageEditor(options?: { maxImages?: number; trackDraft?: bool
           } finally {
             isProcessingAudio.value = false;
           }
-        } else if (isSupportedFile(file.name)) {
+        } else {
+          const ext = getExtension(file.name);
           isProcessingFile.value = true;
           try {
-            const isText = isTextFile(file.name);
-            let data: ArrayBuffer;
-            let textContent = '';
-            if (isText) {
-              const text = await readTextFile(file);
-              textContent = text;
-              data = new ArrayBuffer(0);
+            if (MARKITDOWN_EXTENSIONS.includes(ext)) {
+              const data = await processFile(file);
+              otherFiles.value.push({
+                type: 'file',
+                data,
+                textContent: '',
+                originalName: file.name,
+                format: ext,
+                supported: true,
+                isTextFile: false,
+              });
             } else {
-              data = await processFile(file);
+              const text = await detectAndReadTextFile(file);
+              if (text !== null) {
+                otherFiles.value.push({
+                  type: 'file',
+                  data: new ArrayBuffer(0),
+                  textContent: text,
+                  originalName: file.name,
+                  format: ext,
+                  supported: true,
+                  isTextFile: true,
+                });
+              } else {
+                showToast(`无法解析的文件: ${file.name}`, 'error');
+              }
             }
-            otherFiles.value.push({
-              type: 'file',
-              data,
-              textContent,
-              originalName: file.name,
-              format: getExtension(file.name),
-              supported: true,
-              isTextFile: isText,
-            });
           } catch (error) {
             console.error('Failed to process file:', error);
             showToast('文件处理失败，请稍后重试', 'error');
           } finally {
             isProcessingFile.value = false;
           }
-        } else {
-          showToast(`不支持的文件格式: ${file.name}`, 'error');
         }
       }
     } catch (error) {

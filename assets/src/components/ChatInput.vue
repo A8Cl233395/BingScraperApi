@@ -38,7 +38,7 @@ const {
   clearImages,
 } = useImageEditor({ trackDraft: true });
 
-const { isRecording, isRecognizing, toggleRecording } = useVoiceInput(textInput);
+const { isRecording, isRecognizing, startRecording, stopRecording, toggleRecording } = useVoiceInput(textInput);
 
 const hasUnconvertedFiles = computed(() =>
   audioFiles.value.length > 0 || otherFiles.value.length > 0 || isOcrProcessing.value
@@ -316,6 +316,25 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           <FontAwesomeIcon :icon="['far', 'folder']" class="text-lg" />
         </button>
         <button
+          v-if="state.isMobile"
+          @touchstart.prevent="startRecording"
+          @touchend="stopRecording"
+          @touchcancel="stopRecording"
+          class="w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          :class="isRecording ? 'bg-danger-main text-primary-text hover:opacity-80' : isRecognizing ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'text-text-placeholder hover:text-text-main'"
+          :disabled="isRecognizing"
+        >
+          <FontAwesomeIcon v-if="isRecognizing" :icon="['fas', 'spinner']" class="text-sm animate-spin" />
+          <div v-else-if="isRecording" class="flex items-center gap-[2px] h-3">
+            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full"></span>
+            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.15s"></span>
+            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.3s"></span>
+            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.45s"></span>
+          </div>
+          <FontAwesomeIcon v-else :icon="['fas', 'microphone']" class="text-lg" />
+        </button>
+        <button
+          v-else
           @click="toggleRecording()"
           @mousedown.prevent
           class="w-8 h-8 flex items-center justify-center rounded-md transition-colors"

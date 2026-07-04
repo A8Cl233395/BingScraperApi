@@ -25,18 +25,9 @@ export function useVoiceInput(textRef: Ref<string>) {
     cleanup();
   });
 
-  const toggleRecording = async () => {
-    if (isRecognizing.value) return;
+  const startRecording = async () => {
+    if (isRecognizing.value || isRecording.value) return;
 
-    // 正在录音 → 停止
-    if (isRecording.value) {
-      if (mediaRecorder?.state === 'recording') {
-        mediaRecorder.stop();
-      }
-      return;
-    }
-
-    // 开始录音
     try {
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
@@ -82,9 +73,27 @@ export function useVoiceInput(textRef: Ref<string>) {
     isRecording.value = true;
   };
 
+  const stopRecording = () => {
+    if (!isRecording.value) return;
+    if (mediaRecorder?.state === 'recording') {
+      mediaRecorder.stop();
+    }
+  };
+
+  const toggleRecording = async () => {
+    if (isRecognizing.value) return;
+    if (isRecording.value) {
+      stopRecording();
+    } else {
+      await startRecording();
+    }
+  };
+
   return {
     isRecording,
     isRecognizing,
+    startRecording,
+    stopRecording,
     toggleRecording,
   };
 }
