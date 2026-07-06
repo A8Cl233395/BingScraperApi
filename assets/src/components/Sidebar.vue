@@ -22,13 +22,6 @@ const checkScrollBottom = () => {
   isAtBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
 };
 
-const handleChatClick = (e: MouseEvent, id: number) => {
-  // Ctrl+Click 或中键点击时让浏览器默认处理（新标签页打开）
-  if (e.ctrlKey || e.metaKey || e.button === 1) return;
-  e.preventDefault();
-  state.currentChatId = id;
-};
-
 const handleTouchStart = (e: TouchEvent, id: number) => {
   if (!state.isMobile) return;
   pressingChatId.value = id;
@@ -102,7 +95,6 @@ const handleScroll = () => {
             v-for="chat in state.chats" 
             :key="chat[0]"
             :href="`#/${chat[0]}`"
-            @click="handleChatClick($event, chat[0])"
             @touchstart="handleTouchStart($event, chat[0])"
             @touchend="handleTouchEnd"
             @touchmove="handleTouchEnd"
