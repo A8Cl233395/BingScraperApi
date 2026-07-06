@@ -126,14 +126,15 @@ watch(() => state.currentChatId, (newId) => {
           >
             <FontAwesomeIcon :icon="['fas', state.isSidebarOpen ? 'align-left' : 'bars']" />
           </button>
-          <button 
-            @click="startNewChat" 
+          <a 
+            href="#/"
+            @click.prevent="startNewChat" 
             @dblclick.stop
-            class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover transition-colors" 
+            class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover transition-colors no-underline" 
             title="新对话"
           >
             <FontAwesomeIcon :icon="['far', 'pen-to-square']" />
-          </button>
+          </a>
           
           <ModelSelector />
         </div>

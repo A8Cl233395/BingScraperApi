@@ -22,7 +22,10 @@ const checkScrollBottom = () => {
   isAtBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
 };
 
-const handleChatClick = (id: number) => {
+const handleChatClick = (e: MouseEvent, id: number) => {
+  // Ctrl+Click 或中键点击时让浏览器默认处理（新标签页打开）
+  if (e.ctrlKey || e.metaKey || e.button === 1) return;
+  e.preventDefault();
   state.currentChatId = id;
 };
 
@@ -81,12 +84,13 @@ const handleScroll = () => {
         </button>
       </div>
       
-      <div 
-        @click="state.currentChatId = null"
-        class="px-4 py-2 border border-dashed border-border-input rounded-md mx-4 mb-4 text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors"
+      <a 
+        href="#/"
+        @click.prevent="state.currentChatId = null"
+        class="px-4 py-2 border border-dashed border-border-input rounded-md mx-4 mb-4 text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors no-underline"
       >
         <FontAwesomeIcon :icon="['fas', 'plus']" class="mr-2" /> 新对话
-      </div>
+      </a>
       
       <div class="relative flex-1 min-h-0">
         <div 
@@ -94,16 +98,17 @@ const handleScroll = () => {
           class="h-full overflow-y-auto px-2 space-y-1"
           @scroll="handleScroll"
         >
-          <div 
+          <a 
             v-for="chat in state.chats" 
             :key="chat[0]"
-            @click="handleChatClick(chat[0])"
+            :href="`#/${chat[0]}`"
+            @click="handleChatClick($event, chat[0])"
             @touchstart="handleTouchStart($event, chat[0])"
             @touchend="handleTouchEnd"
             @touchmove="handleTouchEnd"
             @touchcancel="handleTouchEnd"
             @contextmenu="state.isMobile ? $event.preventDefault() : null"
-            class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors"
+            class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors no-underline"
             :class="[
               state.currentChatId === chat[0] ? 'bg-bg-active' : '',
               pressingChatId === chat[0] ? 'scale-[0.98] bg-bg-hover' : ''
@@ -119,12 +124,12 @@ const handleScroll = () => {
             <span class="relative z-10 truncate text-sm pr-6">{{ chat[1] }}</span>
             <button 
               v-if="!state.isMobile"
-              @click.stop="handleDelete(chat[0])"
+              @click.prevent.stop="handleDelete(chat[0])"
               class="hidden group-hover:block text-text-placeholder hover:text-danger-main absolute right-2 z-20 transition-colors p-1"
             >
               <FontAwesomeIcon :icon="['fas', 'trash-can']" class="text-xs" />
             </button>
-          </div>
+          </a>
           <!-- Loading indicator -->
           <div v-if="state.isLoadingHistory" class="text-center py-3 text-xs text-text-placeholder">
             <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="mr-1" /> 加载中...

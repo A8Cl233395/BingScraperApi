@@ -902,7 +902,7 @@ class ChatInstance:
             tool_calls = []
             tool_tasks: list[asyncio.Task] = []
             async for chunk in completion:
-                if not chunk.choices: # 兼容mimo
+                if not chunk.choices: # wdnmd小米
                     continue
                 delta = chunk.choices[0].delta
                 if hasattr(delta, "reasoning_content") and delta.reasoning_content:
@@ -911,7 +911,7 @@ class ChatInstance:
                         yield self._sse("thinking", "signal")
                     reasoning_content += delta.reasoning_content
                     yield self._sse(delta.reasoning_content)
-                if hasattr(delta, "content") and delta.content: # 兼容阿里的傻逼返回
+                if hasattr(delta, "content") and delta.content: # wdnmd阿里
                     if not is_answering:
                         yield self._sse("answering", "signal")
                         is_answering = True
@@ -939,7 +939,7 @@ class ChatInstance:
                         if tool_call.function.arguments:
                             if tool_call.index is not None:
                                 tool_calls[tool_call.index]["function"]["arguments"] += tool_call.function.arguments
-                            else: # 兼容gemini。gemini只有一个tool call并且index = None
+                            else: # wdnmd谷歌。gemini只有一个tool call并且index = None
                                 tool_calls[-1]["function"]["arguments"] += tool_call.function.arguments
             
             if not tool_calls: # 结束
@@ -1068,11 +1068,11 @@ class ChatInstance:
         # 更新节点内容
         self.chat_tree[node_id]["assistant"] = assistant_content
     
-    def create_placehold_node(self, parent: str, content: list):
+    def create_placehold_node(self, parent: str, content: list | str):
         '''
         创建占位节点
         '''
-        if len(content) == 1 and content[0]["type"] == "text":
+        if type(content) == list and len(content) == 1 and content[0]["type"] == "text":
             content = content[0]["text"]
         node_id_int = self.chat_tree["root"]["iteration"] + 1
         self.chat_tree["root"]["iteration"] = node_id_int

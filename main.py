@@ -104,7 +104,6 @@ async def verify_key_middleware(request: Request, call_next):
         return PlainTextResponse(content="require key", status_code=401)
     return await call_next(request)
 
-
 if is_web_function_enabled:
     TURNSTILE_SECRET = config["invite"]["turnstile-secret"]
     INVITE_CODE_KEY = config["invite"]["invite-code-key"]
@@ -405,71 +404,120 @@ if is_webchat_enabled:
     class ChatPost(BaseModel):
         id: int | None = Field(None)
         parent: str | None = Field(None)
-        content: list[dict[str, str | dict[str, str]]] = Field(...)
+        content: list[dict[str, str | dict[str, str]]] | str = Field(...)
         enable_function: bool | None = Field(None)
         thinking: bool | None = Field(None)
         model: str | None = Field(None)
         vmodel: str | None = Field(None)
 
-        @field_validator('content')
-        def validate_content_structure(v):
-            text_elements = [(i, item) for i, item in enumerate(v) if item.get("type") == "text"]
-            image_elements = [item for item in v if item.get("type") == "image_url"]
-            if len(text_elements) > 1:
-                raise ValueError
-            if len(text_elements) == 1:
-                index, item = text_elements[0]
-                if index != len(v) - 1:
-                    raise ValueError
-                text_content = item.get("text", "")
-                if not isinstance(text_content, str):
-                    raise ValueError
-                if text_content and len(text_content) > 1_000_000:
-                    raise ValueError
-            if len(image_elements) > 10:
-                raise ValueError
-            for img_item in image_elements:
-                img_data = img_item.get("image_url", {})
-                if not isinstance(img_data, dict):
-                    raise ValueError
-                url = img_data.get("url", "")
-                # data:image/jpeg;base64,
-                if not url.startswith("data:image/jpeg;base64,"):
-                    raise ValueError
+    def validate_chat_post(data: ChatPost) -> None:
+        v = data.content
+
+        # 1. 处理字符串类型
+        if type(v) is str:
+            if not v:
+                raise ValueError("字符串内容不能为空")
+            if len(v) > 1000000:
+                raise ValueError("字符串长度不能超过100万字符")
+
+        # 2. 处理列表类型
+        elif type(v) is list:
+            length = len(v)
+            if length == 0:
+                raise ValueError("列表不能为空")
+
+            image_count = 0
+
+            for i in range(length):
+                item = v[i]
+
+                # EAFP: 异常捕获比使用 .get 更快
                 try:
-                    _, encoded = url.split(",", 1)
-                    binary_data = base64.b64decode(encoded)
-                    with Image.open(io.BytesIO(binary_data)) as img:
-                        if img.format != "JPEG":
-                            raise ValueError
-                        width, height = img.size
-                        if width > 1600 or height > 1600:
-                            raise ValueError
-                except Exception:
-                    raise ValueError
-            return v
-        
-        @field_validator('model')
-        def validate_model(v):
-            if v is None:
-                return v
-            if v not in MODELS or MODELS[v].get("hidden", False):
+                    item_type = item["type"]
+                except KeyError:
+                    raise ValueError("字典项缺少 'type' 字段")
+
+                if item_type == "image_url":
+                    image_count += 1
+                    if image_count > 10:
+                        raise ValueError("最多只能包含10张图片")
+
+                    # 高效判断是否存在额外字段：合法的字典长度必定等于 2 (type, image_url)
+                    if len(item) != 2:
+                        raise ValueError("图片项中不允许包含额外字段")
+
+                    try:
+                        img_url_dict = item["image_url"]
+                        url = img_url_dict["url"]
+                    except KeyError:
+                        raise ValueError("图片字典缺少 'image_url' 或 'url' 字段")
+
+                    if len(img_url_dict) != 1:
+                        raise ValueError("image_url 内部不允许包含额外字段")
+
+                    # 快速验证前缀
+                    if not url.startswith("data:image/jpeg;base64,"):
+                        raise ValueError("图片格式错误，必须为 data:image/jpeg;base64, 格式")
+
+                    # 校验 Base64 图片 (23 是 "data:image/jpeg;base64," 的长度，切片获取主体)
+                    try:
+                        img_bytes = base64.b64decode(url[23:])
+                        # Image.open 只读取文件头，性能极高
+                        with Image.open(io.BytesIO(img_bytes)) as img:
+                            if img.format != "JPEG":
+                                raise ValueError("图片必须是合法的 JPG/JPEG 格式")
+                            if img.width >= 1600 or img.height >= 1600:
+                                raise ValueError(f"图片长和宽皆必须小于 1600px，当前为 {img.width}x{img.height}")
+                    except Exception as e:
+                        raise ValueError(f"图片解析失败或已损坏: {str(e)}")
+
+                elif item_type == "text":
+                    # 判断文本是否位于最后，同时这也保证了不可能存在多个 text
+                    # （如果有多个，非末尾的 text 必定触发此异常）
+                    if i != length - 1:
+                        raise ValueError("文字字段只能有一个，并且必须在列表的最后")
+
+                    if image_count == 0:
+                        raise ValueError("不允许没有图片单独一个文字字段")
+
+                    if len(item) != 2:
+                        raise ValueError("文字项中不允许包含额外字段")
+
+                    try:
+                        text_val = item["text"]
+                    except KeyError:
+                        raise ValueError("文字字典缺少 'text' 字段")
+
+                    if len(text_val) > 1000000:
+                        raise ValueError("文字长度不能超过100万字符")
+                else:
+                    raise ValueError(f"不支持的输入类型: {item_type}")
+                
+        # 拦截非 str 也非 list 的异常数据类型
+        else:
+            raise ValueError("输入内容必须为字符串或列表")
+
+        # ── 原 @field_validator('model') ──
+        if data.model is not None:
+            if data.model not in MODELS or MODELS[data.model].get("hidden", False):
                 raise ValueError
-            return v
-        
-        @field_validator('vmodel')
-        def validate_vmodel(v):
-            if v is None:
-                return v
-            if v not in MODELS or MODELS[v].get("hidden", False):
+
+        # ── 原 @field_validator('vmodel') ──
+        if data.vmodel is not None:
+            if data.vmodel not in MODELS or MODELS[data.vmodel].get("hidden", False):
                 raise ValueError
-            if not MODELS[v].get("vision", False):
+            if not MODELS[data.vmodel].get("vision", False):
                 raise ValueError
-            return v
     
     @app.post("/api/chat", response_class=StreamingResponse)
     @user_rate_limit(10)
     async def api_chat(request: Request, data: ChatPost = Body(...)):
+        try:
+            await asyncio.to_thread(validate_chat_post, data)
+        except ValueError as e:
+            # raise HTTPException(status_code=400, detail=str(e)) # 不返回详细错误信息
+            raise HTTPException(status_code=400, detail="bad arguments")
+
         generator = await webchat.chat(int(request.headers["uid"]), data.model_dump())
         return StreamingResponse(generator, media_type="text/event-stream")
 

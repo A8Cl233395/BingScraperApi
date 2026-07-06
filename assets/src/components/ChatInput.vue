@@ -71,15 +71,21 @@ const handleSend = () => {
   if (state.isStreaming || isRecording.value || isRecognizing.value) return;
   if (textInput.value.trim() || images.value.length > 0) {
     if (hasUnconvertedFiles.value) return;
-    const content = [];
-    images.value.forEach(url => {
-      content.push({ type: 'image_url', image_url: { url } });
-    });
-    if (textInput.value.trim()) {
-      content.push({ type: 'text', text: textInput.value.trim() });
+    
+    // 只有文本没有图片时，直接以字符串形式传输
+    if (images.value.length === 0 && textInput.value.trim()) {
+      emit('send', textInput.value.trim());
+    } else {
+      const content: any[] = [];
+      images.value.forEach(url => {
+        content.push({ type: 'image_url', image_url: { url } });
+      });
+      if (textInput.value.trim()) {
+        content.push({ type: 'text', text: textInput.value.trim() });
+      }
+      emit('send', content);
     }
-
-    emit('send', content);
+    
     textInput.value = '';
     clearImages();
     if (isMobileDevice()) {

@@ -44,8 +44,16 @@ const fetchChatDetails = async (id: number) => {
     messageTree.value = res.data;
     state.chatRequiresVision = !!res.data.root?.vision;
     buildMessageChain(res.data.root.current);
-  } catch (e) {
-    console.error('Failed to fetch chat details', e);
+  } catch (e: any) {
+    if (e.response?.status === 404) {
+      showToast('聊天已被删除', 'info');
+      state.chats = state.chats.filter(c => c[0] !== id);
+      if (state.currentChatId === id) {
+        state.currentChatId = null;
+      }
+    } else {
+      console.error('Failed to fetch chat details', e);
+    }
   }
 };
 
@@ -453,6 +461,14 @@ const handleSend = async (content: any, parent?: string) => {
       } else if (!receivedNodeId && messageTree.value[tempId]) {
         messageTree.value[tempId].isStreaming = false;
       }
+
+      // 更新当前显示的消息对象（buildMessageChain 可能已创建新对象）
+      const nodeIdToFind = receivedNodeId || tempId;
+      const currentDisplayMsg = messages.value.find(m => m.id === nodeIdToFind);
+      if (currentDisplayMsg) {
+        currentDisplayMsg.isStreaming = false;
+      }
+
       activeStreamingNodeId.value = null;
       abortController.value = null;
     }
