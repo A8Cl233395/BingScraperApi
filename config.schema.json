@@ -38,6 +38,10 @@
           "type": "string",
           "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
           "default": "DEBUG"
+        },
+        "nginx_ready": {
+          "type": "boolean",
+          "description": "是否使用 Nginx 反代模式"
         }
       }
     },

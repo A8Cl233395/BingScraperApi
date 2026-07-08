@@ -7,7 +7,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from pydub import AudioSegment
 from PIL import Image
 import asyncio
@@ -77,7 +76,9 @@ app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 KEY = config["server"]["auth_key"]
 
 # 第二个中间件，用于压缩响应
-app.add_middleware(GZipMiddleware, minimum_size=10000)
+if not config["server"]["nginx_ready"]:
+    from fastapi.middleware.gzip import GZipMiddleware
+    app.add_middleware(GZipMiddleware, minimum_size=10000)
 
 # 第一个中间件，用于验证 key
 @app.middleware("http")
@@ -352,7 +353,7 @@ if is_webchat_enabled:
     
     @app.get("/webchat")
     def chat_get():
-        return FileResponse("assets/dist/index.html")
+        return FileResponse("assets/dist/webchat.html")
     
     @app.get("/profile")
     def profile_get():
@@ -687,7 +688,10 @@ if is_webchat_enabled:
         return "success"
 
 if __name__ == '__main__':
-    if "cert" in config["server"] and "key" in config["server"]:
+    if config["server"]["nginx_ready"]:
+        logger.warning("Nginx 模式已启用，这会只允许本地访问且会读取 X-Forwarded-For 头作为客户端 IP")
+        uvicorn.run(app, host='127.0.0.1', port=config["server"]["port"], use_colors=False, timeout_graceful_shutdown=5, proxy_headers=True)
+    elif "cert" in config["server"] and "key" in config["server"]:
         if os.path.exists(config["server"]["cert"]) and os.path.exists(config["server"]["key"]):
             uvicorn.run(
                 app,

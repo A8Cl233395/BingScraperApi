@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/A8Cl233395/BingScraperApi/refs/heads/main/config.schema.json
+# yaml-language-server: $schema=config.schema.json
 server:
   auth_key: ur_auth_key
   port: 5212
@@ -6,6 +6,9 @@ server:
 #  key: "certs/domain.key"
   public_address: https://example.com
   log_level: DEBUG
+  nginx_ready: false
+  # 注意，开启后会读取X-Forwarded-For作为真实ip，会使用HTTP模式，会只允许本地连接，会限制Body大小最大为100MB，建议QQBot使用本地HTTP连接。如果必须通过Nginx连接，务必检查Body大小是否会超过100MB
+  # 开启后，记得修改port。示例Nginx配置使用5212端口，反代到5213端口。public_address为用户/外部访问的地址，需使用Nginx的地址
 
 bing_crawler:
   timeout: 10000 # timeout

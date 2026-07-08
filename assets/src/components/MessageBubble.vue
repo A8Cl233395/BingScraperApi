@@ -584,14 +584,21 @@ const handleEdit = () => {
 
 const submitEdit = () => { 
   if (editAudioFiles.value.length > 0 || editOtherFiles.value.length > 0) return;
-  const content = [];
-  editImages.value.forEach(url => {
-    content.push({ type: 'image_url', image_url: { url } });
-  });
-  if (editText.value.trim()) {
-    content.push({ type: 'text', text: editText.value.trim() });
+  
+  // 只有文本没有图片时，直接以字符串形式传输（与 ChatInput 保持一致）
+  if (editImages.value.length === 0 && editText.value.trim()) {
+    emit('edit', props.nodeId, editText.value.trim());
+  } else {
+    const content: any[] = [];
+    editImages.value.forEach(url => {
+      content.push({ type: 'image_url', image_url: { url } });
+    });
+    if (editText.value.trim()) {
+      content.push({ type: 'text', text: editText.value.trim() });
+    }
+    emit('edit', props.nodeId, content);
   }
-  emit('edit', props.nodeId, content); 
+  
   isEditing.value = false; 
 };
 const handleKeydown = (e: KeyboardEvent) => {

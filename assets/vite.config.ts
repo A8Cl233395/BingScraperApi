@@ -12,7 +12,7 @@ export default defineConfig({
     reportCompressedSize: false,
     rolldownOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
+        webchat: resolve(__dirname, 'webchat.html'),
         login: resolve(__dirname, 'login.html'),
         invite: resolve(__dirname, 'invite.html'),
         profile: resolve(__dirname, 'profile.html'),
