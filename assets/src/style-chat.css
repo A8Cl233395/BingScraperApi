@@ -263,3 +263,56 @@ html.dark .prose tr:nth-child(even) {
   white-space: pre-wrap;
   color: #9ca3af;
 }
+
+/* Mermaid 缩放交互 */
+.mermaid-zoom-wrapper {
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-x pan-y;
+  user-select: none;
+}
+
+.mermaid-zoom-inner {
+  transform-origin: 0 0;
+  transition: none;
+  will-change: transform;
+}
+
+.mermaid-zoom-inner svg {
+  display: block;
+}
+
+.mermaid-zoom-reset {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.mermaid-zoom-wrapper:hover .mermaid-zoom-reset {
+  opacity: 1;
+}
+
+.mermaid-zoom-reset:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+}
+
+/* 移动端始终显示重置按钮（无 hover） */
+@media (pointer: coarse) {
+  .mermaid-zoom-reset {
+    opacity: 0.8;
+  }
+}

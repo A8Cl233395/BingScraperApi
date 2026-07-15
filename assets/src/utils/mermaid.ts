@@ -12,6 +12,10 @@ let initialized = false
 const svgCache = new Map<string, string>()
 let renderCounter = 0
 
+export function getCachedMermaidSvg(code: string): string | undefined {
+  return svgCache.get(code)
+}
+
 const MERMAID_PLACEHOLDER_RE = /<div class="mermaid-placeholder" data-code="([^"]*)" style="min-height: 2rem;"><\/div>/g
 
 async function getMermaid(): Promise<MermaidInstance> {
@@ -99,7 +103,7 @@ export function protectMermaidPlaceholders(html: string): { html: string; restor
 }
 
 export async function renderMermaidPlaceholders(root: Element | Document = document): Promise<void> {
-  const blocks = root.querySelectorAll('.mermaid-block:not(.rendered)')
+  const blocks = root.querySelectorAll('.mermaid-block.mermaid-complete:not(.rendered)')
   if (blocks.length === 0) return
 
   const mermaid = await getMermaid()
@@ -149,6 +153,7 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
         ADD_ATTR: ['transform', 'style', 'class']
       })
       svgCache.set(code, sanitized)
+
       chartEl.innerHTML = sanitized
       enableInteractivity(chartEl)
     } catch {
@@ -157,12 +162,191 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
   }
 }
 
+/** 为 mermaid 图表容器启用缩放与拖拽交互 */
 function enableInteractivity(container: HTMLElement): void {
   const svg = container.querySelector('svg') as SVGSVGElement | null
   if (!svg) return
 
+  // 清理旧的交互容器（如果存在）
+  const oldCleanup = (container as any).__mermaidCleanup as (() => void) | undefined
+  if (oldCleanup) oldCleanup()
+
   svg.style.maxWidth = '100%'
   svg.style.height = 'auto'
+
+  const abortController = new AbortController()
+  const signal = abortController.signal
+
+  // 创建缩放/拖拽容器
+  const wrapper = document.createElement('div')
+  wrapper.className = 'mermaid-zoom-wrapper'
+  wrapper.style.cursor = 'grab'
+
+  const inner = document.createElement('div')
+  inner.className = 'mermaid-zoom-inner'
+  inner.style.transform = 'scale(1) translate(0px, 0px)'
+
+  // 将 SVG 移入 inner 容器
+  svg.parentNode!.insertBefore(wrapper, svg)
+  inner.appendChild(svg)
+  wrapper.appendChild(inner)
+
+  // 添加重置按钮
+  const resetBtn = document.createElement('button')
+  resetBtn.className = 'mermaid-zoom-reset'
+  resetBtn.title = '重置缩放'
+  resetBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="12" height="12" fill="currentColor"><path d="M463.5 224H472c13.3 0 24-10.7 24-24V72c0-9.7-5.8-18.5-14.8-22.2s-19.3-1.7-26.2 5.2L413.4 96.6c-87.6-86.5-228.7-86.2-315.8 1c-87.5 87.5-87.5 229.3 0 316.8s229.3 87.5 316.8 0c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0c-62.5 62.5-163.8 62.5-226.3 0s-62.5-163.8 0-226.3c62.2-62.2 162.7-62.5 225.3-1L327 183c-6.9 6.9-8.9 17.2-5.2 26.2s12.5 14.8 22.2 14.8H463.5z"/></svg>`
+  resetBtn.style.display = 'none'
+  wrapper.appendChild(resetBtn)
+
+  let scale = 1
+  let translateX = 0
+  let translateY = 0
+  const MIN_SCALE = 0.5
+  const MAX_SCALE = 5
+
+  const applyTransform = () => {
+    inner.style.transform = `scale(${scale}) translate(${translateX}px, ${translateY}px)`
+    resetBtn.style.display = (scale !== 1 || translateX !== 0 || translateY !== 0) ? '' : 'none'
+  }
+
+  const resetTransform = () => {
+    scale = 1
+    translateX = 0
+    translateY = 0
+    applyTransform()
+  }
+
+  resetBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    resetTransform()
+  }, { signal })
+
+  // === 桌面端：滚轮缩放 + 鼠标拖拽 ===
+  wrapper.addEventListener('wheel', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = wrapper.getBoundingClientRect()
+    const originX = e.clientX - rect.left
+    const originY = e.clientY - rect.top
+
+    const delta = e.deltaY > 0 ? 0.9 : 1.1
+    const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * delta))
+
+    // 以鼠标位置为缩放中心
+    translateX = originX / newScale - originX / scale + translateX
+    translateY = originY / newScale - originY / scale + translateY
+    scale = newScale
+    applyTransform()
+  }, { passive: false, signal })
+
+  // 鼠标拖拽
+  let isDragging = false
+  let dragStartX = 0
+  let dragStartY = 0
+  let dragStartTranslateX = 0
+  let dragStartTranslateY = 0
+
+  wrapper.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    isDragging = true
+    dragStartX = e.clientX
+    dragStartY = e.clientY
+    dragStartTranslateX = translateX
+    dragStartTranslateY = translateY
+    wrapper.style.cursor = 'grabbing'
+  }, { signal })
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging) return
+    const dx = (e.clientX - dragStartX) / scale
+    const dy = (e.clientY - dragStartY) / scale
+    translateX = dragStartTranslateX + dx
+    translateY = dragStartTranslateY + dy
+    applyTransform()
+  }
+
+  const handleMouseUp = () => {
+    if (!isDragging) return
+    isDragging = false
+    wrapper.style.cursor = 'grab'
+  }
+
+  document.addEventListener('mousemove', handleMouseMove, { signal })
+  document.addEventListener('mouseup', handleMouseUp, { signal })
+
+  // === 移动端：双指缩放 + 双指拖拽 ===
+  let lastTouchDist = 0
+  let lastTouchCenterX = 0
+  let lastTouchCenterY = 0
+  let isTouchZooming = false
+
+  wrapper.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      isTouchZooming = true
+      const dx = e.touches[0].clientX - e.touches[1].clientX
+      const dy = e.touches[0].clientY - e.touches[1].clientY
+      lastTouchDist = Math.sqrt(dx * dx + dy * dy)
+      lastTouchCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2
+      lastTouchCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2
+    }
+  }, { passive: true, signal })
+
+  wrapper.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && isTouchZooming) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX
+      const dy = e.touches[0].clientY - e.touches[1].clientY
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2
+      const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2
+
+      // 缩放
+      const pinchRatio = dist / lastTouchDist
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * pinchRatio))
+      const rect = wrapper.getBoundingClientRect()
+      const originX = lastTouchCenterX - rect.left
+      const originY = lastTouchCenterY - rect.top
+      translateX = originX / newScale - originX / scale + translateX
+      translateY = originY / newScale - originY / scale + translateY
+      scale = newScale
+
+      // 双指平移
+      const panDx = (centerX - lastTouchCenterX) / scale
+      const panDy = (centerY - lastTouchCenterY) / scale
+      translateX += panDx
+      translateY += panDy
+
+      lastTouchDist = dist
+      lastTouchCenterX = centerX
+      lastTouchCenterY = centerY
+      applyTransform()
+    }
+  }, { passive: true, signal })
+
+  wrapper.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) {
+      isTouchZooming = false
+    }
+  }, { signal })
+
+  // 双击重置（桌面和移动端通用）
+  wrapper.addEventListener('dblclick', (e) => {
+    e.stopPropagation()
+    resetTransform()
+  }, { signal })
+
+  // 存储清理函数，供下次调用或元素移除时使用
+  const cleanup = () => abortController.abort()
+  ;(container as any).__mermaidCleanup = cleanup
+
+  // 元素从 DOM 移除时自动清理
+  const observer = new MutationObserver(() => {
+    if (!wrapper.isConnected) {
+      cleanup()
+      observer.disconnect()
+    }
+  })
+  observer.observe(wrapper.parentNode || document.body, { childList: true })
 }
 
 function escapeHtml(str: string): string {
