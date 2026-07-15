@@ -11,12 +11,12 @@ let mermaidPromise: Promise<MermaidInstance> | null = null
 let initialized = false
 const svgCache = new Map<string, string>()
 let renderCounter = 0
+const cleanupMap = new WeakMap<HTMLElement, () => void>()
 
 export function getCachedMermaidSvg(code: string): string | undefined {
   return svgCache.get(code)
 }
 
-const MERMAID_PLACEHOLDER_RE = /<div class="mermaid-placeholder" data-code="([^"]*)" style="min-height: 2rem;"><\/div>/g
 
 async function getMermaid(): Promise<MermaidInstance> {
   if (!mermaidPromise) {
@@ -83,24 +83,6 @@ async function initMermaid(): Promise<void> {
   initialized = true
 }
 
-export function protectMermaidPlaceholders(html: string): { html: string; restore: (h: string) => string } {
-  const codes = new Map<string, string>()
-  let idx = 0
-  const processed = html.replace(MERMAID_PLACEHOLDER_RE, (_match, code) => {
-    const key = `__MRM_${idx++}__`
-    codes.set(key, code)
-    return key
-  })
-  return {
-    html: processed,
-    restore: (h: string) => {
-      for (const [key, code] of codes) {
-        h = h.replace(key, `<div class="mermaid-placeholder" data-code="${code}" style="min-height: 2rem;"></div>`)
-      }
-      return h
-    }
-  }
-}
 
 export async function renderMermaidPlaceholders(root: Element | Document = document): Promise<void> {
   const blocks = root.querySelectorAll('.mermaid-block.mermaid-complete:not(.rendered)')
@@ -168,7 +150,7 @@ function enableInteractivity(container: HTMLElement): void {
   if (!svg) return
 
   // 清理旧的交互容器（如果存在）
-  const oldCleanup = (container as any).__mermaidCleanup as (() => void) | undefined
+  const oldCleanup = cleanupMap.get(container)
   if (oldCleanup) oldCleanup()
 
   svg.style.maxWidth = '100%'
@@ -337,7 +319,7 @@ function enableInteractivity(container: HTMLElement): void {
 
   // 存储清理函数，供下次调用或元素移除时使用
   const cleanup = () => abortController.abort()
-  ;(container as any).__mermaidCleanup = cleanup
+  cleanupMap.set(container, cleanup)
 
   // 元素从 DOM 移除时自动清理
   const observer = new MutationObserver(() => {
@@ -346,7 +328,11 @@ function enableInteractivity(container: HTMLElement): void {
       observer.disconnect()
     }
   })
-  observer.observe(wrapper.parentNode || document.body, { childList: true })
+  if (wrapper.parentNode) {
+    observer.observe(wrapper.parentNode, { childList: true })
+  } else {
+    observer.disconnect()
+  }
 }
 
 function escapeHtml(str: string): string {

@@ -22,9 +22,6 @@ marked.use({
       const lang = token.lang || 'text';
       
       if (lang === 'mermaid') {
-        const fenceMatch = token.raw.match(/^(?:```+|~~~+)/);
-        const isComplete = fenceMatch && token.raw.trimEnd().endsWith(fenceMatch[0]);
-        const completeClass = isComplete ? 'mermaid-complete' : 'mermaid-incomplete';
 
         const escapedCode = token.text
           .replace(/&/g, '&amp;')
@@ -34,7 +31,7 @@ marked.use({
         const cachedSvg = typeof mermaidModule !== 'undefined' && mermaidModule ? mermaidModule.getCachedMermaidSvg(token.text) : undefined;
         const chartContent = cachedSvg || `<div class="mermaid-placeholder"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="14" height="14" fill="currentColor" class="mermaid-placeholder-icon"><path d="M222.7 32.1c5 16.9-4.6 34.8-21.5 39.8C164.9 86.6 128 137.3 128 197.4c0 5.6-.3 11.1-.8 16.6H384.8c-.5-5.5-.8-11.1-.8-16.6 0-60.1-36.9-110.8-72.2-125.5-16.9-5-26.5-22.9-21.5-39.8C297.9-2.2 320 12 320 32.1V48H192V32.1c0-20.1 22.1-34.3 30.7-0zM128 256H32v224c0 17.7 14.3 32 32 32H320V256H128zm352 224c17.7 0 32-14.3 32-32V256H384V480h96z"/></svg><span>图表生成中...</span></div>`;
 
-        return `<div class="mermaid-block ${completeClass} my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-code-bg">
+        return `<div class="mermaid-block mermaid-complete my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-code-bg">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">mermaid</span>
     <div class="flex items-center gap-2">
@@ -183,14 +180,6 @@ import { useImageEditor } from '../composables/useImageEditor';
 import { useLongPress } from '../composables/useLongPress';
 import FileEditorGrid from './FileEditorGrid.vue';
 
-const MERMAID_RE = /<div class="mermaid-placeholder" data-code="([^"]*)" style="min-height: 2rem;"><\/div>/g;
-function protectMermaid(html: string): { html: string; restore: (h: string) => string } {
-  const codes = new Map<string, string>();
-  let idx = 0;
-  const processed = html.replace(MERMAID_RE, (_, code) => { const k = `__MRM_${idx++}__`; codes.set(k, code); return k; });
-  return { html: processed, restore: (h: string) => { for (const [k, c] of codes) h = h.replace(k, `<div class="mermaid-placeholder" data-code="${c}" style="min-height: 2rem;"></div>`); return h; } };
-}
-
 
 const props = defineProps<{
   message: any;
@@ -242,30 +231,33 @@ onUpdated(() => {
         });
       }
     });
-  }
-  // mermaid 代码块在 marked 解析器完成围栏闭合后才输出，流式期间也可安全渲染
-  if (mermaidModule) {
-    mermaidModule.renderMermaidPlaceholders();
-  } else if (mermaidModulePromise) {
-    mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
-  } else {
-    if (!document.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) return;
-    mermaidModulePromise = import('../utils/mermaid').then(m => {
-      mermaidModule = m;
-      return m;
-    });
-    mermaidModulePromise.then(m => m.renderMermaidPlaceholders());
+    // mermaid 代码块在 marked 解析器完成围栏闭合后才输出，流式期间也可安全渲染
+    if (mermaidModule) {
+      mermaidModule.renderMermaidPlaceholders(container);
+    } else if (mermaidModulePromise) {
+      mermaidModulePromise.then(m => m.renderMermaidPlaceholders(container));
+    } else {
+      if (!container.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) return;
+      mermaidModulePromise = import('../utils/mermaid').then(m => {
+        mermaidModule = m;
+        return m;
+      });
+      mermaidModulePromise.then(m => m.renderMermaidPlaceholders(container));
+    }
   }
 });
 
 onMounted(() => {
-  if (!mermaidModulePromise && document.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) {
+  const container = document.getElementById(`bubble-${props.nodeId}-assistant`);
+  if (container && !mermaidModulePromise && container.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) {
     mermaidModulePromise = import('../utils/mermaid').then(m => {
       mermaidModule = m;
       return m;
     });
   }
-  mermaidModulePromise?.then(m => m.renderMermaidPlaceholders());
+  if (container) {
+    mermaidModulePromise?.then(m => m.renderMermaidPlaceholders(container));
+  }
 });
 
 
@@ -462,13 +454,7 @@ watch(() => props.isUser ? null : props.message?.assistant, (arr) => {
     if (item.role === 'assistant' && item.content) {
       try {
         const raw = marked.parse(item.content) as string;
-        let r: string;
-        if (raw.includes('mermaid-placeholder')) {
-          const { html, restore } = protectMermaid(raw);
-          r = restore(DOMPurify.sanitize(html));
-        } else {
-          r = DOMPurify.sanitize(raw);
-        }
+        const r = DOMPurify.sanitize(raw);
         map[i] = r;
         if (segmentHtml[i] !== r) {
           hasChanges = true;
