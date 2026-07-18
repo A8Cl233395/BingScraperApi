@@ -18,7 +18,7 @@ import yaml
 import os
 import base64
 import logging
-import lz4.frame
+import zstandard
 from hashlib import sha256
 from pydub.utils import which as which_pydub
 import io
@@ -1222,11 +1222,11 @@ class Webchat:
     
     def _compress(self, data: dict) -> bytes:
         data = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        compressed = lz4.frame.compress(data)
+        compressed = zstandard.compress(data)
         return compressed
     
     def _decompress(self, compressed: bytes) -> dict:
-        data = lz4.frame.decompress(compressed)
+        data = zstandard.decompress(compressed)
         data = json.loads(data.decode("utf-8"))
         return data
     

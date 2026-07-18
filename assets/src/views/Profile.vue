@@ -902,12 +902,6 @@ watch(activeTab, (newTab) => {
   margin: 0;
 }
 
-.appearance-desc {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin: 0;
-}
-
 .theme-options {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1370,9 +1364,4 @@ watch(activeTab, (newTab) => {
   }
 }
 
-@media (min-width: 768px) {
-  .mobile-toggle-btn {
-    display: none;
-  }
-}
 </style>

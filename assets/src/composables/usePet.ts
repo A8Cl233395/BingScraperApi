@@ -130,7 +130,6 @@ export function usePet() {
     currentImageUrl,
     petImages,
     isLoading,
-    loadImages,
     importSprite,
     removeImage,
     clearAll,

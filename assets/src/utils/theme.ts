@@ -19,7 +19,7 @@ export function applyTheme(theme: ThemeMode): void {
   }
 }
 
-export function getStoredTheme(): ThemeMode {
+function getStoredTheme(): ThemeMode {
   const val = localStorage.getItem(STORAGE_KEY)
   if (val === 'light' || val === 'dark' || val === 'system') return val
   return 'system'

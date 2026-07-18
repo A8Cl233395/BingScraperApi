@@ -7,6 +7,9 @@
 > [!IMPORTANT] 数据结构更新
 > 提交 `4044064` 前（包括）的数据结构已经不再兼容，请运行 `updater.py` 更新数据结构，否则会导致加载旧的聊天记录时报错！
 
+> [!IMPORTANT] 压缩格式迁移
+> 聊天记录压缩格式已从 LZ4 迁移为 Zstandard，旧数据需要运行 `updater.py` 选择选项 2 或 3 进行迁移。
+
 ## 简介
 
 本项目为个人/小团队场景设计，将多种常用能力整合为单一服务：
@@ -61,9 +64,9 @@
 | 后端框架 | FastAPI + Uvicorn |
 | 浏览器自动化 | Playwright Firefox（独立线程事件循环） |
 | 内容提取 | trafilatura |
-| 数据存储 | SQLite（LZ4 压缩 JSON）+ JSON 文件 |
+| 数据存储 | SQLite（Zstandard 压缩 JSON）+ JSON 文件 |
 | AI 接口 | OpenAI 兼容 API |
-| 前端框架 | Vue 3 + Vue Router + TypeScript |
+| 前端框架 | Vue 3 + TypeScript |
 | 构建工具 | Vite 8 + vue-tsc |
 | 样式 | TailwindCSS 4 |
 | 压缩 | vite-plugin-compression2（Brotli + Gzip） |
@@ -250,13 +253,14 @@ web_search_api/
 ├── requirements.txt      # Python 依赖
 ├── assets/               # 前端项目
 │   ├── src/
-│   │   ├── views/        # 页面组件（Chat、Login、Invite）
+│   │   ├── views/        # 页面组件（Chat、Login、Invite、Profile）
 │   │   ├── components/   # UI 组件（消息气泡、输入框、侧边栏等）
 │   │   ├── store/        # 状态管理
 │   │   └── utils/        # 工具函数
 │   ├── index.html        # 聊天页面入口
 │   ├── login.html        # 登录页面入口
 │   ├── invite.html       # 邀请页面入口
+│   ├── profile.html      # 个人资料页面入口
 │   └── dist/             # 构建输出（gitignored）
 ├── link_datas/           # 用户数据目录（gitignored）
 ├── chatdata.db           # 聊天数据库（gitignored）

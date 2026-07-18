@@ -16,7 +16,7 @@ const close = () => {
           <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-lg" />
         </button>
       </header>
-      <div class="flex-1 overflow-y-auto p-4 select-text">
+      <div class="flex-1 overflow-y-auto p-4">
         <pre class="text-text-main text-sm leading-relaxed whitespace-pre-wrap wrap-break-words font-sans">{{ state.selectionText }}</pre>
       </div>
     </div>

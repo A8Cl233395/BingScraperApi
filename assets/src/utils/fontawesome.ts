@@ -46,7 +46,9 @@ import {
   faPaw,
   faMusic,
   faFile,
-  faMicrophone
+  faMicrophone,
+  faEye,
+  faFileImport
 } from '@fortawesome/free-solid-svg-icons'
 
 import {
@@ -102,7 +104,9 @@ library.add(
   faFolder,
   faCopy,
   faPenToSquare,
-  faMicrophone
+  faMicrophone,
+  faEye,
+  faFileImport
 )
 
 export function registerFontAwesome(app: App) {

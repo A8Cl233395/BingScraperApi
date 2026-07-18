@@ -53,6 +53,14 @@ const handleWheel = (e: WheelEvent) => {
   const delta = e.deltaY > 0 ? -1 : 1;
   let newScale = scale.value + delta * zoomSensitivity;
   newScale = Math.max(0.05, Math.min(newScale, 10));
+  
+  // 以鼠标位置为缩放中心
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const originX = e.clientX - rect.left;
+  const originY = e.clientY - rect.top;
+  
+  translateX.value = originX / newScale - originX / scale.value + translateX.value;
+  translateY.value = originY / newScale - originY / scale.value + translateY.value;
   scale.value = newScale;
 };
 
@@ -206,21 +214,13 @@ onUnmounted(() => {
        @wheel="handleWheel"
        @click.self="closePreview">
 
-     <!-- Close Button - Circle shape -->
-     <button @click="closePreview"
-             class="absolute top-4 right-4 z-10 w-10 h-10 flex items-center justify-center text-white/70 hover:text-white transition-colors rounded-full bg-white/10 hover:bg-white/20"
-             title="关闭 (Esc)">
-        <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-xl" />
-     </button>
-
-     <!-- Image Container -->
-     <div class="relative w-full h-full flex items-center justify-center overflow-hidden" @click.self="closePreview">
-       <img :src="state.previewImageUrl"
+      <!-- Image Container -->
+      <div class="relative w-full h-full flex items-center justify-center overflow-hidden" @click.self="closePreview">
+        <img :src="state.previewImageUrl"
              alt="Preview"
              class="max-w-none max-h-none object-contain transition-transform duration-75 ease-out select-none"
              :class="isDragging ? 'cursor-grabbing' : 'cursor-grab'"
-             :style="{ transform: `translate(${translateX}px, ${translateY}px) scale(${scale})` }"
-             style="touch-action: none;"
+             :style="{ transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`, touchAction: 'none' }"
              @load="handleImageLoad"
              @mousedown="handleMouseDown"
              @touchstart="handleTouchStart"
@@ -231,20 +231,24 @@ onUnmounted(() => {
       </div>
 
       <!-- Controls Bottom -->
-    <div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 px-6 py-3 bg-black/50 text-white rounded-full">
-      <button @click="zoomOut" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="缩小">
-        <FontAwesomeIcon :icon="['fas', 'magnifying-glass-minus']" />
+    <div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 px-1.5 py-1.5 bg-bg-panel border border-border-main rounded-lg shadow-xl select-none">
+      <button @click="zoomOut" class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="缩小">
+        <FontAwesomeIcon :icon="['fas', 'magnifying-glass-minus']" class="text-xs" />
       </button>
-      <span class="text-sm font-mono min-w-[3rem] text-center select-none">{{ Math.round(scale * 100) }}%</span>
-      <button @click="zoomIn" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="放大">
-        <FontAwesomeIcon :icon="['fas', 'magnifying-glass-plus']" />
+      <span class="text-xs font-mono tabular-nums min-w-[2.5rem] text-center select-none text-text-placeholder">{{ Math.round(scale * 100) }}%</span>
+      <button @click="zoomIn" class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="放大">
+        <FontAwesomeIcon :icon="['fas', 'magnifying-glass-plus']" class="text-xs" />
       </button>
-      <div class="w-px h-4 bg-white/30 mx-1"></div>
-      <button @click="resetView" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="重置">
-        <FontAwesomeIcon :icon="['fas', 'expand']" />
+      <div class="w-px h-4 bg-border-main mx-0.5"></div>
+      <button @click="resetView" class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="适应屏幕">
+        <FontAwesomeIcon :icon="['fas', 'expand']" class="text-xs" />
       </button>
-      <button @click="downloadImage" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors" title="下载">
-        <FontAwesomeIcon :icon="['fas', 'download']" />
+      <button @click="downloadImage" class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="下载">
+        <FontAwesomeIcon :icon="['fas', 'download']" class="text-xs" />
+      </button>
+      <div class="w-px h-4 bg-border-main mx-0.5"></div>
+      <button @click="closePreview" class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-bg-hover active:bg-bg-active transition-colors text-text-placeholder hover:text-text-main" title="关闭 (Esc)">
+        <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-xs" />
       </button>
     </div>
   </div>

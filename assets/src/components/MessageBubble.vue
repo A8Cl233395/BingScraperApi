@@ -22,6 +22,9 @@ marked.use({
       const lang = token.lang || 'text';
       
       if (lang === 'mermaid') {
+        const fenceMatch = token.raw.match(/^(?:```+|~~~+)/);
+        const isComplete = fenceMatch && token.raw.trimEnd().endsWith(fenceMatch[0]);
+        const completeClass = isComplete ? 'mermaid-complete' : 'mermaid-incomplete';
 
         const escapedCode = token.text
           .replace(/&/g, '&amp;')
@@ -31,7 +34,7 @@ marked.use({
         const cachedSvg = typeof mermaidModule !== 'undefined' && mermaidModule ? mermaidModule.getCachedMermaidSvg(token.text) : undefined;
         const chartContent = cachedSvg || `<div class="mermaid-placeholder"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="14" height="14" fill="currentColor" class="mermaid-placeholder-icon"><path d="M222.7 32.1c5 16.9-4.6 34.8-21.5 39.8C164.9 86.6 128 137.3 128 197.4c0 5.6-.3 11.1-.8 16.6H384.8c-.5-5.5-.8-11.1-.8-16.6 0-60.1-36.9-110.8-72.2-125.5-16.9-5-26.5-22.9-21.5-39.8C297.9-2.2 320 12 320 32.1V48H192V32.1c0-20.1 22.1-34.3 30.7-0zM128 256H32v224c0 17.7 14.3 32 32 32H320V256H128zm352 224c17.7 0 32-14.3 32-32V256H384V480h96z"/></svg><span>图表生成中...</span></div>`;
 
-        return `<div class="mermaid-block mermaid-complete my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-code-bg">
+        return `<div class="mermaid-block ${completeClass} my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-code-bg">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">mermaid</span>
     <div class="flex items-center gap-2">
@@ -42,6 +45,10 @@ marked.use({
       <button class="copy-mermaid-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="copy-icon-svg" width="10" height="10" fill="currentColor"><path d="M64 464H288c8.8 0 16-7.2 16-16V384h48v64c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V224c0-35.3 28.7-64 64-64h64v48H64c-8.8 0-16 7.2-16 16V448c0 8.8 7.2 16 16 16zM224 304H448c8.8 0 16-7.2 16-16V64c0-8.8-7.2-16-16-16H224c-8.8 0-16 7.2-16 16V288c0 8.8 7.2 16 16 16zm-64-16V64c0-35.3 28.7-64 64-64H448c35.3 0 64 28.7 64 64V288c0 35.3-28.7 64-64 64H224c-35.3 0-64-28.7-64-64z"/></svg>
         <span class="text-[10px]">复制</span>
+      </button>
+      <button class="mermaid-fullscreen-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="全屏查看">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" width="10" height="10" fill="currentColor"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32S0 334.3 0 352l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"/></svg>
+        <span class="text-[10px]">全屏</span>
       </button>
     </div>
   </div>
@@ -192,6 +199,7 @@ const props = defineProps<{
 const emit = defineEmits(['navigate', 'edit', 'regenerate']);
 
 const preScrollPositions = new Map<number, number[]>();
+const mermaidZoomStates = new Map<number, { scale: number; tx: number; ty: number }>();
 
 onBeforeUpdate(() => {
   const container = document.getElementById(`bubble-${props.nodeId}-assistant`);
@@ -204,6 +212,24 @@ onBeforeUpdate(() => {
       pres.forEach(pre => positions.push(pre.scrollLeft));
       wrappers.forEach(w => positions.push(w.scrollLeft));
       preScrollPositions.set(sIdx, positions);
+
+      const mermaidBlocks = seg.querySelectorAll('.mermaid-block');
+      mermaidBlocks.forEach((block, bIdx) => {
+        const wrapper = block.querySelector('.mermaid-zoom-wrapper') as HTMLElement;
+        if (!wrapper) return;
+        const inner = wrapper.querySelector('.mermaid-zoom-inner') as HTMLElement;
+        if (!inner) return;
+        const transform = inner.style.transform;
+        const scaleMatch = transform.match(/scale\(([^)]+)\)/);
+        const translateMatch = transform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+        if (scaleMatch && translateMatch) {
+          mermaidZoomStates.set(sIdx * 1000 + bIdx, {
+            scale: parseFloat(scaleMatch[1]),
+            tx: parseFloat(translateMatch[1]),
+            ty: parseFloat(translateMatch[2])
+          });
+        }
+      });
     });
   }
 });
@@ -231,18 +257,42 @@ onUpdated(() => {
         });
       }
     });
+
+    const restoreMermaidZoomState = () => {
+      if (!container) return;
+      const segments = container.querySelectorAll('.prose');
+      segments.forEach((seg, sIdx) => {
+        const mermaidBlocks = seg.querySelectorAll('.mermaid-block');
+        mermaidBlocks.forEach((block, bIdx) => {
+          const key = sIdx * 1000 + bIdx;
+          const saved = mermaidZoomStates.get(key);
+          if (!saved) return;
+          const wrapper = block.querySelector('.mermaid-zoom-wrapper') as HTMLElement;
+          if (!wrapper) return;
+          const inner = wrapper.querySelector('.mermaid-zoom-inner') as HTMLElement;
+          if (!inner) return;
+          inner.style.transform = `scale(${saved.scale}) translate(${saved.tx}px, ${saved.ty}px)`;
+          const resetBtn = wrapper.querySelector('.mermaid-zoom-reset') as HTMLElement;
+          if (resetBtn) {
+            resetBtn.style.display = (saved.scale !== 1 || saved.tx !== 0 || saved.ty !== 0) ? '' : 'none';
+          }
+        });
+      });
+      mermaidZoomStates.clear();
+    };
+
     // mermaid 代码块在 marked 解析器完成围栏闭合后才输出，流式期间也可安全渲染
     if (mermaidModule) {
-      mermaidModule.renderMermaidPlaceholders(container);
+      mermaidModule.renderMermaidPlaceholders(container).then(restoreMermaidZoomState);
     } else if (mermaidModulePromise) {
-      mermaidModulePromise.then(m => m.renderMermaidPlaceholders(container));
+      mermaidModulePromise.then(m => m.renderMermaidPlaceholders(container)).then(restoreMermaidZoomState);
     } else {
       if (!container.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) return;
       mermaidModulePromise = import('../utils/mermaid').then(m => {
         mermaidModule = m;
         return m;
       });
-      mermaidModulePromise.then(m => m.renderMermaidPlaceholders(container));
+      mermaidModulePromise.then(m => m.renderMermaidPlaceholders(container)).then(restoreMermaidZoomState);
     }
   }
 });
@@ -682,6 +732,21 @@ const handleContentClick = (e: MouseEvent) => {
             setTimeout(() => { textEl.textContent = original }, 2000);
           }
         });
+      }
+    }
+    return;
+  }
+  
+  // 处理mermaid全屏按钮
+  const fullscreenMermaidBtn = target.closest('.mermaid-fullscreen-btn');
+  if (fullscreenMermaidBtn) {
+    e.stopPropagation();
+    const block = fullscreenMermaidBtn.closest('.mermaid-block');
+    if (block) {
+      const code = block.querySelector('.mermaid-source code')?.textContent || '';
+      if (code && mermaidModule) {
+        const dataUrl = mermaidModule.getSvgDataUrl(code);
+        if (dataUrl) state.previewImageUrl = dataUrl;
       }
     }
     return;

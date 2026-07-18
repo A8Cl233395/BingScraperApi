@@ -13,7 +13,7 @@ export const CODEX_SPRITE_CONFIG = {
   },
 } as const;
 
-export interface PetRecord {
+interface PetRecord {
   key: string;
   images: Record<PetState, Blob | null>;
 }

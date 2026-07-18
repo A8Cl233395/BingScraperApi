@@ -202,7 +202,7 @@ html.dark .prose tr:nth-child(even) {
 
 /* Mermaid 图表样式 */
 .mermaid-block {
-  max-width: 600px;
+  width: 100%;
 }
 
 .mermaid-content {
@@ -307,6 +307,14 @@ html.dark .prose tr:nth-child(even) {
 
 .mermaid-zoom-reset:hover {
   background-color: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.mermaid-fullscreen-btn {
+  cursor: pointer;
+}
+
+.mermaid-fullscreen-btn:hover {
   color: var(--text-main);
 }
 

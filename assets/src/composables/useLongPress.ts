@@ -1,6 +1,6 @@
 import { ref, computed, onBeforeUnmount } from 'vue';
 
-export interface LongPressOptions {
+interface LongPressOptions {
   /** 长按前的预延迟 (ms) */
   preDelay?: number;
   /** 长按确认延迟 (ms) */
@@ -96,7 +96,6 @@ export function useLongPress(options: LongPressOptions = {}) {
 
   return {
     showMenu,
-    menuPos,
     isPressing,
     menuStyle,
     startLongPress,
