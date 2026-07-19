@@ -53,6 +53,9 @@ const fetchChatDetails = async (id: number) => {
       }
     } else {
       console.error('Failed to fetch chat details', e);
+      showToast('加载聊天失败', 'error');
+      state.currentChatId = null;
+      window.location.href = '/webchat';
     }
   }
 };
@@ -450,6 +453,53 @@ const handleSend = async (content: any, parent?: string) => {
       console.log('Request aborted');
     } else {
       console.error('Failed to send message', e);
+      showToast('发送消息失败', 'error');
+      
+      // 撤销发送的内容：从 messages 和 messageTree 中移除临时节点
+      const msgIdx = messages.value.findIndex(m => m.clientId === tempId);
+      if (msgIdx >= 0) {
+        messages.value = messages.value.slice(0, msgIdx);
+      }
+      
+      // 清理 messageTree 中的临时节点
+      if (messageTree.value[tempId]) {
+        const parentId = messageTree.value[tempId].parent;
+        delete messageTree.value[tempId];
+        // 从父节点的 child 数组中移除
+        if (parentId && messageTree.value[parentId]) {
+          const children = messageTree.value[parentId].child;
+          if (children) {
+            const childIdx = children.indexOf(tempId);
+            if (childIdx >= 0) children.splice(childIdx, 1);
+          }
+        }
+      }
+      
+      // 如果收到过真实节点ID，也需要清理
+      if (receivedNodeId && messageTree.value[receivedNodeId]) {
+        const parentId = messageTree.value[receivedNodeId].parent;
+        delete messageTree.value[receivedNodeId];
+        if (parentId && messageTree.value[parentId]) {
+          const children = messageTree.value[parentId].child;
+          if (children) {
+            const childIdx = children.indexOf(receivedNodeId);
+            if (childIdx >= 0) children.splice(childIdx, 1);
+          }
+        }
+      }
+      
+      // 恢复 lastNodeId
+      if (messages.value.length > 0) {
+        lastNodeId.value = messages.value[messages.value.length - 1].id;
+      } else {
+        lastNodeId.value = parentId || 'root';
+      }
+      
+      // 如果是新对话（没有 receivedNodeId），重置 currentChatId
+      if (!receivedNodeId && !state.currentChatId) {
+        // 从侧边栏移除新对话占位
+        state.chats = state.chats.filter(c => c[0] !== null);
+      }
     }
   } finally {
     if (abortController.value === currentController) {
@@ -676,6 +726,7 @@ const handleCancel = async () => {
       await api.get('/api/cancel', { params: { id: chatId, node_id: nodeId } });
     } catch (e) {
       console.error('取消请求失败', e);
+      showToast('取消请求失败', 'error');
     }
   }
 

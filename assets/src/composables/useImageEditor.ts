@@ -199,11 +199,7 @@ export function useImageEditor(options?: { maxImages?: number; trackDraft?: bool
   };
 
   const insertText = (text: string, textRef: { value: string }) => {
-    if (textRef.value.trim()) {
-      textRef.value = text + '\n\n' + textRef.value;
-    } else {
-      textRef.value = text;
-    }
+    textRef.value = text + '\n\n' + textRef.value;
   };
 
   /**

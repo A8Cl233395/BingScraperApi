@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useToast } from '../composables/useToast';
-import ToastMessage from '../components/ToastMessage.vue';
 
 const { showToast } = useToast();
 
@@ -143,8 +142,6 @@ onMounted(() => {
         </button>
       </form>
     </div>
-
-    <ToastMessage />
   </div>
 </template>
 

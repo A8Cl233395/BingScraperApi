@@ -54,13 +54,19 @@ const handleWheel = (e: WheelEvent) => {
   let newScale = scale.value + delta * zoomSensitivity;
   newScale = Math.max(0.05, Math.min(newScale, 10));
   
-  // 以鼠标位置为缩放中心
+  // 以鼠标位置为缩放中心（transform-origin 默认 center）
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  const originX = e.clientX - rect.left;
-  const originY = e.clientY - rect.top;
-  
-  translateX.value = originX / newScale - originX / scale.value + translateX.value;
-  translateY.value = originY / newScale - originY / scale.value + translateY.value;
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const offsetX = mouseX - centerX;
+  const offsetY = mouseY - centerY;
+
+  const ratio = newScale / scale.value;
+  translateX.value = offsetX * (1 - ratio) + translateX.value * ratio;
+  translateY.value = offsetY * (1 - ratio) + translateY.value * ratio;
   scale.value = newScale;
 };
 

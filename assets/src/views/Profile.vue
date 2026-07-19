@@ -3,7 +3,6 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { state } from '../store';
 import api from '../utils/api';
 import ConfirmModal from '../components/ConfirmModal.vue';
-import ToastMessage from '../components/ToastMessage.vue';
 import PetSettings from '../components/PetSettings.vue';
 import { type ThemeMode, applyTheme, storeTheme, getCurrentTheme } from '../utils/theme';
 import { useToast } from '../composables/useToast';
@@ -36,7 +35,6 @@ const pwdSuccess = ref('');
 
 const newMemory = ref('');
 const isAddingMemory = ref(false);
-const memError = ref('');
 const memoryTextareaRef = ref<HTMLTextAreaElement | null>(null);
 
 const activeTab = ref<'account' | 'memory' | 'custom' | 'pet'>('account');
@@ -145,23 +143,22 @@ const handleChangePwd = async () => {
 };
 
 const handleAddMemory = async () => {
-  memError.value = '';
   const mem = newMemory.value.trim();
 
   if (!mem) {
-    memError.value = '请输入记忆内容';
+    showToast('请输入记忆内容', 'error');
     return;
   }
   if (mem.length > 500) {
-    memError.value = '记忆长度不能超过500个字符';
+    showToast('记忆长度不能超过500个字符', 'error');
     return;
   }
   if (memories.value.includes(mem)) {
-    memError.value = '该记忆已存在';
+    showToast('该记忆已存在', 'error');
     return;
   }
   if (memories.value.length >= 50) {
-    memError.value = '记忆数量已达上限（50条）';
+    showToast('记忆数量已达上限（50条）', 'error');
     return;
   }
 
@@ -181,17 +178,17 @@ const handleAddMemory = async () => {
   } catch (error: any) {
     const status = error.response?.status;
     if (status === 400) {
-      memError.value = '添加的记忆为空';
+      showToast('添加的记忆为空', 'error');
     } else if (status === 413) {
-      memError.value = '添加的记忆长度过长';
+      showToast('添加的记忆长度过长', 'error');
     } else if (status === 409) {
-      memError.value = '要添加的记忆已经存在';
+      showToast('要添加的记忆已经存在', 'error');
     } else if (status === 422) {
-      memError.value = '记忆已满';
+      showToast('记忆已满', 'error');
     } else if (status === 500) {
-      memError.value = '后端错误，请勿重试';
+      showToast('后端错误，请勿重试', 'error');
     } else {
-      memError.value = '添加记忆失败';
+      showToast('添加记忆失败', 'error');
     }
   } finally {
     isAddingMemory.value = false;
@@ -531,10 +528,6 @@ watch(activeTab, (newTab) => {
                 <span>添加</span>
               </button>
             </div>
-            <div v-if="memError" class="error-message">
-              <FontAwesomeIcon :icon="['fas', 'triangle-exclamation']" />
-              {{ memError }}
-            </div>
           </form>
 
           <div v-if="memories.length === 0" class="empty-state">
@@ -651,8 +644,6 @@ watch(activeTab, (newTab) => {
       @confirm="confirmLogout"
       @cancel="showLogoutConfirm = false"
     />
-
-    <ToastMessage />
   </div>
 </template>
 

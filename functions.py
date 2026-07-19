@@ -926,14 +926,27 @@ class ChatInstance:
                                 task = asyncio.create_task(asyncio.to_thread(self._handle_tool_call, tool_calls[-1]))
                                 tool_tasks.append(task)
                                 yield task
-                            tool_calls.append({
-                                "id": tool_call.id,
-                                "function": {
-                                    "arguments": "",
-                                    "name": tool_call.function.name,
-                                },
-                                "type": "function",
-                            })
+                            # 确保列表长度足够容纳 tool_call.index
+                            if tool_call.index is not None:
+                                while len(tool_calls) <= tool_call.index:
+                                    tool_calls.append(None)
+                                tool_calls[tool_call.index] = {
+                                    "id": tool_call.id,
+                                    "function": {
+                                        "arguments": "",
+                                        "name": tool_call.function.name,
+                                    },
+                                    "type": "function",
+                                }
+                            else:
+                                tool_calls.append({
+                                    "id": tool_call.id,
+                                    "function": {
+                                        "arguments": "",
+                                        "name": tool_call.function.name,
+                                    },
+                                    "type": "function",
+                                })
                             yield self._sse("tool_call", "signal")
                             yield self._sse(tool_call.function.name, "tool_name")
                         if tool_call.function.arguments:
@@ -985,7 +998,7 @@ class ChatInstance:
             self._remove_node(node_id)
             id = os.urandom(4).hex()
             yield self._sse(f"发生错误！Trace ID: {id}", "error")
-            logger.error(f"Trace ID {id}\n错误: {e}")
+            logger.exception(f"Trace ID {id}\n错误: {e}")
 
     def _remove_node(self, node_id):
         """安全移除节点（幂等）"""
@@ -1145,7 +1158,7 @@ class ChatInstance:
             r = await get_oclient(config["webchat"]["title-model"]).chat.completions.create(**params)
             return r.choices[0].message.content.strip()
         except Exception as e:
-            logger.error(f"生成标题失败：{e}")
+            logger.exception(f"生成标题失败：{e}")
             return "新对话"
     
     def verify_parent(self, parent: str) -> bool:
@@ -1268,7 +1281,7 @@ class Webchat:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error(f"生成对话失败: {e}")
+            logger.exception(f"生成对话失败: {e}")
         finally:
             async with streaming_cache.condition:
                 streaming_cache.data.append(None)
@@ -1552,7 +1565,7 @@ if __name__ != "__main__":
 
     if is_bilibili_enabled:
         if not is_vr_enabled:
-            logger.error("Bilibili 需要语音识别功能，但该功能未启用")
+            logger.critical("Bilibili 需要语音识别功能，但该功能未启用")
             exit(1)
         bili = Bilibili()
 
@@ -1568,20 +1581,20 @@ if __name__ != "__main__":
     
     if is_webchat_enabled:
         if not is_bing_crawler_enabled:
-            logger.error("聊天功能需要 Bing 爬虫，但该功能未启用")
+            logger.critical("聊天功能需要 Bing 爬虫，但该功能未启用")
             exit(1)
         if not is_link_enabled:
-            logger.error("聊天功能需要 Link 模块，但该功能未启用")
+            logger.critical("聊天功能需要 Link 模块，但该功能未启用")
             exit(1)
         if not is_ocr_enabled:
-            logger.error("聊天功能需要 OCR 模块，但该功能未启用")
+            logger.critical("聊天功能需要 OCR 模块，但该功能未启用")
             exit(1)
         if not is_vr_enabled:
-            logger.error("聊天功能需要语音识别功能，但该功能未启用")
+            logger.critical("聊天功能需要语音识别功能，但该功能未启用")
             exit(1)
         else:
             if not which_pydub('ffmpeg'):
-                logger.error("聊天功能需要语音识别功能，但ffmpeg未添加到环境变量")
+                logger.critical("聊天功能需要语音识别功能，但ffmpeg未添加到环境变量")
                 exit(1)
         webchat = Webchat()
         oclients = {}
@@ -1619,7 +1632,7 @@ if __name__ != "__main__":
                     logger.exception("发送 WebSocket 消息失败")
                 return True
             else:
-                logger.error("发送消息失败，WebSocket 未连接")
+                logger.error("发送消息失败，WebSocket 未连接，这次请求将被忽略")
                 return False
 
     if is_download_service_required:

@@ -4,7 +4,10 @@ import { ref, watch, nextTick, onUnmounted, computed } from 'vue';
 import { isMobileDevice } from '../utils/device';
 import { useImageEditor } from '../composables/useImageEditor';
 import { useVoiceInput } from '../composables/useVoiceInput';
+import { useToast } from '../composables/useToast';
 import FileEditorGrid from './FileEditorGrid.vue';
+
+const { showToast } = useToast();
 
 
 const props = defineProps<{
@@ -176,8 +179,10 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
       state.isEnableFunction = value;
     }
     await state.updateConfig(payload);
+    showToast('默认选项已更新');
   } catch (e) {
     console.error('Failed to set default option', e);
+    showToast('更新默认选项失败', 'error');
   }
   showOptions.value = false;
 };
@@ -382,3 +387,18 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
     </div>
   </div>
 </template>
+
+<style scoped>
+.layout-transition {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes voice-bar {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+.voice-bar {
+  animation: voice-bar 0.6s ease-in-out infinite;
+}
+</style>

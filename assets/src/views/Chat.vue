@@ -7,7 +7,6 @@ import ChatInput from '../components/ChatInput.vue';
 import MessageList from '../components/MessageList.vue';
 import ImagePreview from '../components/ImagePreview.vue';
 import TextSelectionOverlay from '../components/TextSelectionOverlay.vue';
-import ToastMessage from '../components/ToastMessage.vue';
 
 const PetAvatar = defineAsyncComponent(() => import('../components/PetAvatar.vue'));
 
@@ -155,7 +154,6 @@ watch(() => state.currentChatId, (newId) => {
     
     <ImagePreview />
     <TextSelectionOverlay />
-    <ToastMessage />
     <PetAvatar v-if="state.petEnabled" />
   </div>
 </template>

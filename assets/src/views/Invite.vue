@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useToast } from '../composables/useToast';
-import ToastMessage from '../components/ToastMessage.vue';
 
 const { showToast } = useToast();
 
@@ -197,12 +196,15 @@ const copyToClipboard = async () => {
         </div>
       </div>
     </div>
-
-    <ToastMessage />
   </div>
 </template>
 
 <style scoped>
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .card {
   max-width: 448px;
 }

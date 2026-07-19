@@ -1,6 +1,9 @@
 import { reactive } from 'vue';
 import api from '../utils/api';
 import { isMobileDevice } from '../utils/device';
+import { useToast } from '../composables/useToast';
+
+const { showToast } = useToast();
 
 const CONFIG_STORAGE_KEY = 'user_config';
 const CONFIG_VERSION_KEY = 'config_version';
@@ -75,6 +78,7 @@ export const state = reactive({
       }
     } catch (e) {
       console.error('Failed to fetch home content', e);
+      showToast('获取首页内容失败', 'error');
     }
   },
 
@@ -97,18 +101,25 @@ export const state = reactive({
       saveConfigVersion(config.config_version);
     } catch (e) {
       console.error('Failed to fetch config', e);
+      showToast('获取配置失败', 'error');
     }
   },
 
   async updateConfig(payload: Record<string, any>) {
-    const res = await api.post('/api/config', payload);
-    this.configVersion = res.data;
-    const stored = JSON.parse(localStorage.getItem(CONFIG_STORAGE_KEY) || '{}');
-    Object.assign(stored, payload);
-    stored.config_version = res.data;
-    saveConfigToStorage(stored);
-    saveConfigVersion(res.data);
-    return res.data;
+    try {
+      const res = await api.post('/api/config', payload);
+      this.configVersion = res.data;
+      const stored = JSON.parse(localStorage.getItem(CONFIG_STORAGE_KEY) || '{}');
+      Object.assign(stored, payload);
+      stored.config_version = res.data;
+      saveConfigToStorage(stored);
+      saveConfigVersion(res.data);
+      return res.data;
+    } catch (e) {
+      console.error('Failed to update config', e);
+      showToast('更新配置失败', 'error');
+      throw e;
+    }
   },
 
   async fetchModels() {
@@ -117,6 +128,7 @@ export const state = reactive({
       this.models = res.data;
     } catch (e) {
       console.error('Failed to fetch models', e);
+      showToast('获取模型列表失败', 'error');
     }
   },
 
@@ -129,6 +141,7 @@ export const state = reactive({
       }
     } catch (e) {
       console.error('Failed to delete chat', e);
+      showToast('删除聊天失败', 'error');
     }
   },
 
@@ -145,6 +158,7 @@ export const state = reactive({
       }
     } catch (e) {
       console.error('Failed to fetch more history', e);
+      showToast('获取历史记录失败', 'error');
     } finally {
       this.isLoadingHistory = false;
     }
