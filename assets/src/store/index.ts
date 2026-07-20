@@ -62,6 +62,11 @@ export const state = reactive({
   configVersion: loadConfigVersion(),
   hasMoreHistory: true,
   isLoadingHistory: false,
+  isLoadingNewChats: false,
+  lastScrollTime: 0,
+  lastScrollTop: 0,
+  scrollSpeed: 0,
+  dynamicLimit: 10,
   isMouseDown: false,
   isTextSelected: false,
   selectionText: '',
@@ -150,7 +155,7 @@ export const state = reactive({
     this.isLoadingHistory = true;
     try {
       const lastId = this.chats[this.chats.length - 1][0];
-      const res = await api.get(`/api/history?before=${lastId}`);
+      const res = await api.get(`/api/history?before=${lastId}&limit=${this.dynamicLimit}`);
       if (res.data.length === 0) {
         this.hasMoreHistory = false;
       } else {
@@ -162,5 +167,41 @@ export const state = reactive({
     } finally {
       this.isLoadingHistory = false;
     }
+  },
+
+  async fetchNewChats() {
+    if (this.isLoadingNewChats || this.chats.length === 0) return;
+    this.isLoadingNewChats = true;
+    try {
+      const firstId = this.chats[0][0];
+      const res = await api.get(`/api/history?after=${firstId}`);
+      if (res.data.length > 0) {
+        const newChats = res.data.filter((chat: [number, string]) => !this.chats.some(c => c[0] === chat[0]));
+        if (newChats.length > 0) {
+          this.chats.unshift(...newChats);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch new chats', e);
+      showToast('获取新对话失败', 'error');
+    } finally {
+      this.isLoadingNewChats = false;
+    }
+  },
+
+  updateScrollSpeed(currentScrollTop: number) {
+    const now = Date.now();
+    
+    if (this.lastScrollTime > 0) {
+      const timeDiff = now - this.lastScrollTime;
+      if (timeDiff > 0) {
+        const scrollDiff = Math.abs(currentScrollTop - this.lastScrollTop);
+        this.scrollSpeed = scrollDiff / timeDiff * 1000;
+        this.dynamicLimit = Math.min(100, Math.max(10, Math.round(this.scrollSpeed / 50)));
+      }
+    }
+    
+    this.lastScrollTime = now;
+    this.lastScrollTop = currentScrollTop;
   }
 });

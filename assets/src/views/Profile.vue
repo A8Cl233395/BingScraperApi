@@ -51,11 +51,18 @@ const setTheme = (theme: ThemeMode) => {
 };
 
 const adjustMemoryHeight = () => {
-  if (memoryTextareaRef.value) {
-    memoryTextareaRef.value.style.height = 'auto';
-    memoryTextareaRef.value.style.height = Math.min(memoryTextareaRef.value.scrollHeight, 200) + 'px';
-  }
+  nextTick(() => {
+    if (memoryTextareaRef.value) {
+      memoryTextareaRef.value.style.height = 'auto';
+      // 增加 2px (上下边框) 防止由于 box-sizing: border-box 导致的高度计算误差
+      memoryTextareaRef.value.style.height = Math.min(memoryTextareaRef.value.scrollHeight + 2, 200) + 'px';
+    }
+  });
 };
+
+watch(newMemory, () => {
+  adjustMemoryHeight();
+});
 
 const handleMemoryKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter') {
@@ -514,7 +521,6 @@ watch(activeTab, (newTab) => {
                 placeholder="添加新记忆（最多500字符）"
                 maxlength="500"
                 rows="1"
-                @input="adjustMemoryHeight"
                 @keydown="handleMemoryKeydown"
               ></textarea>
               <button
@@ -1343,6 +1349,11 @@ watch(activeTab, (newTab) => {
 
   .memory-input-row {
     flex-direction: column;
+  }
+
+  .memory-input-row .form-input {
+    flex: none;
+    width: 100%;
   }
 
   .add-btn {

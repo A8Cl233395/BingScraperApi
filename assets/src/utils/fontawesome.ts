@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import type { App } from 'vue'
 
 import {
+  faArrowDown,
   faBrain,
   faWrench,
   faChevronRight,
@@ -58,6 +59,7 @@ import {
 } from '@fortawesome/free-regular-svg-icons'
 
 library.add(
+  faArrowDown,
   faBrain,
   faWrench,
   faChevronRight,

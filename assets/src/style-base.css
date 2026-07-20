@@ -355,26 +355,6 @@ body {
   white-space: nowrap;
 }
 
-/* 小屏适配 */
-@media (max-width: 480px) {
-  .toast-container {
-    top: 12px;
-    right: 0;
-    left: 0;
-    align-items: stretch;
-  }
-  .toast-item {
-    max-width: 100%;
-    min-height: 44px;
-    border-right: 2px solid var(--border-color);
-  }
-  .toast-item .body {
-    font-size: 15px;
-    padding: 10px 14px;
-    white-space: normal;
-  }
-}
-
 @media (max-width: 640px) {
   .page-container {
     padding: 12px;

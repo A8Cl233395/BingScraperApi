@@ -1335,16 +1335,23 @@ class Webchat:
             "config_version": user.config_version
         }
     
-    def get_history(self, user_id: int, before: int = None):
-        if before:
+    def get_history(self, user_id: int, before: int = None, after: int = None, limit: int = 10):
+        if before is not None:
             with self.conn:
                 cursor = self.conn.cursor()
-                cursor.execute(f"SELECT id, title FROM u{user_id} WHERE id < ? ORDER BY id DESC LIMIT 20", (before,))
+                cursor.execute(f"SELECT id, title FROM u{user_id} WHERE id < ? ORDER BY id DESC LIMIT ?", (before, limit))
                 messages = cursor.fetchall()
+        elif after is not None:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"SELECT id, title FROM u{user_id} WHERE id > ? ORDER BY id ASC LIMIT ?", (after, limit))
+                messages = cursor.fetchall()
+                messages.reverse()
+
         else:
             with self.conn:
                 cursor = self.conn.cursor()
-                cursor.execute(f"SELECT id, title FROM u{user_id} ORDER BY id DESC LIMIT 20")
+                cursor.execute(f"SELECT id, title FROM u{user_id} ORDER BY id DESC LIMIT ?", (limit,))
                 messages = cursor.fetchall()
         return messages
 
@@ -1426,7 +1433,7 @@ class Webchat:
         user = usermanager.get_user(user_id)
         with self.conn:
             cursor = self.conn.cursor()
-            cursor.execute(f"DELETE FROM u{user_id} WHERE id = ?", (chat_id,))
+            cursor.execute(f"DELETE FROM u{user_id} WHERE id = ?", (chat_id,)) # 静默失败
             self.conn.commit()
         if chat_id in user.chat_cache:
             del user.chat_cache[chat_id]

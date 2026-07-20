@@ -568,9 +568,9 @@ if is_webchat_enabled:
         return config_version
     
     @app.get("/api/history", response_class=JSONResponse)
-    def api_history(request: Request, before: int = Query(None)):
+    def api_history(request: Request, before: int = Query(None), after: int = Query(None), limit: int = Query(10, ge=1, le=100)):
         uid = int(request.headers["uid"])
-        history = webchat.get_history(uid, before)
+        history = webchat.get_history(uid, before, after, limit)
         return history
     
     @app.get("/api/message", response_class=JSONResponse)
