@@ -34,7 +34,7 @@ import trafilatura
 import bcrypt
 
 class AsyncCrawler:
-    def __init__(self, timeout=8000, strict_anti_crawl_model=False):
+    def __init__(self, timeout=8000, strict_anti_crawl_model=False, use_exa_first=False):
         self.timeout = timeout
         self._browser: Browser = None
         self._context = None
@@ -45,6 +45,7 @@ class AsyncCrawler:
         self.strict_anti_crawl_model = strict_anti_crawl_model
         if not strict_anti_crawl_model:
             self._warmed_up = False
+        self.use_exa_first = use_exa_first
     
     def start(self):
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="BrowserThread") # 启动事件循环线程并初始化浏览器
@@ -130,12 +131,26 @@ class AsyncCrawler:
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result(timeout=timeout)
 
-    def search(self, query: str, limit: int = None) -> str:
+    def search(self, query: str, limit: int | None = None) -> str:
         """同步搜索（多线程安全）"""
+        if self.use_exa_first:
+            try:
+                return exa.web_search(query, limit)
+            except ExaFallbackError:
+                pass
+            except Exception:
+                logger.exception("Exa 搜索失败，未知错误")
         return self._run_coro(self._search(query, limit))
 
     def read(self, url: str) -> str:
         """同步读取网页文本（多线程安全）"""
+        if self.use_exa_first:
+            try:
+                return exa.read_url(url)
+            except ExaFallbackError:
+                pass
+            except Exception:
+                logger.exception("Exa 读取失败，未知错误")
         return self._run_coro(self._read(url))
 
     async def _get_page(self):
@@ -299,6 +314,78 @@ class AsyncCrawler:
         except requests.exceptions.RequestException as e:
             logger.error(f"请求失败: {e}")
             return None
+
+class ExaFallbackError(RuntimeError):
+    pass
+
+class ExaMCP:
+    '''
+    通过Exa MCP API调用，使用MCP免费额度
+    需要捕获ExaFallbackError
+    '''
+    api_url = "https://mcp.exa.ai/mcp"
+
+    def __init__(self, api_key: None | str = None):
+        self.api_key: None | str = api_key
+        self.cooldown_until: int = 0
+    
+    def _call_mcp(self, method: str, params: dict) -> dict:
+        if self.cooldown_until > time.time():
+            raise ExaFallbackError("Exa搜索冷却中")
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params,
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+        try:
+            resp = requests.post(self.api_url, json=payload, headers=headers, timeout=60)
+            resp.raise_for_status()
+        except requests.HTTPError as e:
+            if resp.status_code == 429:
+                logger.error("Exa搜索达到额度限制")
+                self.cooldown_until = time.time() + 600
+                raise ExaFallbackError("Exa搜索冷却中")
+            else:
+                logger.exception(f"请求Exa MCP失败: {e}")
+                raise ExaFallbackError("Exa搜索请求失败")
+        except requests.RequestException as e:
+            logger.exception(f"请求Exa MCP失败: {e}")
+            raise ExaFallbackError("Exa搜索请求失败")
+        # 解析 SSE 格式响应（不用 splitlines，避免 Unicode 换行符截断 JSON）
+        for line in resp.content.decode("utf-8").split("\n"):
+            line = line.rstrip("\r")
+            if line.startswith("data: "):
+                return json.loads(line[6:])
+        return json.loads(resp.content.decode("utf-8"))
+    
+    def web_search(self, query: str, num_results: int | None = None) -> str: # exa默认返回10个结果
+        result = self._call_mcp("tools/call", {
+            "name": "web_search_exa",
+            "arguments": {"query": query, "numResults": num_results} if num_results else {"query": query},
+        })
+        try:
+            return result["result"]["content"][0]["text"]
+        except (KeyError, IndexError, TypeError) as e:
+            logger.exception(f"Exa搜索响应格式异常: {e}")
+            raise ExaFallbackError(f"Exa搜索响应格式异常: {e}") from e
+
+    def read_url(self, url: str, max_characters: int | None = 1000000) -> str: # exa默认字符为3000，覆盖默认值
+        result = self._call_mcp("tools/call", {
+            "name": "web_fetch_exa",
+            "arguments": {"urls": [url], "maxCharacters": max_characters} if max_characters else {"urls": [url]},
+        })
+        try:
+            return result["result"]["content"][0]["text"]
+        except (KeyError, IndexError, TypeError) as e:
+            logger.exception(f"Exa读取响应格式异常: {e}")
+            raise ExaFallbackError(f"Exa读取响应格式异常: {e}") from e
 
 class Ncm:
     def __init__(self):
@@ -1565,7 +1652,9 @@ if __name__ != "__main__":
         fileconverter = FileConverter()
 
     if is_bing_crawler_enabled:
-        browser = AsyncCrawler(config["bing_crawler"].get("timeout", 8000), config["bing_crawler"].get("strict_anti_crawl_model", False))
+        if config["bing_crawler"].get("use_reversed_exa_mcp_first", False):
+            exa = ExaMCP(config["bing_crawler"].get("exa_api_key"))
+        browser = AsyncCrawler(config["bing_crawler"].get("timeout", 8000), config["bing_crawler"].get("strict_anti_crawl_model", False), use_exa_first=config["bing_crawler"].get("use_reversed_exa_mcp_first", False))
 
     if is_ncm_enabled:
         ncm = Ncm()

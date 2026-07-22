@@ -13,6 +13,8 @@ server:
 bing_crawler:
   timeout: 10000 # timeout
   strict_anti_crawl_model: true # 是否开启严格反爬模式，模拟用户输入，会造成一次搜索花费两倍时间
+  use_reversed_exa_mcp_first: false # 优先使用 Exa MCP 代理搜索，失败回退浏览器
+  # exa_api_key: "" # Exa MCP API 密钥，可选
 
 ncm:
 
