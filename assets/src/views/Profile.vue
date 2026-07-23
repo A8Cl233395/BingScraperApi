@@ -37,7 +37,7 @@ const newMemory = ref('');
 const isAddingMemory = ref(false);
 const memoryTextareaRef = ref<HTMLTextAreaElement | null>(null);
 
-const activeTab = ref<'account' | 'memory' | 'custom' | 'pet'>('account');
+const activeTab = ref<'account' | 'memory' | 'custom' | 'pet' | 'sessions'>('account');
 const isSidebarOpen = ref(!state.isMobile);
 
 const showLogoutConfirm = ref(false);
@@ -131,9 +131,10 @@ const handleChangePwd = async () => {
     showToast('密码修改成功，即将重新登录...');
     const uid = localStorage.getItem('uid');
     localStorage.removeItem('uid');
+    localStorage.removeItem('session');
     localStorage.removeItem('token');
     setTimeout(() => {
-      window.location.href = `/login?uid=${uid || ''}`;
+      window.location.href = `/login#uid=${uid || ''}`;
     }, 1000);
   } catch (error: any) {
     const status = error.response?.status;
@@ -147,6 +148,83 @@ const handleChangePwd = async () => {
   } finally {
     isChangingPwd.value = false;
   }
+};
+
+// 会话管理
+const sessions = ref<[string, string, number][]>([]);
+const isLoadingSessions = ref(false);
+const showKickConfirm = ref(false);
+const kickingSession = ref('');
+const kickPwd = ref('');
+const kickError = ref('');
+const isKicking = ref(false);
+
+const loadSessions = async () => {
+  try {
+    isLoadingSessions.value = true;
+    const { data } = await api.get('/api/sessions');
+    sessions.value = data;
+  } catch (error: any) {
+    showToast(error.response?.data?.detail || '加载会话失败', 'error');
+  } finally {
+    isLoadingSessions.value = false;
+  }
+};
+
+const currentSession = localStorage.getItem('session') || '';
+
+const handleKickSession = (sessionId: string) => {
+  kickingSession.value = sessionId;
+  kickPwd.value = '';
+  kickError.value = '';
+  showKickConfirm.value = true;
+};
+
+const confirmKickSession = async () => {
+  if (!kickPwd.value.trim()) {
+    kickError.value = '请输入密码';
+    return;
+  }
+
+  try {
+    isKicking.value = true;
+    kickError.value = '';
+    await api.post('/api/kicksession', {
+      session: kickingSession.value,
+      pwd: kickPwd.value
+    });
+    sessions.value = sessions.value.filter(([s]) => s !== kickingSession.value);
+    showKickConfirm.value = false;
+    showToast('会话已踢出');
+  } catch (error: any) {
+    const status = error.response?.status;
+    if (status === 403) {
+      kickError.value = '密码错误';
+      showToast('密码错误', 'error');
+    } else if (status === 404) {
+      kickError.value = '找不到该会话';
+      sessions.value = sessions.value.filter(([s]) => s !== kickingSession.value);
+      showKickConfirm.value = false;
+      showToast('会话已失效', 'error');
+    } else {
+      kickError.value = '操作失败';
+      showToast('操作失败', 'error');
+    }
+  } finally {
+    isKicking.value = false;
+  }
+};
+
+const formatLoginTime = (expireTimestamp: number) => {
+  const loginTimestamp = expireTimestamp - 2592000;
+  const date = new Date(loginTimestamp * 1000);
+
+  return date.toLocaleDateString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 };
 
 const handleAddMemory = async () => {
@@ -218,18 +296,28 @@ const handleLogout = () => {
   showLogoutConfirm.value = true;
 };
 
-const confirmLogout = () => {
+const confirmLogout = async () => {
+  const uid = localStorage.getItem('uid');
+  try {
+    await api.get('/api/logout');
+  } catch {
+    // 忽略请求失败
+  }
   localStorage.removeItem('uid');
+  localStorage.removeItem('session');
   localStorage.removeItem('token');
-  window.location.href = '/login';
+  window.location.href = `/login#uid=${uid || ''}`;
 };
 
 const goBack = () => {
   window.location.href = '/webchat';
 };
 
-const switchTab = (tab: 'account' | 'memory' | 'custom' | 'pet') => {
+const switchTab = (tab: 'account' | 'memory' | 'custom' | 'pet' | 'sessions') => {
   activeTab.value = tab;
+  if (tab === 'sessions' && sessions.value.length === 0) {
+    loadSessions();
+  }
   if (state.isMobile) {
     isSidebarOpen.value = false;
   }
@@ -237,9 +325,13 @@ const switchTab = (tab: 'account' | 'memory' | 'custom' | 'pet') => {
 
 const handleHashChange = () => {
   const hash = window.location.hash;
-  const match = hash.match(/^#\/(account|memory|custom|pet)$/);
+  const match = hash.match(/^#\/(account|memory|custom|pet|sessions)$/);
   if (match) {
-    activeTab.value = match[1] as 'account' | 'memory' | 'custom' | 'pet';
+    const tab = match[1] as 'account' | 'memory' | 'custom' | 'pet' | 'sessions';
+    activeTab.value = tab;
+    if (tab === 'sessions' && sessions.value.length === 0) {
+      loadSessions();
+    }
   } else {
     activeTab.value = 'account';
   }
@@ -259,9 +351,13 @@ onMounted(() => {
   loadProfile();
 
   const hash = window.location.hash;
-  const match = hash.match(/^#\/(account|memory|custom|pet)$/);
+  const match = hash.match(/^#\/(account|memory|custom|pet|sessions)$/);
   if (match) {
-    activeTab.value = match[1] as 'account' | 'memory' | 'custom' | 'pet';
+    const tab = match[1] as 'account' | 'memory' | 'custom' | 'pet' | 'sessions';
+    activeTab.value = tab;
+    if (tab === 'sessions') {
+      loadSessions();
+    }
   }
   window.addEventListener('hashchange', handleHashChange);
 });
@@ -346,6 +442,14 @@ watch(activeTab, (newTab) => {
             >
               <FontAwesomeIcon :icon="['fas', 'paw']" />
               <span>宠物设置</span>
+            </button>
+            <button
+              class="w-full flex items-center gap-2 p-2.5 rounded-md cursor-pointer text-sm transition-colors"
+              :class="activeTab === 'sessions' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
+              @click="switchTab('sessions')"
+            >
+              <FontAwesomeIcon :icon="['fas', 'laptop']" />
+              <span>会话管理</span>
             </button>
           </div>
         </div>
@@ -636,6 +740,47 @@ watch(activeTab, (newTab) => {
         <div v-else-if="activeTab === 'pet'" class="pet-tab-content">
           <PetSettings />
         </div>
+
+        <!-- Sessions Management -->
+        <div v-else-if="activeTab === 'sessions'" class="sessions-section">
+          <div class="sessions-header">
+            <FontAwesomeIcon :icon="['fas', 'laptop']" />
+            <h2>会话管理</h2>
+          </div>
+          <p class="sessions-desc">管理你的登录会话，可以踢出不需要的设备。</p>
+
+          <div v-if="isLoadingSessions" class="loading-state">
+            <FontAwesomeIcon :icon="['fas', 'spinner']" spin />
+            <span>加载中...</span>
+          </div>
+
+          <div v-else-if="sessions.length === 0" class="empty-state">
+            <FontAwesomeIcon :icon="['fas', 'laptop']" />
+            <span>暂无会话</span>
+          </div>
+
+          <div v-else class="sessions-list">
+            <div v-for="([sessionId, note, expire]) in sessions" :key="sessionId" class="session-item">
+              <div class="session-info">
+                <div class="session-main">
+                  <span class="session-device">{{ note || '未知设备' }}</span>
+                  <span v-if="sessionId === currentSession" class="session-badge current">当前</span>
+                </div>
+                <div class="session-meta">
+                  <span class="session-login-time">{{ formatLoginTime(expire) }}</span>
+                </div>
+              </div>
+              <button
+                v-if="sessionId !== currentSession"
+                class="kick-btn"
+                @click="handleKickSession(sessionId)"
+              >
+                <FontAwesomeIcon :icon="['fas', 'right-from-bracket']" />
+                <span>踢出</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -650,6 +795,44 @@ watch(activeTab, (newTab) => {
       @confirm="confirmLogout"
       @cancel="showLogoutConfirm = false"
     />
+
+    <!-- Kick Session Modal -->
+    <div v-if="showKickConfirm" class="modal-overlay" @click.self="showKickConfirm = false">
+      <div class="kick-modal">
+        <div class="kick-modal-header">
+          <FontAwesomeIcon :icon="['fas', 'right-from-bracket']" />
+          <h3>踢出会话</h3>
+        </div>
+        <div class="kick-modal-body">
+          <p>请输入密码以确认踢出该会话。</p>
+          <div class="form-group">
+            <input
+              type="password"
+              v-model="kickPwd"
+              class="form-input"
+              placeholder="请输入密码"
+              @keydown.enter="confirmKickSession"
+              autofocus
+            >
+          </div>
+          <div v-if="kickError" class="error-message">
+            <FontAwesomeIcon :icon="['fas', 'triangle-exclamation']" />
+            {{ kickError }}
+          </div>
+        </div>
+        <div class="kick-modal-footer">
+          <button class="cancel-btn" @click="showKickConfirm = false">取消</button>
+          <button
+            class="confirm-kick-btn"
+            :disabled="isKicking"
+            @click="confirmKickSession"
+          >
+            <FontAwesomeIcon v-if="isKicking" :icon="['fas', 'spinner']" spin />
+            <span>确认踢出</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1364,6 +1547,220 @@ watch(activeTab, (newTab) => {
   .theme-options {
     grid-template-columns: 1fr;
   }
+}
+
+/* 会话管理 */
+.sessions-section {
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.sessions-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--text-main);
+}
+
+.sessions-header svg {
+  font-size: 1rem;
+  color: var(--primary);
+}
+
+.sessions-header h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.sessions-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0 0 20px 0;
+}
+
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.session-item:hover {
+  border-color: var(--primary);
+  background-color: var(--bg-hover);
+}
+
+.session-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.session-device {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.session-badge {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.session-badge.current {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.kick-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background-color: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.kick-btn:hover {
+  background-color: var(--danger);
+  color: white;
+}
+
+/* 踢出会话弹窗 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.kick-modal {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 400px;
+  margin: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.kick-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 24px 0;
+  color: var(--text-main);
+}
+
+.kick-modal-header svg {
+  color: var(--danger);
+}
+
+.kick-modal-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.kick-modal-body {
+  padding: 16px 24px;
+}
+
+.kick-modal-body p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0 0 16px 0;
+}
+
+.kick-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+}
+
+.cancel-btn {
+  padding: 8px 16px;
+  background-color: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cancel-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.confirm-kick-btn {
+  padding: 8px 16px;
+  background-color: var(--danger);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.confirm-kick-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.confirm-kick-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 </style>

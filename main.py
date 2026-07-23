@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from functools import wraps 
+from typing import Annotated
 from fastapi import FastAPI, Request, HTTPException, WebSocketDisconnect
 from fastapi.params import Query, Body
 from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse, FileResponse
@@ -92,12 +93,16 @@ async def verify_key_middleware(request: Request, call_next):
     elif is_webchat_enabled and request.url.path.startswith("/api/"):
         uid = request.headers.get('uid')
         try:
-            uid = int(uid)
+            uid = int(uid) # type: ignore
         except (ValueError, TypeError):
             return PlainTextResponse(status_code=401, content="require key")
         if not usermanager.is_user_exist(uid):
             return PlainTextResponse(status_code=401, content="require key")
-        if not usermanager.get_user(uid).verify_token(request.headers.get('token')):
+        session = request.headers.get('session')
+        token = request.headers.get('token')
+        if not isinstance(session, str) or not isinstance(token, str):
+            return PlainTextResponse(status_code=401, content="require key")
+        if not usermanager.get_user(uid).verify_token(session, token):
             return PlainTextResponse(status_code=401, content="require key")
         return await call_next(request)
     key = request.headers.get('key')
@@ -153,6 +158,10 @@ if is_web_function_enabled:
     
     web_paths = [f"/assets/{filename}" for filename in os.listdir("assets/dist/assets") if not filename.endswith(('.br', '.gz'))]
 
+    def verify_turnstile(challenge: str):
+        response = requests.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', data={'secret': TURNSTILE_SECRET, "response": challenge}).json()
+        return response["success"]
+
 # 自定义请求验证错误处理 - 参数错误时返回 bad arguments
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -204,7 +213,7 @@ if is_download_service_required:
 
 if is_bing_crawler_enabled:
     @app.get("/search", response_class=PlainTextResponse)
-    def search(q: str, limit: int = Query(None)):
+    def search(q: str, limit: Annotated[int | None, Query()] = None):
         if limit is not None:
             try:
                 limit = int(limit)
@@ -221,7 +230,7 @@ if is_bing_crawler_enabled:
 
 if is_ncm_enabled:
     @app.get("/ncmlyric", response_class=PlainTextResponse)
-    def lyric(id: str = Query(None), url: str = Query(None)):
+    def lyric(id: Annotated[str | None, Query()] = None, url: Annotated[str | None, Query()] = None):
         try:
             if not id:
                 if url:
@@ -266,7 +275,7 @@ if is_vr_enabled:
         return result
 
     @app.post("/voicerecognition", response_class=PlainTextResponse)
-    def recognition_post(data: bytes = Body(...)):
+    def recognition_post(data: Annotated[bytes, Body()]):
         result = vr.transcribe_from_data(data)
         return result
 
@@ -279,7 +288,7 @@ if is_ocr_enabled:
         return result
 
     @app.post("/ocr", response_class=PlainTextResponse)
-    def ocr_post(data: bytes = Body(...)):
+    def ocr_post(data: Annotated[bytes, Body()]):
         if not data:
             raise HTTPException(status_code=400, detail="require data")
         result = ocr_service.extract_text_from_data(data)
@@ -296,9 +305,8 @@ if is_invite_enabled:
         return FileResponse("assets/dist/invite.html")
     
     @app.post("/invite", response_class=PlainTextResponse)
-    def invite_post(data: InvitePost = Body(...)):
-        response = requests.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', data={'secret': TURNSTILE_SECRET, "response": data.challenge}).json()
-        if not response["success"]:
+    def invite_post(data: Annotated[InvitePost, Body()]):
+        if not verify_turnstile(data.challenge):
             raise HTTPException(status_code=400, detail="Invalid challenge")
         if invitemanager.verify_invite_code(data.invite):
             return invitemanager.generate_invite_token(data.qqid)
@@ -306,13 +314,13 @@ if is_invite_enabled:
             raise HTTPException(status_code=400, detail="Invalid invite code")
     
     @app.get("/invitecodegen", response_class=PlainTextResponse)
-    def invitecodegen(key: str = Query(...)):
+    def invitecodegen(key: Annotated[str, Query()]):
         if key != INVITE_CODE_KEY:
             raise HTTPException(status_code=401, detail="require key")
         return invitemanager.generate_invite_code()
 
     @app.get("/invitecheck", response_class=JSONResponse)
-    def invitecheck(qqid: int = Query(...), token: str = Query(...)):
+    def invitecheck(qqid: Annotated[int, Query()], token: Annotated[str, Query()]):
         if invitemanager.verify_invite_token(qqid, token):
             return True
         else:
@@ -360,7 +368,7 @@ if is_webchat_enabled:
         return FileResponse("assets/dist/profile.html")
     
     @app.get("/checkpwd", response_class=PlainTextResponse)
-    def checkpwd(uid: int = Query(...)):
+    def checkpwd(uid: Annotated[int, Query()]):
         if not usermanager.is_user_exist(uid):
             webchat.init_user(uid)
         user = usermanager.get_user(uid)
@@ -371,7 +379,7 @@ if is_webchat_enabled:
         return pwd
 
     @app.get("/resetpwd", response_class=PlainTextResponse)
-    def resetpwd(uid: int = Query(...)):
+    def resetpwd(uid: Annotated[int, Query()]):
         if not usermanager.is_user_exist(uid):
             webchat.init_user(uid)
         user = usermanager.get_user(uid)
@@ -382,15 +390,28 @@ if is_webchat_enabled:
     class LoginPost(BaseModel):
         uid: int
         pwd: str
+        challenge: str
     
-    @app.post("/api/login", response_class=PlainTextResponse)
-    def api_login(data: LoginPost = Body(...)):
+    @app.post("/api/login", response_class=JSONResponse)
+    def api_login(request: Request, data: Annotated[LoginPost, Body()]):
+        if not verify_turnstile(data.challenge):
+            raise HTTPException(status_code=400, detail="Invalid challenge")
         if not usermanager.is_user_exist(data.uid):
-            raise HTTPException(status_code=401, detail="Invalid Password")
+            raise HTTPException(status_code=403, detail="Invalid Password")
         user = usermanager.get_user(data.uid)
         if not user.checkpwd(data.pwd):
-            raise HTTPException(status_code=401, detail="Invalid Password")
-        return user.get_web_token()
+            raise HTTPException(status_code=403, detail="Invalid Password")
+        ua = request.headers["user-agent"]
+        match = re.match(r'.*(Android|iPhone|iPad|Windows|Mac|Linux).*?(Chrome|Firefox|Safari|Edge|Opera)/(\d+)', ua)
+        login = user.create_session(f'{match[1]} {match[2]} {match[3]}' if match else ua)
+        return {"session": login.session_id, "token": login.token}
+
+    @app.get("/api/logout", response_class=PlainTextResponse)
+    def api_logout(request: Request):
+        uid = int(request.headers["uid"])
+        user = usermanager.get_user(uid)
+        user.kick_session(request.headers["session"])
+        return "success"
     
     @app.get("/api/home", response_class=JSONResponse)
     def api_home(request: Request):
@@ -402,15 +423,6 @@ if is_webchat_enabled:
         uid = int(request.headers["uid"])
         return webchat.get_config(uid)
     
-    class ChatPost(BaseModel):
-        id: int | None = Field(None)
-        parent: str | None = Field(None)
-        content: list[dict[str, str | dict[str, str]]] | str = Field(...)
-        enable_function: bool | None = Field(None)
-        thinking: bool | None = Field(None)
-        model: str | None = Field(None)
-        vmodel: str | None = Field(None)
-
     def validate_chat_post(data: ChatPost) -> None:
         v = data.content
 
@@ -449,8 +461,8 @@ if is_webchat_enabled:
 
                     try:
                         img_url_dict = item["image_url"]
-                        url = img_url_dict["url"]
-                    except KeyError:
+                        url = img_url_dict["url"]  # type: ignore[arg-type]
+                    except (KeyError, TypeError):
                         raise ValueError("图片字典缺少 'image_url' 或 'url' 字段")
 
                     if len(img_url_dict) != 1:
@@ -512,24 +524,24 @@ if is_webchat_enabled:
     
     @app.post("/api/chat", response_class=StreamingResponse)
     @user_rate_limit(10)
-    async def api_chat(request: Request, data: ChatPost = Body(...)):
+    async def api_chat(request: Request, data: Annotated[ChatPost, Body()]):
         try:
             await asyncio.to_thread(validate_chat_post, data)
         except ValueError as e:
             # raise HTTPException(status_code=400, detail=str(e)) # 不返回详细错误信息
             raise HTTPException(status_code=400, detail="bad arguments")
 
-        generator = await webchat.chat(int(request.headers["uid"]), data.model_dump())
+        generator = await webchat.chat(int(request.headers["uid"]), data)
         return StreamingResponse(generator, media_type="text/event-stream")
 
     @app.get("/api/reconnect", response_class=StreamingResponse)
-    async def api_reconnect(request: Request, id: int = Query(...), node_id: str = Query(...)):
+    async def api_reconnect(request: Request, id: Annotated[int, Query()], node_id: Annotated[str, Query()]):
         generator = webchat.reconnect(int(request.headers["uid"]), id, node_id)
         return StreamingResponse(generator, media_type="text/event-stream")
 
     @app.get("/api/cancel", response_class=PlainTextResponse)
     @user_rate_limit(30)
-    def api_cancel(request: Request, id: int = Query(...), node_id: str = Query(...)):
+    def api_cancel(request: Request, id: Annotated[int, Query()], node_id: Annotated[str, Query()]):
         uid = int(request.headers["uid"])
         user = usermanager.get_user(uid)
         sc = user.streaming_cache.get((id, node_id))
@@ -544,7 +556,8 @@ if is_webchat_enabled:
         enable_function: bool | None = Field(None)
 
         @field_validator('model')
-        def validate_model(v):
+        @classmethod
+        def validate_model(cls, v: str | None):
             if v is None:
                 return v
             if v not in MODELS or MODELS[v].get("hidden", False):
@@ -552,7 +565,8 @@ if is_webchat_enabled:
             return v
         
         @field_validator('vmodel')
-        def validate_vmodel(v):
+        @classmethod
+        def validate_vmodel(cls, v: str | None):
             if v is None:
                 return v
             if v not in MODELS or MODELS[v].get("hidden", False):
@@ -562,19 +576,19 @@ if is_webchat_enabled:
             return v
 
     @app.post("/api/config", response_class=PlainTextResponse)
-    def api_config_set(request: Request, data: DefaultPost = Body(...)):
+    def api_config_set(request: Request, data: Annotated[DefaultPost, Body()]):
         user = usermanager.get_user(int(request.headers["uid"]))
         config_version = user.set_config(data.model_dump(exclude_unset=True))
         return config_version
     
     @app.get("/api/history", response_class=JSONResponse)
-    def api_history(request: Request, before: int = Query(None), after: int = Query(None), limit: int = Query(10, ge=1, le=100)):
+    def api_history(request: Request, before: Annotated[int | None, Query()] = None, after: Annotated[int | None, Query()] = None, limit: Annotated[int, Query(ge=1, le=100)] = 10):
         uid = int(request.headers["uid"])
         history = webchat.get_history(uid, before, after, limit)
         return history
     
     @app.get("/api/message", response_class=JSONResponse)
-    def api_message(request: Request, id: int = Query(...)):
+    def api_message(request: Request, id: Annotated[int, Query()]):
         user_id = int(request.headers["uid"])
         message = webchat.get_message(user_id, id)
         return message
@@ -584,7 +598,7 @@ if is_webchat_enabled:
         return webchat.get_models()
     
     @app.get("/api/delete", response_class=PlainTextResponse)
-    def api_delete(request: Request, id: int = Query(...)):
+    def api_delete(request: Request, id: Annotated[int, Query()]):
         user_id = int(request.headers["uid"])
         webchat.delete_chat(user_id, id)
         return "success"
@@ -593,7 +607,8 @@ if is_webchat_enabled:
         image: str
 
         @field_validator('image')
-        def validate_image(v):
+        @classmethod
+        def validate_image(cls, v: str):
             try:
                 image_bytes = base64.b64decode(v)
             except Exception:
@@ -611,7 +626,7 @@ if is_webchat_enabled:
     
     @app.post("/api/ocr", response_class=PlainTextResponse)
     @user_rate_limit(10)
-    def api_ocr(request: Request, data: OCRPost = Body(...)):
+    def api_ocr(request: Request, data: Annotated[OCRPost, Body()]):
         try:
             return ocr_service.extract_text_from_b64(data.image)
         except Exception as e:
@@ -626,7 +641,7 @@ if is_webchat_enabled:
 
     @app.post("/api/vr", response_class=PlainTextResponse)
     @user_rate_limit(10)
-    def api_vr(request: Request, data: bytes = Body(...)):
+    def api_vr(request: Request, data: Annotated[bytes, Body()]):
         format = request.headers.get("format", "")
         if not data or not format:
             raise HTTPException(status_code=400, detail="require data and format header")
@@ -643,7 +658,7 @@ if is_webchat_enabled:
 
     @app.post("/api/markitdown", response_class=PlainTextResponse)
     @user_rate_limit(10)
-    def api_markitdown(request: Request, data: bytes = Body(...)):
+    def api_markitdown(request: Request, data: Annotated[bytes, Body()]):
         format = request.headers.get("format", "")
         if not data or not format:
             raise HTTPException(status_code=400, detail="require data and format header")
@@ -659,7 +674,7 @@ if is_webchat_enabled:
         new_pwd: str
     
     @app.post("/api/changepwd", response_class=PlainTextResponse)
-    def api_changepwd(request: Request, data: ChangePwdPost = Body(...)):
+    def api_changepwd(request: Request, data: Annotated[ChangePwdPost, Body()]):
         user = usermanager.get_user(int(request.headers["uid"]))
         if not user.checkpwd(data.old_pwd):
             raise HTTPException(status_code=403, detail="旧密码错误")
@@ -675,16 +690,37 @@ if is_webchat_enabled:
     
     @app.post("/api/addmem", response_class=PlainTextResponse)
     @user_rate_limit(30)
-    def api_addmem(request: Request, data: str = Body(...)):
+    def api_addmem(request: Request, data: Annotated[str, Body()]):
         uid = int(request.headers["uid"])
         webchat.add_memory(uid, data.strip())
         return "success"
     
     @app.post("/api/removemem", response_class=PlainTextResponse)
     @user_rate_limit(30)
-    def api_removemem(request: Request, data: str = Body(...)):
+    def api_removemem(request: Request, data: Annotated[str, Body()]):
         uid = int(request.headers["uid"])
         webchat.remove_memory(uid, data.strip())
+        return "success"
+
+    @app.get("/api/sessions", response_class=JSONResponse)
+    def api_sessions(request: Request):
+        uid = int(request.headers["uid"])
+        user = usermanager.get_user(uid)
+        return user.list_sessions()
+
+    class SessionKickPost(BaseModel):
+        session: str
+        pwd: str
+
+    @app.post("/api/kicksession", response_class=PlainTextResponse)
+    def api_session_kick(request: Request, data: Annotated[SessionKickPost, Body()]):
+        uid = int(request.headers["uid"])
+        user = usermanager.get_user(uid)
+        if not user.checkpwd(data.pwd):
+            raise HTTPException(status_code=403, detail="Invalid Password")
+        if data.session not in user.sessions:
+            raise HTTPException(status_code=404, detail="Session ID not found")
+        user.kick_session(data.session)
         return "success"
 
 if __name__ == '__main__':

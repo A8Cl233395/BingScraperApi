@@ -242,6 +242,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
   messages.value = [...messages.value];
 
   const sseState = { signal: 'answering', toolCallId: '', toolEntry: null as AssistantMessage | null, assistantEntry: null as AssistantMessage | null };
+  const session = localStorage.getItem('session');
   const token = localStorage.getItem('token');
   const uid = localStorage.getItem('uid');
 
@@ -264,7 +265,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
       `${import.meta.env.VITE_API_BASE}/api/reconnect?id=${chatId}&node_id=${nodeId}`,
       {
         method: 'GET',
-        headers: { 'token': token || '', 'uid': uid || '' },
+        headers: { 'session': session || '', 'token': token || '', 'uid': uid || '' },
         signal: currentController.signal,
         openWhenHidden: true,
         async onopen(response) {
@@ -406,6 +407,7 @@ const handleSend = async (content: any, parent?: string) => {
   if (state.isEnableFunction !== state.defaultSettings.enable_function) body.enable_function = state.isEnableFunction;
 
   const sseState = { signal: 'answering', toolCallId: '', toolEntry: null as AssistantMessage | null, assistantEntry: null as AssistantMessage | null };
+  const session = localStorage.getItem('session');
   const token = localStorage.getItem('token');
   const uid = localStorage.getItem('uid');
 
@@ -426,6 +428,7 @@ const handleSend = async (content: any, parent?: string) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'session': session || '',
         'token': token || '',
         'uid': uid || ''
       },

@@ -5,7 +5,7 @@ import re
 import sqlite3
 from typing import AsyncGenerator
 from urllib.parse import quote_plus, urlparse
-from playwright.async_api import async_playwright, Browser, TimeoutError as PwTimeoutError
+from playwright.async_api import BrowserContext, Playwright, async_playwright, Browser, TimeoutError as PwTimeoutError
 from collections import OrderedDict
 from fastapi import HTTPException
 from openai import AsyncOpenAI
@@ -13,6 +13,7 @@ import time
 import threading
 from fastapi import WebSocket
 import json
+from pydantic import BaseModel, Field
 import requests
 import yaml
 import os
@@ -36,12 +37,12 @@ import bcrypt
 class AsyncCrawler:
     def __init__(self, timeout=8000, strict_anti_crawl_model=False, use_exa_first=False):
         self.timeout = timeout
-        self._browser: Browser = None
-        self._context = None
-        self._pw = None
-        self._page_semaphore: asyncio.Semaphore = None
-        self._loop: asyncio.AbstractEventLoop = None
-        self._thread: threading.Thread = None
+        self._browser: None | Browser = None
+        self._context: None | BrowserContext = None
+        self._pw: None | Playwright = None
+        self._page_semaphore: None | asyncio.Semaphore = None
+        self._loop: None | asyncio.AbstractEventLoop = None
+        self._thread: None | threading.Thread = None
         self.strict_anti_crawl_model = strict_anti_crawl_model
         if not strict_anti_crawl_model:
             self._warmed_up = False
@@ -75,7 +76,7 @@ class AsyncCrawler:
         await self._launch_browser()
 
     async def _launch_browser(self):
-        self._browser = await self._pw.firefox.launch(
+        self._browser = await self._pw.firefox.launch(  # type: ignore
             headless=True,
             firefox_user_prefs={
                 "intl.accept_languages": "zh-CN,zh,en-US,en"
@@ -156,8 +157,8 @@ class AsyncCrawler:
     async def _get_page(self):
         """获取一个 page，受信号量限制；浏览器挂了会原地重启"""
         await self._ensure_browser()
-        await self._page_semaphore.acquire()
-        page = await self._context.new_page()
+        await self._page_semaphore.acquire()  # type: ignore
+        page = await self._context.new_page()  # type: ignore
         page.set_default_timeout(self.timeout)
         return page
 
@@ -166,9 +167,9 @@ class AsyncCrawler:
             await page.close()
         except Exception:
             pass
-        self._page_semaphore.release()
+        self._page_semaphore.release()  # type: ignore
 
-    async def _search(self, query: str, limit: int = None) -> str:
+    async def _search(self, query: str, limit: int | None = None) -> str:
         if not query:
             return "require query"
 
@@ -283,7 +284,7 @@ class AsyncCrawler:
                     return text
                 # Fallback: get body innerText
                 body_text = await page.text_content('body')
-                return re.sub(r"\n{2,}", "\n", body_text)
+                return re.sub(r"\n{2,}", "\n", body_text) if body_text else "(empty)"
             except Exception as e:
                 logger.exception(f"读取网页内容失败: {url}")
                 return f"Internal Server Error: {e}! But this is not your fault ヽ(*。>Д<)o゜"
@@ -327,7 +328,7 @@ class ExaMCP:
 
     def __init__(self, api_key: None | str = None):
         self.api_key: None | str = api_key
-        self.cooldown_until: int = 0
+        self.cooldown_until: float = 0
     
     def _call_mcp(self, method: str, params: dict) -> dict:
         if self.cooldown_until > time.time():
@@ -348,7 +349,7 @@ class ExaMCP:
             resp = requests.post(self.api_url, json=payload, headers=headers, timeout=60)
             resp.raise_for_status()
         except requests.HTTPError as e:
-            if resp.status_code == 429:
+            if resp.status_code == 429: # type: ignore
                 logger.error("Exa搜索达到额度限制")
                 self.cooldown_until = time.time() + 600
                 raise ExaFallbackError("Exa搜索冷却中")
@@ -504,8 +505,8 @@ class VoiceRecognition: # TODO: 检查API是否返回报错，而不是默认api
         self.services = services
         self.balancing_index = 0
         self.require_link = services[self.balancing_index]["type"] == "aliyun"
-    
-    def audio_transcription_aliyun(key, model, file_url):
+
+    def audio_transcription_aliyun(self, key, model, file_url):
         url = "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription"
         headers = {
             "Authorization": f"Bearer {key}",
@@ -521,15 +522,15 @@ class VoiceRecognition: # TODO: 检查API是否返回报错，而不是默认api
         try:
             result = requests.post(url, json=data, headers=headers).json()
             task_id = result["output"]["task_id"]
-            result_url = VoiceRecognition.get_aliyun_stt_result_loop(key, task_id)
+            result_url = self.get_aliyun_stt_result_loop(key, task_id)
             text_json = requests.get(result_url).json()
             text = text_json["transcripts"][0]['text']
             return text
         except Exception as e:
             logger.exception(f"VoiceRecognition 失败: {str(e)}")
             raise Exception(f"VoiceRecognition failed: {str(e)}")
-
-    def get_aliyun_stt_result_loop(key, task_id):
+    
+    def get_aliyun_stt_result_loop(self, key, task_id):
         url = f"https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
         headers = {"Authorization": f"Bearer {key}"}
         time.sleep(2)
@@ -542,7 +543,7 @@ class VoiceRecognition: # TODO: 检查API是否返回报错，而不是默认api
             else:
                 raise Exception(result)
     
-    def audio_transcription_azure(url, key, audio_data=None, audio_url=None) -> str:
+    def audio_transcription_azure(self, url, key, audio_data=None, audio_url=None) -> str:
         params = {
             "url": url,
             "headers": {
@@ -570,9 +571,9 @@ class VoiceRecognition: # TODO: 检查API是否返回报错，而不是默认api
         self.balancing_index = (self.balancing_index + 1) % len(self.services)
 
         if service["type"] == "aliyun":
-            return VoiceRecognition.audio_transcription_aliyun(service["key"], service["model"], audio_url)
+            return self.audio_transcription_aliyun(service["key"], service["model"], audio_url)
         elif service["type"] == "azure":
-            return VoiceRecognition.audio_transcription_azure(service["url"], service["key"], audio_url=audio_url)
+            return self.audio_transcription_azure(service["url"], service["key"], audio_url=audio_url)
         return ""
 
     def transcribe_from_data(self, audio_data) -> str:
@@ -581,9 +582,9 @@ class VoiceRecognition: # TODO: 检查API是否返回报错，而不是默认api
 
         if service["type"] == "aliyun":
             audio_url = generate_download_link(audio_data)
-            return VoiceRecognition.audio_transcription_aliyun(service["key"], service["model"], audio_url)
+            return self.audio_transcription_aliyun(service["key"], service["model"], audio_url)
         elif service["type"] == "azure":
-            return VoiceRecognition.audio_transcription_azure(service["url"], service["key"], audio_data)
+            return self.audio_transcription_azure(service["url"], service["key"], audio_data)
         return ""
 
 class OCR:
@@ -662,7 +663,7 @@ class FileConverter:
             raise Exception(f"不支持的文件格式: {format}")
         file_sha256 = sha256(file).digest()
         if self.sha256_text_cache.get(file_sha256):
-            return self.sha256_text_cache.get(file_sha256)
+            return self.sha256_text_cache.get(file_sha256)  # type: ignore
         try:
             converter_result = self.mappings[format].convert(io.BytesIO(file), StreamInfo(extension=format))
             result = converter_result.markdown
@@ -674,7 +675,7 @@ class FileConverter:
 
 class InviteManager:
     def __init__(self):
-        self.invite_tokens: dict[int, tuple[str, int]] = {}
+        self.invite_tokens: dict[int, tuple[str, float]] = {}
         self.invite_codes: list[str] = []
     
     def generate_invite_token(self, user_id: int, expires_in: int = 60 * 5) -> str:
@@ -750,6 +751,11 @@ class StreamingCache:
     condition: asyncio.Condition
     current_task: asyncio.Task | None = None
 
+@dataclass
+class UserSession:
+    session_id: str
+    token: str
+
 class User:
     def __init__(self, user_id: int):
         self.user_id: int = user_id
@@ -762,28 +768,27 @@ class User:
                 self.model = config["webchat"]["default-model"]
                 self.vision_model = config["webchat"]["default-vision-model"]
                 self.thinking = False
-                self.enable_function = None
-                self.token = None
-                self.expire = 0
+                self.enable_function = False
+                self.sessions = {}
                 self.secret = None
-                self.config_version = ""
+                self.config_version = "0"
         else:
             with open(f"link_datas/{user_id}.json", "r", encoding="utf-8") as f:
                 logger.debug(f"正在从文件加载用户 {user_id} 数据")
-                data = json.load(f)
+                data: dict = json.load(f)
                 self.memory: list[str] = data["memory"]
                 if is_webchat_enabled:
                     self.model: str = data.get("model", config["webchat"]["default-model"])
                     self.vision_model: str = data.get("vision_model", config["webchat"]["default-vision-model"])
                     self.thinking: bool = data.get("thinking", False)
                     self.enable_function: bool = data.get("enable_function", False)
-                    self.token: str | None = data.get("token", None)
-                    self.expire: int = data.get("expire", 0)
+                    self.sessions: dict[str, dict] = data.get("sessions", {}) if isinstance(data.get("sessions"), dict) else {}
                     self.secret: bytes | None = data["secret"].encode() if data.get("secret") else None
                     self.config_version: str = data.get("config_version", "0")
-        self.chat_cache: dict[int, list[ChatInstance, float]] = {}
+        self.chat_cache: dict[int, ChatInstance] = {}
         # tuple: (chat_id, node_id)
         self.streaming_cache: dict[tuple[int, str], StreamingCache] = {}
+        self.clear_expired_sessions()
     
     @property
     def data(self) -> dict:
@@ -793,8 +798,7 @@ class User:
             "vision_model": self.vision_model,
             "thinking": self.thinking,
             "enable_function": self.enable_function,
-            "token": self.token,
-            "expire": self.expire,
+            "sessions": self.sessions,
             "secret": self.secret.decode() if self.secret else None,
             "config_version": self.config_version,
         }
@@ -841,36 +845,45 @@ class User:
             self.memory.remove(memory)
         return True
     
-    def verify_token(self, token: str):
-        if time.time() > self.expire:
+    def verify_token(self, session_id: str, token: str) -> bool:
+        if session_id not in self.sessions:
             return False
-        return self.token == token
-    
-    def get_web_token(self):
-        if time.time() > self.expire: # 令牌过期
-            self._recreate_token()
-        else:
-            self._refresh_token()
-        return self.token
-    
-    def _recreate_token(self):
-        self.token = base64.b64encode(os.urandom(32)).decode('utf-8')
-        self.expire = time.time() + 2592000 # 30d
-    
-    def _refresh_token(self):
-        self.expire = time.time() + 2592000 # 30d
-    
-    def destroy_token(self):
-        self.token = None
-        self.expire = 0
+        session = self.sessions[session_id]
+        return time.time() < session["expire"] and session["token"] == token
 
+    def create_session(self, note: str) -> UserSession:
+        session_id = os.urandom(2).hex()
+        while session_id in self.sessions:
+            session_id = session_id + os.urandom(2).hex()
+        token = base64.b64encode(os.urandom(30)).decode()
+        self.sessions[session_id] = {
+            "token": token,
+            "expire": time.time() + 2592000,  # 30d
+            "note": note,
+        }
+        return UserSession(session_id, token)
+    
     def checkpwd(self, pwd: str) -> bool:
+        if not self.secret:
+            return False
         return bcrypt.checkpw(pwd.encode(), self.secret)
 
     def setpwd(self, pwd: str) -> str:
-        self._recreate_token()
+        self.sessions.clear()
         self.secret = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt(BCRYPT_COST))
         return pwd
+
+    def list_sessions(self):
+        return [(session_id, v["note"], v["expire"]) for session_id, v in self.sessions.items()]
+
+    def kick_session(self, session_id: str):
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+
+    def clear_expired_sessions(self):
+        expired = [sid for sid, v in self.sessions.items() if time.time() > v["expire"]]
+        for session_id in expired:
+            self.kick_session(session_id)
     
     def set_config(self, data: dict):
         if "model" in data:
@@ -943,11 +956,12 @@ class ChatInstance:
             },
         }
     ]
-    def __init__(self, user: User, chat_tree: dict = None):
+    def __init__(self, user: User, chat_tree: dict = None):  # type: ignore
         self.system_prompt = self._build_system_message(user)
         self.user = user
         self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "vision": False, "iteration": -1}}
         self.streaming = False
+        self.last_active: float = None # hack! # type: ignore
 
     async def _ai(self, model, messages, thinking, enable_function):
         params = {
@@ -965,19 +979,20 @@ class ChatInstance:
         client = get_oclient(model)
         return await client.chat.completions.create(**params)
 
-    async def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages=None, current_node_assistant_messages=None, _model=None) -> AsyncGenerator[str, None]:
+    async def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages: list | None = None, current_node_assistant_messages=None, _model=None) -> AsyncGenerator[str | asyncio.Task, None]:
         try:
             self.streaming = True
+            self.last_active = time.time() # 更新缓存时间
             # 检查多模态
             if not self.chat_tree["root"]["vision"]:
                 if isinstance(content, list) and content[0]["type"] == "image_url": # 应该先在网关校验
                     self.chat_tree["root"]["vision"] = True
             # 初始化单轮次内容
-            _model: str = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["vision"] else (model or self.user.model)) # 锁定模型
+            _model = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["vision"] else (model or self.user.model)) # 锁定模型
             thinking = thinking if thinking is not None else self.user.thinking # 锁定思考
             enable_function = enable_function if enable_function is not None else self.user.enable_function # 锁定是否启用函数
             if current_messages is None: # 初始化或继承当前消息
-                current_messages: list = self._build_messages(self.chat_tree[node_id]["parent"])
+                current_messages = self._build_messages(self.chat_tree[node_id]["parent"])
                 current_messages.append({"role": "user", "content": content})
             current_node_assistant_messages = current_node_assistant_messages or [] # 初始化或继承当前节点助手消息
             # 开始生成
@@ -1189,7 +1204,7 @@ class ChatInstance:
         self.chat_tree[parent]["child"].append(node_id)
         return node_id
     
-    def _sse(self, data: str, event: str = None) -> str:
+    def _sse(self, data: str, event: str | None = None) -> str:
         if event:
             return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
         else:
@@ -1208,7 +1223,7 @@ class ChatInstance:
             curr = node["parent"]
         return [msg for node_msgs in reversed(path) for msg in node_msgs]
     
-    def _build_messages(self, parent: str = None) -> list:
+    def _build_messages(self, parent: str) -> list:
         '''
         带有系统提示的对话消息
         '''
@@ -1263,10 +1278,10 @@ class ChatInstance:
     def customize_reader(url):
         domain_regex = r"^(?:https?:)?(?:\/\/)?([^\/\?:]+)(?:[\/\?:].*)?$"
         try:
-            domain = re.search(domain_regex, url).group(1)
+            domain = re.search(domain_regex, url).group(1) # type: ignore
             match domain:
                 case "music.163.com":
-                    song_id = re.search(r"id=(\d+)", url).group(1)
+                    song_id = re.search(r"id=(\d+)", url).group(1) # type: ignore
                     return ncm.get_details_text(song_id)
                 case "163cn.tv":
                     final_url = AsyncCrawler.get_final_url(url)
@@ -1285,6 +1300,15 @@ class ChatInstance:
                     return browser.read(url)
         except Exception:
             return browser.read(url)
+
+class ChatPost(BaseModel):
+    id: int | None = Field(None)
+    parent: str = Field(...)
+    content: list[dict[str, str | dict[str, str]]] | str = Field(...)
+    enable_function: bool | None = Field(None)
+    thinking: bool | None = Field(None)
+    model: str | None = Field(None)
+    vmodel: str | None = Field(None)
 
 class Webchat:
     def __init__(self):
@@ -1305,15 +1329,15 @@ class Webchat:
             time.sleep(60)
             for user in usermanager.get_all_users():
                 chat_cache_copy = user.chat_cache.copy()
-                for chat_id, k in chat_cache_copy.items():
-                    if time.time() - k[1] > 60 * 5: # 5min
-                        if k[0].streaming: # 正在流中，不保存
+                for chat_id, chat_instance in chat_cache_copy.items():
+                    if time.time() - chat_instance.last_active > 60 * 5: # 5min
+                        if chat_instance.streaming: # 正在流中，不保存
                             continue
                         self._save_chat(user, chat_id)
                         try:
                             del user.chat_cache[chat_id]
                         except Exception:
-                            logger.debug(f"删除聊天缓存失败，可能已被其他线程删除: user={user.user_id}, chat={chat_id}")
+                            logger.exception(f"删除聊天缓存失败，可能已被其他线程删除: user={user.user_id}, chat={chat_id}")
     
     def _init_user_table(self, user_id: int):
         with self.conn:
@@ -1321,8 +1345,8 @@ class Webchat:
             cursor.execute(f"CREATE TABLE IF NOT EXISTS u{user_id} (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, compressed_message BLOB)")
     
     def _compress(self, data: dict) -> bytes:
-        data = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        compressed = zstandard.compress(data)
+        json_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        compressed = zstandard.compress(json_bytes)
         return compressed
     
     def _decompress(self, compressed: bytes) -> dict:
@@ -1336,13 +1360,15 @@ class Webchat:
             cursor = self.conn.cursor()
             cursor.execute(f"INSERT INTO u{user.user_id} (title, compressed_message) VALUES (?, ?)", ("新对话", None))
             id = cursor.lastrowid
-        user.chat_cache[id] = [chat_instance, time.time()]
+            if id is None:
+                logger.exception(f"创建新对话失败: user={user.user_id}")
+                raise Exception("创建新对话失败")
+        user.chat_cache[id] = chat_instance
         return (id, chat_instance)
     
     def _prepare_chat(self, user: User, chat_id: int):
         if chat_id in user.chat_cache: # 缓存中存在
-            user.chat_cache[chat_id][1] = time.time() # 更新缓存时间
-            return user.chat_cache[chat_id][0]
+            return user.chat_cache[chat_id]
         with self.conn:
             cursor = self.conn.cursor()
             cursor.execute(f"SELECT compressed_message FROM u{user.user_id} WHERE id = ?", (chat_id,))
@@ -1351,12 +1377,12 @@ class Webchat:
                 raise HTTPException(status_code=400, detail="Bad Chat ID")
             message_tree = self._decompress(compressed[0])
         chat_instance = ChatInstance(user, message_tree)
-        user.chat_cache[chat_id] = [chat_instance, time.time()]
+        user.chat_cache[chat_id] = chat_instance
         return chat_instance
     
-    async def _generate(self, streaming_cache: StreamingCache, request_body: dict, chat_instance: ChatInstance, node_id: str, generate_title: bool = False, user: User = None, chat_id: int = None):
+    async def _generate(self, streaming_cache: StreamingCache, request: ChatPost, chat_instance: ChatInstance, node_id: str, generate_title: bool, user: User, chat_id: int):
         try:
-            async for data in chat_instance(node_id, request_body["content"], model=request_body.get("model"), vmodel=request_body.get("vmodel"), thinking=request_body.get("thinking"), enable_function=request_body.get("enable_function")):
+            async for data in chat_instance(node_id, request.content, model=request.model, vmodel=request.vmodel, thinking=request.thinking, enable_function=request.enable_function):
                 async with streaming_cache.condition:
                     streaming_cache.data.append(data)
                     streaming_cache.condition.notify_all()
@@ -1422,7 +1448,7 @@ class Webchat:
             "config_version": user.config_version
         }
     
-    def get_history(self, user_id: int, before: int = None, after: int = None, limit: int = 10):
+    def get_history(self, user_id: int, before: int | None = None, after: int | None = None, limit: int = 10):
         if before is not None:
             with self.conn:
                 cursor = self.conn.cursor()
@@ -1445,7 +1471,7 @@ class Webchat:
     def get_message(self, user_id: int, chat_id: int):
         user = usermanager.get_user(user_id)
         if chat_id in user.chat_cache:
-            return user.chat_cache[chat_id][0].chat_tree
+            return user.chat_cache[chat_id].chat_tree
         with self.conn:
             cursor = self.conn.cursor()
             cursor.execute(f"SELECT compressed_message FROM u{user_id} WHERE id = ?", (chat_id,))
@@ -1454,43 +1480,39 @@ class Webchat:
             raise HTTPException(status_code=404, detail="bad chat id")
         return self._decompress(compressed[0])
     
-    async def chat(self, user_id: int, request_body: dict):
+    async def chat(self, user_id: int, request: ChatPost):
         user = usermanager.get_user(user_id)
-        chat_id = request_body.get("id")
+        chat_id = request.id
         if chat_id is None:
-            if request_body["parent"] is not None and request_body["parent"] != "root":
+            if request.parent is not None and request.parent != "root":
                 raise HTTPException(status_code=400, detail="parent is not allowed in new chat")
             chat_id, chat_instance = self._prepare_new_chat(user)
-            node_id = chat_instance.create_placehold_node("root", request_body["content"])
+            node_id = chat_instance.create_placehold_node("root", request.content)
             streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], asyncio.Condition())
             async with streaming_cache.condition:
                 streaming_cache.data.append(f"event: id\ndata: {chat_id}\n\n")
                 streaming_cache.data.append(f"event: node_id\ndata: \"{node_id}\"\n\n")
-            streaming_cache.current_task = asyncio.create_task(self._generate(streaming_cache, request_body, chat_instance, node_id, True, user, chat_id))
+            streaming_cache.current_task = asyncio.create_task(self._generate(streaming_cache, request, chat_instance, node_id, True, user, chat_id))
         else:
             chat_instance = self._prepare_chat(user, chat_id)
-            if request_body["parent"] is not None and not chat_instance.verify_parent(request_body["parent"]):
+            if request.parent is not None and not chat_instance.verify_parent(request.parent):
                 raise HTTPException(status_code=400, detail="bad parent")
-            node_id = chat_instance.create_placehold_node(request_body["parent"], request_body["content"])
+            node_id = chat_instance.create_placehold_node(request.parent, request.content)
             streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], asyncio.Condition())
             async with streaming_cache.condition:
                 streaming_cache.data.append(f"event: node_id\ndata: \"{node_id}\"\n\n")
-            streaming_cache.current_task = asyncio.create_task(self._generate(streaming_cache, request_body, chat_instance, node_id, False, user, chat_id))
+            streaming_cache.current_task = asyncio.create_task(self._generate(streaming_cache, request, chat_instance, node_id, False, user, chat_id))
         return self._pusher(streaming_cache)
 
-    def reconnect(self, user_id: int, id: int, node_id: int):
+    def reconnect(self, user_id: int, id: int, node_id: str):
         user = usermanager.get_user(user_id)
         if (id, node_id) not in user.streaming_cache:
             raise HTTPException(status_code=404, detail="bad reconnect id")
         return self._pusher(user.streaming_cache[(id, node_id)])
     
-    def verify(self, user_id: int, token: str) -> bool:
-        user = usermanager.get_user(user_id)
-        return user.verify_token(token)
-    
     def _save_chat(self, user: User, chat_id: int):
         logger.debug(f"正在为用户 {user.user_id} 保存聊天 {chat_id}")
-        chat_instance = user.chat_cache[chat_id][0]
+        chat_instance = user.chat_cache[chat_id]
         compressed = self._compress(chat_instance.chat_tree)
         with self.conn:
             cursor = self.conn.cursor()
@@ -1577,7 +1599,7 @@ class LRUCache:
         
         # 如果支持反向查询，既然这个key刚被访问过，它就是这个值对应的“最新”键
         if self.allow_reverse:
-            self.rev_cache[val] = key
+            self.rev_cache[val] = key # type: ignore
             
         return val
     
@@ -1590,8 +1612,8 @@ class LRUCache:
             if self.allow_reverse:
                 old_val = self.cache[key]
                 # 如果值发生了变化，且旧值的反向索引指向当前key，则删除旧索引
-                if old_val != value and self.rev_cache.get(old_val) == key:
-                    del self.rev_cache[old_val]
+                if old_val != value and self.rev_cache.get(old_val) == key: # type: ignore
+                    del self.rev_cache[old_val] # type: ignore
         else:
             # key 不存在：检查容量
             if len(self.cache) >= self.capacity:
@@ -1600,15 +1622,16 @@ class LRUCache:
                 
                 # 如果被删除的键是其值的反向索引代表，则清理反向索引
                 # 注意：如果 rev_cache[old_v] 指向的是别的（更新的）key，则不删除
-                if self.allow_reverse and self.rev_cache.get(old_v) == old_k:
-                    del self.rev_cache[old_v]
+                if self.allow_reverse:
+                    if self.rev_cache.get(old_v) == old_k: # type: ignore
+                        del self.rev_cache[old_v] # type: ignore
         
         # 更新主缓存
         self.cache[key] = value
         
         # 更新反向索引：无论 value 是否重复，当前 key 都是该 value 的“最新”代表
         if self.allow_reverse:
-            self.rev_cache[value] = key
+            self.rev_cache[value] = key # type: ignore
             
     def find_key(self, value):
         """
@@ -1617,7 +1640,8 @@ class LRUCache:
         """
         if not self.allow_reverse:
             return None
-        return self.rev_cache.get(value)
+        
+        return self.rev_cache.get(value) # type: ignore
 
 if __name__ != "__main__":
     with open('config.yaml', 'r', encoding='utf-8') as file:
@@ -1708,8 +1732,8 @@ if __name__ != "__main__":
     
     if is_link_enabled:
         link = Link()
-        websocket_connect: WebSocket = None
-        event_loop = None
+        websocket_connect: WebSocket | None = None
+        event_loop: asyncio.EventLoop | None = None
 
         def set_event_loop(loop):
             global event_loop
@@ -1721,7 +1745,7 @@ if __name__ != "__main__":
 
         def send_to_websocket(message: dict):
             logger.debug(f"正在发送消息到 WebSocket: {message}")
-            if websocket_connect:
+            if websocket_connect and event_loop:
                 try:
                     asyncio.run_coroutine_threadsafe(websocket_connect.send_text(json.dumps(message, ensure_ascii=False)), event_loop)
                 except Exception:
