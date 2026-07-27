@@ -10,15 +10,24 @@ interface MermaidInstance {
 let mermaidPromise: Promise<MermaidInstance> | null = null
 let initialized = false
 const svgCache = new Map<string, string>()
+const chartCache = new Map<string, string>()
 let renderCounter = 0
 const cleanupMap = new WeakMap<HTMLElement, () => void>()
 
+export function normalizeMermaidCode(code: string): string {
+  return (code || '').replace(/\r\n/g, '\n').trim()
+}
+
 export function getCachedMermaidSvg(code: string): string | undefined {
-  return svgCache.get(code)
+  return svgCache.get(normalizeMermaidCode(code))
+}
+
+export function getCachedMermaidChartHtml(code: string): string | undefined {
+  return chartCache.get(normalizeMermaidCode(code))
 }
 
 export function getSvgDataUrl(code: string): string | null {
-  const svg = svgCache.get(code)
+  const svg = svgCache.get(normalizeMermaidCode(code))
   if (!svg) return null
   return `data:image/svg+xml,${encodeURIComponent(svg)}`
 }
@@ -97,13 +106,16 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
   const mermaid = await getMermaid()
   await initMermaid()
 
+  const scrollContainer = document.getElementById('message-container')
+
   for (const block of Array.from(blocks)) {
     const chartEl = block.querySelector('.mermaid-chart') as HTMLElement
     const sourceEl = block.querySelector('.mermaid-source') as HTMLElement
     if (!chartEl || !sourceEl) continue
 
-    const code = sourceEl.querySelector('code')?.textContent || ''
-    if (!code) continue
+    const rawCode = sourceEl.querySelector('code')?.textContent || ''
+    if (!rawCode) continue
+    const code = normalizeMermaidCode(rawCode)
 
     block.classList.add('rendered')
 
@@ -111,17 +123,32 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
     const codeEl = sourceEl.querySelector('code')
     if (codeEl) {
       try {
-        const highlighted = hljs.highlight(code, { language: 'mermaid' }).value
+        const highlighted = hljs.highlight(rawCode, { language: 'mermaid' }).value
         codeEl.innerHTML = highlighted
       } catch {
         // 如果mermaid语言不支持，尝试自动检测
         try {
-          const highlighted = hljs.highlightAuto(code).value
+          const highlighted = hljs.highlightAuto(rawCode).value
           codeEl.innerHTML = highlighted
         } catch {
           // 保持原始文本
         }
       }
+    }
+
+    // 记录 DOM 更改前视口及 scrollContainer 状态，避免注入大图引发视觉跳动
+    let preScrollTop = 0
+    let preScrollHeight = 0
+    let isUserScrolledUp = false
+    let blockTopRelativeToContainer = 0
+    if (scrollContainer) {
+      preScrollTop = scrollContainer.scrollTop
+      preScrollHeight = scrollContainer.scrollHeight
+      const isAtBottom = Math.abs(preScrollHeight - preScrollTop - scrollContainer.clientHeight) <= 20
+      isUserScrolledUp = !isAtBottom
+      const cRect = scrollContainer.getBoundingClientRect()
+      const bRect = block.getBoundingClientRect()
+      blockTopRelativeToContainer = bRect.top - cRect.top
     }
 
     const cached = svgCache.get(code)
@@ -143,6 +170,7 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
         chartEl.innerHTML = cached
       }
       enableInteractivity(chartEl)
+      chartCache.set(code, chartEl.innerHTML)
       continue
     }
 
@@ -174,8 +202,17 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
         chartEl.innerHTML = sanitized
       }
       enableInteractivity(chartEl)
+      chartCache.set(code, chartEl.innerHTML)
+
+      // 若用户主动向上阅读，锚定滚动位置
+      if (scrollContainer && isUserScrolledUp) {
+        const heightDiff = scrollContainer.scrollHeight - preScrollHeight
+        if (heightDiff > 0 && blockTopRelativeToContainer <= scrollContainer.clientHeight) {
+          scrollContainer.scrollTop = preScrollTop + heightDiff
+        }
+      }
     } catch {
-      chartEl.innerHTML = `<div class="mermaid-error"><strong>图表渲染失败</strong><pre>${escapeHtml(code)}</pre></div>`
+      chartEl.innerHTML = `<div class="mermaid-error"><strong>图表渲染失败</strong><pre>${escapeHtml(rawCode)}</pre></div>`
     }
   }
 }

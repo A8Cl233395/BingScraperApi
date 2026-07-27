@@ -556,14 +556,24 @@ const handleRegenerate = (nodeId: string) => {
 const containerRef = ref<HTMLElement | null>(null);
 const contentRef = ref<HTMLElement | null>(null);
 const autoScroll = ref(true);
+const lastScrollTop = ref(0);
 
 const handleScroll = (e: Event) => {
   const el = e.target as HTMLElement;
-  const isAtBottom = Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) <= 10;
+  const scrollTop = el.scrollTop;
+  const isAtBottom = Math.abs(el.scrollHeight - scrollTop - el.clientHeight) <= 15;
   
-  // If user scrolls up, disable auto-scroll
-  // If user scrolls back to bottom, re-enable auto-scroll
-  autoScroll.value = isAtBottom;
+  // 只有当用户向上滚动时取消 autoScroll；
+  // 当滚动处于底部时，仅在用户向下滑动（scrollTop >= lastScrollTop）时重新激活 autoScroll，
+  // 避免 DOM 元素塌陷/重绘导致 scrollTop 被浏览器强制归零或变小从而误触 autoScroll 的问题。
+  if (isAtBottom) {
+    if (scrollTop >= lastScrollTop.value) {
+      autoScroll.value = true;
+    }
+  } else {
+    autoScroll.value = false;
+  }
+  lastScrollTop.value = scrollTop;
 };
 
 const scrollToBottom = (force = false) => {
@@ -580,6 +590,7 @@ const scrollToBottom = (force = false) => {
 
   if (autoScroll.value) {
     containerRef.value.scrollTop = containerRef.value.scrollHeight;
+    lastScrollTop.value = containerRef.value.scrollTop;
   }
 };
 
@@ -587,7 +598,7 @@ const scrollToBottom = (force = false) => {
 let observer: ResizeObserver | null = null;
 onMounted(() => {
   observer = new ResizeObserver(() => {
-    if (autoScroll.value) {
+    if (autoScroll.value && state.isStreaming) {
       scrollToBottom();
     }
   });
