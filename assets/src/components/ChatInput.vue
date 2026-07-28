@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { state } from '../store';
-import { ref, watch, nextTick, onUnmounted, computed } from 'vue';
+import { ref, watch, nextTick, onMounted, onUnmounted, computed } from 'vue';
 import { isMobileDevice } from '../utils/device';
 import { useImageEditor } from '../composables/useImageEditor';
 import { useVoiceInput } from '../composables/useVoiceInput';
@@ -18,6 +18,7 @@ const emit = defineEmits(['send', 'stop', 'mobile-focus', 'mobile-blur']);
 
 const textInput = ref('');
 const showOptions = ref(false);
+const optionsRef = ref<HTMLElement | null>(null);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
 // 文件编辑（使用 composable）
@@ -146,6 +147,20 @@ onUnmounted(() => {
   if (blurTimeout) clearTimeout(blurTimeout);
 });
 
+const handleOptionsOutsideClick = (e: MouseEvent) => {
+  if (showOptions.value && optionsRef.value && !optionsRef.value.contains(e.target as Node)) {
+    showOptions.value = false;
+  }
+};
+
+onMounted(() => {
+  document.addEventListener('click', handleOptionsOutsideClick);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleOptionsOutsideClick);
+});
+
 const handleStop = () => {
   emit('stop');
 };
@@ -202,7 +217,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
     </div>
 
     <div 
-      class="relative border border-border-input rounded-lg p-3 flex flex-col focus-within:border-text-muted transition-colors bg-bg-main shadow-[0_2px_10px_rgba(0,0,0,0.05)]"
+      class="relative border border-border-input p-3 flex flex-col focus-within:border-text-muted transition-colors bg-bg-main shadow-[0_2px_10px_rgba(0,0,0,0.05)]"
       @paste="handlePaste"
       @drop="handleDrop"
       @dragover.prevent
@@ -237,13 +252,13 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
     </div>
 
     <!-- Toggles and Options -->
-    <div class="flex items-center justify-between mt-3 ml-1">
+    <div class="flex items-center justify-between mt-3">
       <div class="flex items-center gap-2">
         <button 
           @click="state.isThinking = !state.isThinking"
           @mousedown.prevent
-          class="flex items-center gap-1.5 px-3 py-1.5 border border-border-input rounded-md text-xs hover:bg-bg-hover transition-colors"
-          :class="state.isThinking ? 'bg-primary-main text-primary-text border-primary-main hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
+          class="flex items-center gap-1.5 px-3 h-8 border border-border-input text-xs hover:bg-bg-hover transition-colors"
+          :class="state.isThinking ? 'bg-primary-main text-primary-text hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
         >
           <FontAwesomeIcon :icon="['fas', 'brain']" :class="state.isThinking ? 'text-primary-text' : 'text-text-placeholder'" />
           深度思考
@@ -251,17 +266,17 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         <button 
           @click="state.isEnableFunction = !state.isEnableFunction"
           @mousedown.prevent
-          class="flex items-center gap-1.5 px-3 py-1.5 border border-border-input rounded-md text-xs hover:bg-bg-hover transition-colors"
-          :class="state.isEnableFunction ? 'bg-primary-main text-primary-text border-primary-main hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
+          class="flex items-center gap-1.5 px-3 h-8 border border-border-input text-xs hover:bg-bg-hover transition-colors"
+          :class="state.isEnableFunction ? 'bg-primary-main text-primary-text hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
         >
           <FontAwesomeIcon :icon="['fas', 'wrench']" :class="state.isEnableFunction ? 'text-primary-text' : 'text-text-placeholder'" />
           使用工具
         </button>
-        <div class="relative">
+        <div class="relative" ref="optionsRef">
           <button 
-            @click="showOptions = !showOptions"
+            @click.stop="showOptions = !showOptions"
             @mousedown.prevent
-            class="w-8 h-8 flex items-center justify-center border border-border-input rounded-md text-text-placeholder hover:bg-bg-hover transition-colors" 
+            class="w-8 h-8 flex items-center justify-center border border-border-input text-text-placeholder hover:bg-bg-hover transition-colors" 
             title="默认选项"
           >
             <FontAwesomeIcon
@@ -280,12 +295,12 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
             <!-- Default Options Popup -->
             <div 
               v-if="showOptions"
-              class="absolute left-0 w-48 z-50 overflow-hidden shadow-xl rounded-lg"
+              class="absolute left-0 w-48 z-50 overflow-hidden shadow-xl"
               :class="[
                 props.isChatStarted ? 'bottom-full mb-2 origin-bottom-left' : 'top-full mt-2 origin-top-left'
               ]"
             >
-              <div class="bg-bg-main border border-border-main rounded-lg p-1">
+              <div class="bg-bg-main border border-border-main p-1">
                 <div class="px-3 py-2 text-[10px] font-bold text-text-placeholder uppercase tracking-wider">默认选项</div>
                 <div 
                   @click="setDefaultOption('thinking', !state.defaultSettings.thinking)"
@@ -321,7 +336,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         <button 
           @click="fileInput?.click()"
           @mousedown.prevent
-          class="text-text-placeholder hover:text-text-main w-8 h-8 flex items-center justify-center rounded-md transition-colors" 
+          class="text-text-placeholder hover:text-text-main w-8 h-8 flex items-center justify-center transition-colors" 
           title="插入图片和文件"
         >
           <FontAwesomeIcon :icon="['far', 'folder']" class="text-lg" />
@@ -331,7 +346,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           @touchstart.prevent="startRecording"
           @touchend="stopRecording"
           @touchcancel="stopRecording"
-          class="w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          class="w-8 h-8 flex items-center justify-center transition-colors"
           :class="isRecording ? 'bg-danger-main text-primary-text hover:opacity-80' : isRecognizing ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'text-text-placeholder hover:text-text-main'"
           :disabled="isRecognizing"
         >
@@ -348,7 +363,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           v-else
           @click="toggleRecording()"
           @mousedown.prevent
-          class="w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          class="w-8 h-8 flex items-center justify-center transition-colors"
           :class="isRecording ? 'bg-danger-main text-primary-text hover:opacity-80' : isRecognizing ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'text-text-placeholder hover:text-text-main'"
           :disabled="isRecognizing"
           :title="isRecording ? '停止录音' : isRecognizing ? '识别中...' : '语音输入'"
@@ -366,7 +381,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           v-if="state.isStreaming"
           @click="handleStop"
           @mousedown.prevent
-          class="bg-danger-main text-primary-text hover:opacity-80 w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          class="bg-danger-main text-primary-text hover:opacity-80 w-8 h-8 flex items-center justify-center transition-colors"
           title="停止生成"
         >
           <FontAwesomeIcon :icon="['fas', 'stop']" class="text-sm" />
@@ -375,7 +390,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           v-else
           @click="handleSend"
           @mousedown.prevent
-          class="w-8 h-8 flex items-center justify-center rounded-md transition-colors"
+          class="w-8 h-8 flex items-center justify-center transition-colors"
           :class="(hasUnconvertedFiles || isRecording || isRecognizing) ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'bg-primary-main text-primary-text hover:bg-primary-hover'"
           :disabled="hasUnconvertedFiles || isRecording || isRecognizing"
         >

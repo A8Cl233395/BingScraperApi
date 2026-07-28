@@ -222,7 +222,7 @@ const copyToClipboard = async () => {
   padding: 16px;
   background-color: var(--bg-panel);
   border: 1px solid var(--border-input);
-  border-radius: 8px;
+  border-radius: 0;
   display: none;
 }
 
@@ -248,7 +248,7 @@ const copyToClipboard = async () => {
   padding: 10px 12px;
   background-color: var(--bg-main);
   border: 1px solid var(--border-input);
-  border-radius: 6px;
+  border-radius: 0;
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
   font-size: 0.85rem;
   word-break: break-all;
@@ -259,7 +259,7 @@ const copyToClipboard = async () => {
   padding: 8px 16px;
   background-color: var(--bg-main);
   border: 1px solid var(--border-input);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--text-main);
   font-size: 0.85rem;
   cursor: pointer;

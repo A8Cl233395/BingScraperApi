@@ -402,7 +402,7 @@ watch(activeTab, (newTab) => {
           <div class="px-4 mb-4">
             <button 
               @click="goBack"
-              class="w-full px-4 py-2 border border-dashed border-border-input rounded-md text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors"
+              class="w-full px-4 py-2 border border-dashed border-border-input text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors"
             >
               <FontAwesomeIcon :icon="['fas', 'chevron-left']" class="mr-2" />
               <span>返回聊天</span>
@@ -412,7 +412,7 @@ watch(activeTab, (newTab) => {
           <!-- Tab List -->
           <div class="flex-1 min-h-0 px-2 space-y-1">
             <button
-              class="w-full flex items-center gap-2 p-2.5 rounded-md cursor-pointer text-sm transition-colors"
+              class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
               :class="activeTab === 'account' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('account')"
             >
@@ -420,7 +420,7 @@ watch(activeTab, (newTab) => {
               <span>账户设置</span>
             </button>
             <button
-              class="w-full flex items-center gap-2 p-2.5 rounded-md cursor-pointer text-sm transition-colors"
+              class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
               :class="activeTab === 'memory' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('memory')"
             >
@@ -428,7 +428,7 @@ watch(activeTab, (newTab) => {
               <span>记忆管理</span>
             </button>
             <button
-              class="w-full flex items-center gap-2 p-2.5 rounded-md cursor-pointer text-sm transition-colors"
+              class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
               :class="activeTab === 'custom' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('custom')"
             >
@@ -436,7 +436,7 @@ watch(activeTab, (newTab) => {
               <span>自定义设置</span>
             </button>
             <button
-              class="w-full flex items-center gap-2 p-2.5 rounded-md cursor-pointer text-sm transition-colors"
+              class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
               :class="activeTab === 'pet' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('pet')"
             >
@@ -444,7 +444,7 @@ watch(activeTab, (newTab) => {
               <span>宠物设置</span>
             </button>
             <button
-              class="w-full flex items-center gap-2 p-2.5 rounded-md cursor-pointer text-sm transition-colors"
+              class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
               :class="activeTab === 'sessions' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('sessions')"
             >
@@ -458,7 +458,7 @@ watch(activeTab, (newTab) => {
       <!-- Mobile Toggle Button -->
       <button 
         v-if="state.isMobile && !isSidebarOpen" 
-        class="fixed top-4 left-4 z-50 p-2 rounded-md bg-bg-panel border border-border-main text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors shadow-sm"
+        class="fixed top-4 left-4 z-50 p-2 bg-bg-panel border border-border-main text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors shadow-sm"
         @click="isSidebarOpen = true"
       >
         <FontAwesomeIcon :icon="['fas', 'bars']" />
@@ -797,42 +797,44 @@ watch(activeTab, (newTab) => {
     />
 
     <!-- Kick Session Modal -->
-    <div v-if="showKickConfirm" class="modal-overlay" @click.self="showKickConfirm = false">
-      <div class="kick-modal">
-        <div class="kick-modal-header">
-          <FontAwesomeIcon :icon="['fas', 'right-from-bracket']" />
-          <h3>踢出会话</h3>
-        </div>
-        <div class="kick-modal-body">
-          <p>请输入密码以确认踢出该会话。</p>
-          <div class="form-group">
-            <input
-              type="password"
-              v-model="kickPwd"
-              class="form-input"
-              placeholder="请输入密码"
-              @keydown.enter="confirmKickSession"
-              autofocus
+    <Transition name="modal">
+      <div v-if="showKickConfirm" class="modal-overlay" @click.self="showKickConfirm = false">
+        <div class="kick-modal">
+          <div class="kick-modal-header">
+            <FontAwesomeIcon :icon="['fas', 'right-from-bracket']" />
+            <h3>踢出会话</h3>
+          </div>
+          <div class="kick-modal-body">
+            <p>请输入密码以确认踢出该会话。</p>
+            <div class="form-group">
+              <input
+                type="password"
+                v-model="kickPwd"
+                class="form-input"
+                placeholder="请输入密码"
+                @keydown.enter="confirmKickSession"
+                autofocus
+              >
+            </div>
+            <div v-if="kickError" class="error-message">
+              <FontAwesomeIcon :icon="['fas', 'triangle-exclamation']" />
+              {{ kickError }}
+            </div>
+          </div>
+          <div class="kick-modal-footer">
+            <button class="cancel-btn" @click="showKickConfirm = false">取消</button>
+            <button
+              class="confirm-kick-btn"
+              :disabled="isKicking"
+              @click="confirmKickSession"
             >
+              <FontAwesomeIcon v-if="isKicking" :icon="['fas', 'spinner']" spin />
+              <span>确认踢出</span>
+            </button>
           </div>
-          <div v-if="kickError" class="error-message">
-            <FontAwesomeIcon :icon="['fas', 'triangle-exclamation']" />
-            {{ kickError }}
-          </div>
-        </div>
-        <div class="kick-modal-footer">
-          <button class="cancel-btn" @click="showKickConfirm = false">取消</button>
-          <button
-            class="confirm-kick-btn"
-            :disabled="isKicking"
-            @click="confirmKickSession"
-          >
-            <FontAwesomeIcon v-if="isKicking" :icon="['fas', 'spinner']" spin />
-            <span>确认踢出</span>
-          </button>
         </div>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
 
@@ -925,7 +927,7 @@ watch(activeTab, (newTab) => {
 .user-summary-avatar {
   width: 56px;
   height: 56px;
-  border-radius: 50%;
+  border-radius: 0;
   background-color: var(--primary);
   color: white;
   display: flex;
@@ -1015,7 +1017,7 @@ watch(activeTab, (newTab) => {
   justify-content: space-between;
   padding: 10px 14px;
   background: var(--bg-main);
-  border-radius: 6px;
+  border-radius: 0;
   border: 1px solid var(--border-color);
 }
 
@@ -1028,7 +1030,7 @@ watch(activeTab, (newTab) => {
   font-size: 0.75rem;
   font-weight: 500;
   padding: 3px 10px;
-  border-radius: 4px;
+  border-radius: 0;
   background: var(--bg-hover);
   color: var(--text-main);
 }
@@ -1096,7 +1098,7 @@ watch(activeTab, (newTab) => {
   padding: 20px 16px;
   background: var(--bg-panel);
   border: 2px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 0;
   cursor: pointer;
   transition: all 0.2s ease;
   color: var(--text-muted);
@@ -1155,7 +1157,7 @@ watch(activeTab, (newTab) => {
   padding: 14px 16px;
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 .setting-info {
@@ -1190,7 +1192,7 @@ watch(activeTab, (newTab) => {
   position: relative;
   width: 44px;
   height: 24px;
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
   cursor: pointer;
@@ -1308,7 +1310,7 @@ watch(activeTab, (newTab) => {
   background-color: transparent;
   color: var(--danger);
   border: 1px solid var(--danger);
-  border-radius: 6px;
+  border-radius: 0;
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
@@ -1383,7 +1385,7 @@ watch(activeTab, (newTab) => {
   background-color: var(--primary);
   color: var(--primary-text);
   border: none;
-  border-radius: 8px;
+  border-radius: 0;
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
@@ -1447,7 +1449,7 @@ watch(activeTab, (newTab) => {
   padding: 12px 16px;
   background-color: var(--bg-main);
   border: 1px solid var(--border-input);
-  border-radius: 8px;
+  border-radius: 0;
   transition: all 0.15s ease;
 }
 
@@ -1472,7 +1474,7 @@ watch(activeTab, (newTab) => {
   height: 28px;
   background: transparent;
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1598,7 +1600,7 @@ watch(activeTab, (newTab) => {
   padding: 14px 16px;
   background-color: var(--bg-main);
   border: 1px solid var(--border-input);
-  border-radius: 8px;
+  border-radius: 0;
   transition: all 0.15s ease;
 }
 
@@ -1628,7 +1630,7 @@ watch(activeTab, (newTab) => {
 .session-badge {
   font-size: 0.7rem;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 0;
   font-weight: 500;
 }
 
@@ -1653,7 +1655,7 @@ watch(activeTab, (newTab) => {
   background-color: transparent;
   color: var(--danger);
   border: 1px solid var(--danger);
-  border-radius: 6px;
+  border-radius: 0;
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
@@ -1680,7 +1682,7 @@ watch(activeTab, (newTab) => {
 .kick-modal {
   background-color: var(--bg-panel);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 0;
   width: 100%;
   max-width: 400px;
   margin: 16px;
@@ -1728,7 +1730,7 @@ watch(activeTab, (newTab) => {
   background-color: transparent;
   color: var(--text-muted);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 0;
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1744,7 +1746,7 @@ watch(activeTab, (newTab) => {
   background-color: var(--danger);
   color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -1761,6 +1763,32 @@ watch(activeTab, (newTab) => {
 .confirm-kick-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-active .kick-modal {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modal-leave-active .kick-modal {
+  transition: transform 0.2s ease-in;
+}
+
+.modal-enter-from .kick-modal {
+  transform: scale(0.9) translateY(10px);
+}
+
+.modal-leave-to .kick-modal {
+  transform: scale(0.95) translateY(5px);
 }
 
 </style>

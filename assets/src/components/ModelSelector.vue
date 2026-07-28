@@ -62,7 +62,7 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
   <div ref="containerRef" class="relative ml-2" @dblclick.stop>
     <button
       @click="toggleDropdown()"
-      class="flex items-center gap-2 border border-border-input rounded-md px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
+      class="flex items-center gap-2 border border-border-input px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
       :class="isLoading ? 'bg-bg-hover' : 'hover:bg-bg-hover bg-bg-main'"
       :disabled="isLoading"
     >
@@ -86,9 +86,9 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
       <!-- Dropdown -->
       <div
         v-if="isOpen"
-        class="absolute left-0 mt-2 w-64 rounded-lg shadow-xl z-50 overflow-hidden origin-top-left"
+        class="absolute left-0 mt-2 w-64 shadow-xl z-50 overflow-hidden origin-top-left"
       >
-        <div class="bg-bg-main border border-border-main rounded-lg py-1">
+        <div class="bg-bg-main border border-border-main py-1">
           <template v-for="(info, name) in state.models" :key="name">
           <div
             class="px-4 py-2 hover:bg-bg-hover cursor-pointer flex flex-col transition-colors border-b last:border-b-0 border-border-main"
@@ -101,12 +101,12 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
                   {{ name }}
                 </span>
                 <template v-if="state.isVisionMode">
-                  <span v-if="state.currentVModel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/15 text-orange-500">当前视觉</span>
-                  <span v-else-if="state.defaultSettings.vmodel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success-bg text-success-main">默认视觉</span>
+                  <span v-if="state.currentVModel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-orange-500/15 text-orange-500">当前视觉</span>
+                  <span v-else-if="state.defaultSettings.vmodel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-success-bg text-success-main">默认视觉</span>
                 </template>
                 <template v-else>
-                  <span v-if="state.currentModel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary-main/15 text-primary-main">当前</span>
-                  <span v-else-if="state.defaultSettings.model === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-success-bg text-success-main">默认</span>
+                  <span v-if="state.currentModel === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-primary-main/15 text-primary-main">当前</span>
+                  <span v-else-if="state.defaultSettings.model === name" class="shrink-0 inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-success-bg text-success-main">默认</span>
                 </template>
               </div>
               <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] text-text-placeholder transition-transform duration-200 shrink-0" :class="expandedModel === name ? 'rotate-90' : ''" />
@@ -127,19 +127,19 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
                 <div class="mt-2 pt-2 border-t border-border-main">
                   <p class="text-xs text-text-muted mb-2">{{ info.desc }}</p>
                   <div class="grid grid-cols-2 gap-1 text-[11px]">
-                    <button @click.stop="setSessionModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input rounded hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为当前会话模型">
+                    <button @click.stop="setSessionModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为当前会话模型">
                       <FontAwesomeIcon :icon="['fas', 'bolt']" class="text-[10px] text-text-muted group-hover/btn:text-primary-main transition-colors" />
                       <span>会话</span>
                     </button>
-                    <button @click.stop="setDefaultModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input rounded hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为默认模型">
+                    <button @click.stop="setDefaultModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为默认模型">
                       <FontAwesomeIcon :icon="['fas', 'thumbtack']" class="text-[10px] text-text-muted group-hover/btn:text-primary-main transition-colors" />
                       <span>默认</span>
                     </button>
-                    <button v-if="info.vision" @click.stop="setSessionModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 rounded hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为当前视觉模型">
+                    <button v-if="info.vision" @click.stop="setSessionModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为当前视觉模型">
                       <FontAwesomeIcon :icon="['fas', 'eye']" class="text-[10px]" />
                       <span>视觉</span>
                     </button>
-                    <button v-if="info.vision" @click.stop="setDefaultModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 rounded hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为默认视觉模型">
+                    <button v-if="info.vision" @click.stop="setDefaultModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为默认视觉模型">
                       <FontAwesomeIcon :icon="['fas', 'thumbtack']" class="text-[10px]" />
                       <span>默认视觉</span>
                     </button>

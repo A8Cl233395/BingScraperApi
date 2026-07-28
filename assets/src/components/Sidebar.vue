@@ -186,7 +186,7 @@ const confirmDelete = () => {
       <a 
         href="#/"
         @click.prevent="state.currentChatId = null"
-        class="px-4 py-2 border border-dashed border-border-input rounded-md mx-4 mb-4 text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors no-underline"
+        class="px-4 py-2 border border-dashed border-border-input mx-4 mb-4 text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors no-underline"
       >
         <FontAwesomeIcon :icon="['fas', 'plus']" class="mr-2" /> 新对话
       </a>
@@ -233,7 +233,7 @@ const confirmDelete = () => {
             @touchmove="handleTouchEnd"
             @touchcancel="handleTouchEnd"
             @contextmenu="state.isMobile ? $event.preventDefault() : null"
-            class="group relative flex items-center justify-between p-2.5 rounded-md hover:bg-bg-hover cursor-pointer text-text-main transition-colors no-underline"
+            class="group relative flex items-center justify-between p-2.5 hover:bg-bg-hover cursor-pointer text-text-main transition-colors no-underline"
             :class="[
               state.currentChatId === chat[0] ? 'bg-bg-active' : '',
               pressingChatId === chat[0] ? 'scale-[0.98] bg-bg-hover' : ''
@@ -250,7 +250,7 @@ const confirmDelete = () => {
             <button 
               v-if="!state.isMobile"
               @click.prevent.stop="handleDelete(chat[0])"
-              class="hidden group-hover:block text-text-placeholder hover:text-danger-main absolute right-2 z-20 transition-colors p-1"
+              class="hidden group-hover:flex text-text-placeholder hover:text-danger-main absolute right-2 top-1/2 -translate-y-1/2 z-20 transition-colors p-1 items-center justify-center"
             >
               <FontAwesomeIcon :icon="['fas', 'trash-can']" class="text-xs" />
             </button>
@@ -276,7 +276,7 @@ const confirmDelete = () => {
       <div class="p-3 border-t border-border-main">
         <a 
           href="/profile"
-          class="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors"
+          class="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors"
         >
           <FontAwesomeIcon :icon="['fas', 'user-gear']" />
           <span>个人资料</span>

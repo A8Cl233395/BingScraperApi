@@ -235,7 +235,7 @@ const handleToggle = async (e: Event) => {
   padding: 14px 16px;
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .pet-toggle-label {
@@ -262,7 +262,7 @@ const handleToggle = async (e: Event) => {
   inset: 0;
   background-color: var(--bg-hover);
   border: 1px solid var(--border-input);
-  border-radius: 12px;
+  border-radius: 0;
   transition: all 0.2s ease;
 }
 
@@ -274,7 +274,7 @@ const handleToggle = async (e: Event) => {
   left: 2px;
   bottom: 2px;
   background-color: var(--text-muted);
-  border-radius: 50%;
+  border-radius: 0;
   transition: all 0.2s ease;
 }
 
@@ -302,7 +302,7 @@ const handleToggle = async (e: Event) => {
   padding: 12px;
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .pet-preview-label {
@@ -316,7 +316,7 @@ const handleToggle = async (e: Event) => {
   aspect-ratio: 192 / 208;
   background: var(--bg-main);
   border: 1px dashed var(--border-input);
-  border-radius: 6px;
+  border-radius: 0;
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -341,7 +341,7 @@ const handleToggle = async (e: Event) => {
   right: 8px;
   width: 22px;
   height: 22px;
-  border-radius: 50%;
+  border-radius: 0;
   border: 1px solid var(--border-input);
   background: var(--bg-main);
   color: var(--text-muted);
@@ -367,7 +367,7 @@ const handleToggle = async (e: Event) => {
   padding: 20px 16px;
   background: var(--bg-panel);
   border: 2px dashed var(--border-color);
-  border-radius: 8px;
+  border-radius: 0;
   transition: all 0.2s ease;
 }
 
@@ -385,7 +385,7 @@ const handleToggle = async (e: Event) => {
   background: var(--primary);
   color: var(--primary-text);
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -420,7 +420,7 @@ const handleToggle = async (e: Event) => {
   padding: 10px 20px;
   background: transparent;
   border: 1px solid var(--danger);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--danger);
   font-size: 0.85rem;
   cursor: pointer;

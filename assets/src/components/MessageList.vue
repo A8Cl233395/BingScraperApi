@@ -822,7 +822,7 @@ defineExpose({ handleSend, handleCancel, messages, scrollToTop });
         @mouseleave="isNavExpanded = false"
       >
         <div 
-          class="flex flex-col gap-4 p-3 rounded-lg transition-all duration-300 ease-in-out border border-transparent overflow-y-auto overflow-x-hidden no-scrollbar show-scrollbar-on-hover"
+          class="flex flex-col gap-4 p-3 transition-all duration-300 ease-in-out border border-transparent overflow-y-auto overflow-x-hidden no-scrollbar show-scrollbar-on-hover"
           :class="[
             isNavExpanded ? 'bg-bg-panel border-border-main shadow-2xl scale-100' : 'bg-transparent scale-95'
           ]"

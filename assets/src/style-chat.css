@@ -7,7 +7,8 @@
   background-color: var(--bg-panel);
   color: var(--text-main);
   border: 1px solid var(--border-color);
-  @apply px-1.5 py-0.5 rounded mx-0.5;
+  @apply px-1.5 py-0.5 mx-0.5;
+  border-radius: 0;
 }
 .prose p { @apply mb-3 last:mb-0 leading-relaxed; }
 .prose ul, .prose ol { @apply ml-6 mb-4 mt-2 list-outside; }
@@ -35,12 +36,14 @@
   border-left: 4px solid var(--border-color);
   background-color: var(--bg-panel);
   color: var(--text-muted);
-  @apply pl-4 py-1 my-4 rounded-r-sm;
+  @apply pl-4 py-1 my-4;
+  border-radius: 0;
 }
 
 .table-wrapper {
-  @apply my-4 border rounded-md overflow-x-auto w-full;
+  @apply my-4 border overflow-x-auto w-full;
   border-color: var(--border-color);
+  border-radius: 0;
   touch-action: pan-x pan-y;
 }
 
@@ -91,7 +94,8 @@ html.dark .prose tr:nth-child(even) {
 }
 
 .prose img {
-  @apply cursor-pointer rounded-md;
+  @apply cursor-pointer;
+  border-radius: 0;
 }
 
 /* Math Styles */
@@ -292,7 +296,7 @@ html.dark .prose tr:nth-child(even) {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: 0;
   border: 1px solid var(--border-color);
   background-color: var(--bg-panel);
   color: var(--text-muted);

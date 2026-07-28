@@ -82,8 +82,8 @@ html.dark {
 }
 
 @theme {
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --radius-md: 0;
+  --radius-lg: 0;
 
   --color-bg-main: var(--bg-main);
   --color-bg-panel: var(--bg-panel);
@@ -141,7 +141,7 @@ html.dark {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-input);
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -172,7 +172,7 @@ body {
 
 .card {
   background-color: var(--bg-panel);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 24px;
   width: 100%;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
@@ -204,7 +204,7 @@ body {
   padding: 12px 16px;
   background-color: var(--bg-main);
   border: 1px solid var(--border-input);
-  border-radius: 8px;
+  border-radius: 0;
   color: var(--text-main);
   font-size: 0.95rem;
   transition: all 0.15s ease;
@@ -230,7 +230,7 @@ body {
   padding: 12px;
   background-color: var(--danger-bg);
   border: 1px solid var(--danger);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--danger);
   font-size: 0.9rem;
 }
@@ -240,7 +240,7 @@ body {
   padding: 12px;
   background-color: var(--success-bg);
   border: 1px solid var(--success-border);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--success);
   font-size: 0.9rem;
 }
@@ -251,7 +251,7 @@ body {
   background-color: var(--primary);
   color: var(--primary-text);
   border: none;
-  border-radius: 8px;
+  border-radius: 0;
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;

@@ -22,11 +22,11 @@ const emit = defineEmits(['confirm', 'cancel']);
 
       <!-- Modal Content -->
       <div 
-        class="relative bg-bg-main rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all border border-border-main"
+        class="relative bg-bg-main shadow-2xl w-full max-w-sm overflow-hidden transform transition-all border border-border-main"
         @click.stop
       >
         <div class="p-6">
-          <div class="flex items-center justify-center w-12 h-12 rounded-full mb-4 mx-auto" :class="isDanger ? 'bg-danger-main/10' : 'bg-primary-main/10'">
+          <div class="flex items-center justify-center w-12 h-12 mb-4 mx-auto" :class="isDanger ? 'bg-danger-main/10' : 'bg-primary-main/10'">
             <FontAwesomeIcon 
               :icon="['fas', isDanger ? 'triangle-exclamation' : 'circle-info']"
               :class="isDanger ? 'text-danger-main' : 'text-primary-main'"

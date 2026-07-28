@@ -34,7 +34,7 @@ marked.use({
         const completeClass = isComplete ? 'mermaid-complete' : 'mermaid-incomplete';
         const chartContent = cachedChartHtml || `<div class="mermaid-placeholder"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="14" height="14" fill="currentColor" class="mermaid-placeholder-icon"><path d="M222.7 32.1c5 16.9-4.6 34.8-21.5 39.8C164.9 86.6 128 137.3 128 197.4c0 5.6-.3 11.1-.8 16.6H384.8c-.5-5.5-.8-11.1-.8-16.6 0-60.1-36.9-110.8-72.2-125.5-16.9-5-26.5-22.9-21.5-39.8C297.9-2.2 320 12 320 32.1V48H192V32.1c0-20.1 22.1-34.3 30.7-0zM128 256H32v224c0 17.7 14.3 32 32 32H320V256H128zm352 224c17.7 0 32-14.3 32-32V256H384V480h96z"/></svg><span>图表生成中...</span></div>`;
 
-        return `<div class="mermaid-block ${completeClass} my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-code-bg">
+        return `<div class="mermaid-block ${completeClass} my-4 border-[0.5px] border-border-main overflow-hidden bg-code-bg">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">mermaid</span>
     <div class="flex items-center gap-2">
@@ -71,7 +71,7 @@ marked.use({
       }
       
       return `
-<div class="code-block-wrapper my-4 border-[0.5px] border-border-main rounded-md overflow-hidden bg-code-bg" style="touch-action: pan-x pan-y;">
+<div class="code-block-wrapper my-4 border-[0.5px] border-border-main overflow-hidden bg-code-bg" style="touch-action: pan-x pan-y;">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${lang}</span>
     <button class="copy-code-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
@@ -769,7 +769,7 @@ const handleContentClick = (e: MouseEvent) => {
             v-if="images.length > 0 && !isEditing" 
             class="relative flex flex-wrap gap-2"
             :class="[
-              userTextContent || isEditing ? 'mb-3' : 'p-1 rounded-lg overflow-hidden',
+              userTextContent || isEditing ? 'mb-3' : 'p-1 overflow-hidden',
               !userTextContent && !isEditing && state.isMobile ? '' : ''
             ]"
             @touchstart="(!userTextContent && !isEditing) ? startLongPress($event) : null"
@@ -785,13 +785,13 @@ const handleContentClick = (e: MouseEvent) => {
                 class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
               ></div>
             </Transition>
-            <img v-for="(url, idx) in images" :key="idx" :src="url" @click="state.previewImageUrl = url" class="relative z-10 max-w-[200px] max-h-[200px] rounded-md border border-border-main cursor-pointer" />
+            <img v-for="(url, idx) in images" :key="idx" :src="url" @click="state.previewImageUrl = url" class="relative z-10 max-w-[200px] max-h-[200px] border border-border-main cursor-pointer" />
           </div>
 
           <!-- Text Bubble Section -->
           <div 
             v-if="userTextContent || isEditing"
-            class="relative p-4 rounded-lg shadow-sm bg-bg-panel rounded-tr-none transition-all duration-200 overflow-hidden min-w-0" 
+            class="relative p-4 shadow-sm bg-bg-panel transition-all duration-200 overflow-hidden min-w-0" 
             :class="[isEditing ? 'w-full' : '', state.isMobile ? '' : '']"
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
@@ -824,7 +824,7 @@ const handleContentClick = (e: MouseEvent) => {
                 @convert-audio="handleEditAudioConvert"
                 @convert-file="handleEditFileConvert"
               />
-              <textarea ref="editTextareaRef" v-model="editText" maxlength="1000000" class="w-full bg-bg-main border border-border-input rounded-md p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
+              <textarea ref="editTextareaRef" v-model="editText" maxlength="1000000" class="w-full bg-bg-main border border-border-input p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
               <input type="file" ref="editFileInput" class="hidden" multiple accept="image/*,audio/*,.pdf,.docx,.xlsx,.pptx,.doc,.xls,.ppt,.txt,.md,.json,.xml,.yaml,.yml,.csv,.html,.rtf,.log,.ini,.cfg,.conf,.sh,.bat,.py,.js,.ts,.css,.vue,.tsx,.jsx,.go,.rs,.toml,.env,.gitignore" @change="handleEditFileUpload" />
             </div>
           </div>
@@ -843,9 +843,9 @@ const handleContentClick = (e: MouseEvent) => {
               </button>
             </template>
             <template v-else-if="isEditing">
-              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center rounded-md hover:bg-bg-hover" title="上传文件"><FontAwesomeIcon :icon="['far', 'folder']" class="text-base" /></button>
+              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center hover:bg-bg-hover" title="上传文件"><FontAwesomeIcon :icon="['far', 'folder']" class="text-base" /></button>
               <button @click="isEditing = false" class="text-xs text-text-muted hover:text-text-main">取消</button>
-              <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1 rounded hover:bg-primary-hover">确认</button>
+              <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1 hover:bg-primary-hover">确认</button>
             </template>
           </div>
         </div>
@@ -866,7 +866,7 @@ const handleContentClick = (e: MouseEvent) => {
           <!-- Assistant content -->
           <div 
             :id="`bubble-${nodeId}-assistant`" 
-            class="w-full relative overflow-hidden p-1 -m-1 rounded-lg min-w-0"
+            class="w-full relative overflow-hidden p-1 -m-1 min-w-0"
             style="touch-action: pan-y;"
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
@@ -943,7 +943,7 @@ const handleContentClick = (e: MouseEvent) => {
     <div v-if="showMobileMenu" class="fixed inset-0 z-1100" @click="closeMenu" @contextmenu.prevent>
       <div class="fixed inset-0 bg-black/5"></div>
       <div 
-        class="absolute bg-bg-panel border border-border-main rounded-lg shadow-xl overflow-hidden animate-in fade-in zoom-in duration-150 py-1" 
+        class="absolute bg-bg-panel border border-border-main shadow-xl overflow-hidden animate-in fade-in zoom-in duration-150 py-1" 
         :style="menuStyle"
         @click.stop
       >
@@ -998,7 +998,7 @@ const handleContentClick = (e: MouseEvent) => {
   width: 6px;
   height: 14px;
   background-color: var(--primary);
-  border-radius: 1px;
+  border-radius: 0;
   animation: blink 1s step-end infinite;
 }
 
