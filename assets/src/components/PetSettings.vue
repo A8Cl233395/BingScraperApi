@@ -12,6 +12,7 @@ const {
   petImages,
   isLoading,
   importSprite,
+  importSingle,
   removeImage,
   clearAll,
   setEnabled,
@@ -20,6 +21,8 @@ const {
 const showClearConfirm = ref(false);
 const isImporting = ref(false);
 const spriteInputRef = ref<HTMLInputElement | null>(null);
+const singleInputRef = ref<HTMLInputElement | null>(null);
+const singleImportTarget = ref<PetState | null>(null);
 
 const stateLabels: Record<PetState, string> = {
   idle: '空闲',
@@ -90,6 +93,30 @@ const handleRemove = async (s: PetState) => {
   }
 };
 
+const handleSingleImportClick = (s: PetState) => {
+  singleImportTarget.value = s;
+  singleInputRef.value?.click();
+};
+
+const handleSingleImport = async () => {
+  const input = singleInputRef.value;
+  const target = singleImportTarget.value;
+  if (!input?.files?.length || !target) return;
+
+  const file = input.files[0];
+  isImporting.value = true;
+  try {
+    await importSingle(target, file);
+    showToast(`${stateLabels[target]} 状态图片已导入`);
+  } catch (e) {
+    showToast('导入失败', 'error');
+  } finally {
+    isImporting.value = false;
+    singleImportTarget.value = null;
+    input.value = '';
+  }
+};
+
 const handleClearAll = async () => {
   showClearConfirm.value = false;
   try {
@@ -131,17 +158,25 @@ const handleToggle = async (e: Event) => {
       <div class="pet-preview-grid">
         <div v-for="s in PET_STATES" :key="s" class="pet-preview-card">
           <div class="pet-preview-label">{{ stateLabels[s] }}</div>
-          <div class="pet-preview-box">
+          <div class="pet-preview-box" title="点击上传该状态图片" @click="handleSingleImportClick(s)">
             <img v-if="petImages[s]" :src="petImages[s]!" :alt="stateLabels[s]" class="pet-preview-img">
             <div v-else class="pet-preview-placeholder">
               <FontAwesomeIcon :icon="['fas', 'paw']" />
             </div>
+            <button v-if="petImages[s]" class="pet-remove-btn" @click.stop="handleRemove(s)">
+              <FontAwesomeIcon :icon="['fas', 'xmark']" />
+            </button>
           </div>
-          <button v-if="petImages[s]" class="pet-remove-btn" @click="handleRemove(s)">
-            <FontAwesomeIcon :icon="['fas', 'xmark']" />
-          </button>
         </div>
       </div>
+
+      <input
+        ref="singleInputRef"
+        type="file"
+        accept="image/*"
+        class="hidden"
+        @change="handleSingleImport"
+      >
 
       <div
         class="pet-import-section"
@@ -312,6 +347,7 @@ const handleToggle = async (e: Event) => {
 }
 
 .pet-preview-box {
+  position: relative;
   width: 100%;
   aspect-ratio: 192 / 208;
   background: var(--bg-main);
@@ -321,6 +357,12 @@ const handleToggle = async (e: Event) => {
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.pet-preview-box:hover {
+  border-color: var(--primary);
 }
 
 .pet-preview-img {
@@ -337,14 +379,14 @@ const handleToggle = async (e: Event) => {
 
 .pet-remove-btn {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 22px;
-  height: 22px;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border: none;
   border-radius: 0;
-  border: 1px solid var(--border-input);
-  background: var(--bg-main);
-  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.45);
+  color: white;
   font-size: 0.7rem;
   cursor: pointer;
   display: flex;
@@ -354,9 +396,7 @@ const handleToggle = async (e: Event) => {
 }
 
 .pet-remove-btn:hover {
-  background: var(--danger-bg);
-  border-color: var(--danger);
-  color: var(--danger);
+  background: var(--danger);
 }
 
 .pet-import-section {

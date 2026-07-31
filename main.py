@@ -75,9 +75,11 @@ async def lifespan(app: FastAPI):
 # 禁用 docs 和 redoc
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 KEY = config["server"]["auth_key"]
+REVERSE_PROXY: bool = config["server"]["nginx_ready"]
+SAFE_PATHS = ["/ping", "/download", "/invitecodegen", "/api/login", "/invite", "/icon.svg", "/login", "/webchat", "/profile"] if not REVERSE_PROXY else ["/ping", "/download", "/invitecodegen", "/api/login"]
 
 # 第二个中间件，用于压缩响应
-if not config["server"]["nginx_ready"]:
+if not REVERSE_PROXY:
     from fastapi.middleware.gzip import GZipMiddleware
     app.add_middleware(GZipMiddleware, minimum_size=10000)
 
@@ -86,9 +88,7 @@ if not config["server"]["nginx_ready"]:
 async def verify_key_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
-    if request.url.path in ["/ping", "/download", "/invitecodegen", "/api/login", "/invite", "/favicon.ico", "/login", "/webchat", "/profile"]:
-        return await call_next(request)
-    elif is_web_function_enabled and request.url.path in web_paths:
+    elif request.url.path in SAFE_PATHS:
         return await call_next(request)
     elif is_webchat_enabled and request.url.path.startswith("/api/"):
         uid = request.headers.get('uid')
@@ -124,39 +124,40 @@ if is_web_function_enabled:
         allow_headers=["*"],
         max_age=86400,
     )
-    
-    class CachedStaticFiles(StaticFiles):
-        ASSETS_DIR = "assets/dist/assets"
-        COMPRESSED_FILES = [i[:-3] for i in os.listdir(ASSETS_DIR) if i.endswith('.br')] # 假设所有.br压缩的文件都有.gz压缩的版本，DANGEROUS！
-        ENCODING_MAP = [(".br", "br"), (".gz", "gzip")]
-        async def __call__(self, scope, receive, send):
-            accept = dict(scope.get("headers", [])).get(b"accept-encoding", b"").decode()
-            filename = os.path.basename(scope["path"])
-            original = os.path.join(self.ASSETS_DIR, filename)
-            if filename in self.COMPRESSED_FILES:
-                for ext, encoding in self.ENCODING_MAP:
-                    if encoding in accept:
-                        compressed = original + ext
-                        resp = FileResponse(compressed, headers={
-                            "Content-Encoding": encoding,
-                            "Vary": "Accept-Encoding",
-                            "Cache-Control": "public, max-age=2592000",
-                        })
-                        await resp(scope, receive, send)
-                        return
-            if os.path.isfile(original):
-                resp = FileResponse(original, headers={"Cache-Control": "public, max-age=2592000"})
-                await resp(scope, receive, send)
-            else:
-                await super().__call__(scope, receive, send)
-    
-    app.mount("/assets", CachedStaticFiles(directory="assets/dist/assets"))
 
-    @app.get("/favicon.ico")
-    async def get_favicon(request: Request):
-        return FileResponse("assets/dist/favicon.ico", headers={"Cache-Control": "public, max-age=2592000"})
-    
-    web_paths = [f"/assets/{filename}" for filename in os.listdir("assets/dist/assets") if not filename.endswith(('.br', '.gz'))]
+    if not REVERSE_PROXY:
+        class CachedStaticFiles(StaticFiles):
+            ASSETS_DIR = "assets/dist/assets"
+            COMPRESSED_FILES = [i[:-3] for i in os.listdir(ASSETS_DIR) if i.endswith('.br')] # 假设所有.br压缩的文件都有.gz压缩的版本，DANGEROUS！
+            ENCODING_MAP = [(".br", "br"), (".gz", "gzip")]
+            async def __call__(self, scope, receive, send):
+                accept = dict(scope.get("headers", [])).get(b"accept-encoding", b"").decode()
+                filename = os.path.basename(scope["path"])
+                original = os.path.join(self.ASSETS_DIR, filename)
+                if filename in self.COMPRESSED_FILES:
+                    for ext, encoding in self.ENCODING_MAP:
+                        if encoding in accept:
+                            compressed = original + ext
+                            resp = FileResponse(compressed, headers={
+                                "Content-Encoding": encoding,
+                                "Vary": "Accept-Encoding",
+                                "Cache-Control": "public, max-age=2592000, immutable",
+                            })
+                            await resp(scope, receive, send)
+                            return
+                if os.path.isfile(original):
+                    resp = FileResponse(original, headers={"Cache-Control": "public, max-age=2592000, immutable"})
+                    await resp(scope, receive, send)
+                else:
+                    await super().__call__(scope, receive, send)
+        
+        app.mount("/assets", CachedStaticFiles(directory="assets/dist/assets"))
+
+        @app.get("/icon.svg")
+        async def get_favicon(request: Request):
+            return FileResponse("assets/dist/icon.svg", headers={"Cache-Control": "public, max-age=2592000"})
+        
+        SAFE_PATHS.extend([f"/assets/{filename}" for filename in os.listdir("assets/dist/assets") if not filename.endswith(('.br', '.gz'))])
 
     def verify_turnstile(challenge: str):
         response = requests.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', data={'secret': TURNSTILE_SECRET, "response": challenge}).json()
@@ -724,7 +725,7 @@ if is_webchat_enabled:
         return "success"
 
 if __name__ == '__main__':
-    if config["server"]["nginx_ready"]:
+    if REVERSE_PROXY:
         logger.warning("Nginx 模式已启用，这会只允许本地访问且会读取 X-Forwarded-For 头作为客户端 IP")
         uvicorn.run(app, host='127.0.0.1', port=config["server"]["port"], use_colors=False, timeout_graceful_shutdown=5, proxy_headers=True)
     elif "cert" in config["server"] and "key" in config["server"]:

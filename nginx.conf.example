@@ -51,6 +51,24 @@ http {
         gzip_comp_level 5;
         gzip_min_length 1k;
 
+        # assets目录：带哈希的构建产物，长期缓存
+        location /assets/ {
+            add_header Cache-Control "public, max-age=604800, immutable";
+            try_files $uri @backend;
+        }
+
+        # HTML文件（入口）：不缓存
+        location ~* \.html$ {
+            add_header Cache-Control "no-cache";
+            try_files $uri @backend;
+        }
+
+        # favicon：SVG 图标长期缓存
+        location = /icon.svg {
+            add_header Cache-Control "public, max-age=604800";
+            try_files $uri @backend;
+        }
+
         location / {
             try_files $uri $uri.html $uri/ @backend;
         }

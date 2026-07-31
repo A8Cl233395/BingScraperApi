@@ -95,6 +95,11 @@ export function usePet() {
     await loadImages();
   }
 
+  async function importSingle(state: PetState, file: File): Promise<void> {
+    await savePetImage(state, file);
+    await loadImages();
+  }
+
   async function removeImage(s: PetState): Promise<void> {
     await dbDeleteImage(s);
     revokeUrl(s);
@@ -131,6 +136,7 @@ export function usePet() {
     petImages,
     isLoading,
     importSprite,
+    importSingle,
     removeImage,
     clearAll,
     setEnabled,

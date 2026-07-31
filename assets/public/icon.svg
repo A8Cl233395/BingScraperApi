@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- 直角聊天气泡主体 -->
+  <path d="M4 6h24v16H12l-4 4v-4H4V6z" 
+        fill="#F8F8F8" 
+        stroke="#E5E5E5" 
+        stroke-width="1"
+        stroke-linejoin="round"/>
+  <!-- 三个方形小点 -->
+  <rect x="10" y="12" width="2" height="2" fill="#005FB8"/>
+  <rect x="16" y="12" width="2" height="2" fill="#005FB8"/>
+  <rect x="22" y="12" width="2" height="2" fill="#005FB8"/>
+</svg>
