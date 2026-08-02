@@ -370,8 +370,7 @@ if is_webchat_enabled:
     
     @app.get("/checkpwd", response_class=PlainTextResponse)
     def checkpwd(uid: Annotated[int, Query()]):
-        if not usermanager.is_user_exist(uid):
-            webchat.init_user(uid)
+        webchat.init_user(uid) # 幂等操作，如果后续添加其他操作，需要检查或幂等
         user = usermanager.get_user(uid)
         if user.secret:
             return Response(status_code=204)
@@ -381,8 +380,7 @@ if is_webchat_enabled:
 
     @app.get("/resetpwd", response_class=PlainTextResponse)
     def resetpwd(uid: Annotated[int, Query()]):
-        if not usermanager.is_user_exist(uid):
-            webchat.init_user(uid)
+        webchat.init_user(uid) # 幂等操作，如果后续添加其他操作，需要检查或幂等
         user = usermanager.get_user(uid)
         pwd = os.urandom(16).hex()
         user.setpwd(pwd)
