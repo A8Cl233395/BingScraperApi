@@ -155,6 +155,7 @@ html.dark {
 
 body {
   @apply bg-bg-main text-text-main transition-colors duration-300;
+  touch-action: manipulation;
 }
 
 /* 公共组件样式 */

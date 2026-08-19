@@ -75,7 +75,8 @@ async def lifespan(app: FastAPI):
 # 禁用 docs 和 redoc
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 KEY = config["server"]["auth_key"]
-REVERSE_PROXY: bool = config["server"]["nginx_ready"]
+REVERSE_PROXY: bool = config["server"].get("nginx_ready", False)
+SERVER_PORT: int = config["server"].get("port", 5212)
 SAFE_PATHS = ["/ping", "/download", "/invitecodegen", "/api/login", "/invite", "/icon.svg", "/login", "/webchat", "/profile"] if not REVERSE_PROXY else ["/ping", "/download", "/invitecodegen", "/api/login"]
 
 # 第二个中间件，用于压缩响应
@@ -111,8 +112,7 @@ async def verify_key_middleware(request: Request, call_next):
     return await call_next(request)
 
 if is_web_function_enabled:
-    TURNSTILE_SECRET = config["invite"]["turnstile-secret"]
-    INVITE_CODE_KEY = config["invite"]["invite-code-key"]
+    TURNSTILE_SECRET = config["server"]["turnstile_secret"]
     SERVER_ADDRESS = config["server"]["public_address"]
 
     # 第三个中间件，用于处理 CORS 请求，允许所有来源
@@ -296,6 +296,7 @@ if is_ocr_enabled:
         return result
 
 if is_invite_enabled:
+    INVITE_CODE_KEY = config["invite"]["invite-code-key"]
     class InvitePost(BaseModel):
         challenge: str
         qqid: int
@@ -725,13 +726,13 @@ if is_webchat_enabled:
 if __name__ == '__main__':
     if REVERSE_PROXY:
         logger.warning("Nginx 模式已启用，这会只允许本地访问且会读取 X-Forwarded-For 头作为客户端 IP")
-        uvicorn.run(app, host='127.0.0.1', port=config["server"]["port"], use_colors=False, timeout_graceful_shutdown=5, proxy_headers=True)
+        uvicorn.run(app, host='127.0.0.1', port=SERVER_PORT, use_colors=False, timeout_graceful_shutdown=5, proxy_headers=True)
     elif "cert" in config["server"] and "key" in config["server"]:
         if os.path.exists(config["server"]["cert"]) and os.path.exists(config["server"]["key"]):
             uvicorn.run(
                 app,
                 host='0.0.0.0',
-                port=config["server"]["port"],
+                port=SERVER_PORT,
                 ssl_keyfile=config["server"]["key"],
                 ssl_certfile=config["server"]["cert"],
                 use_colors=False,
@@ -742,8 +743,8 @@ if __name__ == '__main__':
             logger.info("回退到 HTTP 模式...")
             logger.warning("服务器正在以 HTTP 模式运行！")
             logger.warning("请勿将此服务器暴露到公网！")
-            uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False, timeout_graceful_shutdown=5)
+            uvicorn.run(app, host='0.0.0.0', port=SERVER_PORT, use_colors=False, timeout_graceful_shutdown=5)
     else:
         logger.warning("服务器正在以 HTTP 模式运行！")
         logger.warning("请勿将此服务器暴露到公网！")
-        uvicorn.run(app, host='0.0.0.0', port=config["server"]["port"], use_colors=False, timeout_graceful_shutdown=5)
+        uvicorn.run(app, host='0.0.0.0', port=SERVER_PORT, use_colors=False, timeout_graceful_shutdown=5)

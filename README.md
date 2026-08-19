@@ -158,9 +158,8 @@ ocr:
 # WebSocket 链接（AI 聊天的记忆同步依赖此模块）
 link:
 
-# 邀请系统（需要 Cloudflare Turnstile）
+# 邀请系统（需要 Cloudflare Turnstile，密钥在 server.turnstile_secret）
 invite:
-  turnstile-secret: "your_turnstile_secret"
   invite-code-key: your_invite_code_gen_key
 
 # AI 聊天（需要 bing_crawler、link 和 ocr 同时启用）
@@ -177,9 +176,12 @@ webchat:
       url: https://api.example.com/v1
       vision: true                         # 可选，标记为视觉模型
       hidden: false                        # 可选，标记为隐藏模型（不会在前端显示且不可选择）
-      thinking-extra-body:                 # 可选，思维链参数
-        'false': { thinking: { type: disabled } }
-        'true': { thinking: { type: enabled } }
+       thinking:                            # 可选，思维链参数
+         can_nonthink: true                  # 是否支持关闭思维链
+         request_summary: true               # Responses/Anthropic 协议是否请求思考摘要
+         extra_body:                         # Chat Completions 协议参数
+           'false': { enable_thinking: false }
+           'true': { enable_thinking: true }
 ```
 
 ### 功能依赖关系

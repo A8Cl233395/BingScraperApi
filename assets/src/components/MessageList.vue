@@ -124,6 +124,43 @@ const buildMessageChain = (nodeId: string, scrollToBottomFlag = true) => {
   }
 };
 
+/** 移除服务端已回滚的节点，并将发送游标恢复到有效节点。 */
+const removeFailedNode = (targetMsg: ChatNode, fallbackParentId?: string | null) => {
+  const nodeIds = [...new Set([targetMsg.id, targetMsg.clientId].filter(Boolean))];
+  let parentId = fallbackParentId || null;
+
+  for (const nodeId of nodeIds) {
+    const treeNode = messageTree.value[nodeId];
+    if (!treeNode) continue;
+
+    parentId = treeNode.parent || parentId;
+    delete messageTree.value[nodeId];
+
+    const parentNode = parentId
+      ? (parentId === 'root' ? messageTree.value.root : messageTree.value[parentId])
+      : null;
+    if (parentNode?.child) {
+      parentNode.child = parentNode.child.filter((childId: string) => childId !== nodeId);
+      if (parentNode.current === nodeId) {
+        parentNode.current = parentNode.child[parentNode.child.length - 1] || null;
+      }
+    }
+  }
+
+  messages.value = messages.value.filter(
+    message => !nodeIds.includes(message.id) && !nodeIds.includes(message.clientId)
+  );
+
+  targetMsg.isStreaming = false;
+  if (messages.value.length > 0) {
+    lastNodeId.value = messages.value[messages.value.length - 1].id;
+  } else if (parentId && messageTree.value[parentId]) {
+    lastNodeId.value = parentId;
+  } else {
+    lastNodeId.value = 'root';
+  }
+};
+
 /** Shared SSE event processor — mutates targetMsg in-place */
 const processSSEEvent = (
   ev: { event: string; data: string },
@@ -199,6 +236,7 @@ const processSSEEvent = (
     }
   } else if (eventType === 'error') {
     showToast('Error: ' + data, 'error');
+    removeFailedNode(targetMsg, parentId);
   } else {
     if (sseState.signal === 'thinking') {
       if (!sseState.assistantEntry) {
@@ -421,6 +459,7 @@ const handleSend = async (content: any, parent?: string) => {
 
   // Track whether we received a node_id (needed for disconnect reconnect)
   let receivedNodeId: string | null = null;
+  let receivedChatId: number | null = state.currentChatId;
   let disconnectedDuringStream = false;
 
   try {
@@ -437,6 +476,9 @@ const handleSend = async (content: any, parent?: string) => {
       openWhenHidden: true,
       onmessage(ev) {
         processSSEEvent(ev, userMsg, sseState, parentId);
+        if (ev.event === 'id') {
+          try { receivedChatId = parseInt(JSON.parse(ev.data)); } catch (_) { receivedChatId = parseInt(ev.data); }
+        }
         if (ev.event === 'node_id') {
           try { receivedNodeId = JSON.parse(ev.data); } catch (_) { receivedNodeId = ev.data; }
         }
@@ -445,7 +487,7 @@ const handleSend = async (content: any, parent?: string) => {
         if (currentController.signal.aborted) return;
         console.error('SSE Error', err);
         // Mark for reconnect instead of giving up
-        if (receivedNodeId && state.currentChatId) {
+        if (receivedNodeId && receivedChatId) {
           disconnectedDuringStream = true;
         }
         throw err; // Stop the current fetchEventSource retry loop
@@ -454,49 +496,15 @@ const handleSend = async (content: any, parent?: string) => {
   } catch (e: any) {
     if (e.name === 'AbortError' || currentController.signal.aborted) {
       console.log('Request aborted');
+    } else if (disconnectedDuringStream) {
+      // 保留已创建的节点，稍后通过 /api/reconnect 继续接收生成结果
+      console.warn('SSE 连接中断，准备重连');
     } else {
       console.error('Failed to send message', e);
       showToast('发送消息失败', 'error');
       
-      // 撤销发送的内容：从 messages 和 messageTree 中移除临时节点
-      const msgIdx = messages.value.findIndex(m => m.clientId === tempId);
-      if (msgIdx >= 0) {
-        messages.value = messages.value.slice(0, msgIdx);
-      }
-      
-      // 清理 messageTree 中的临时节点
-      if (messageTree.value[tempId]) {
-        const parentId = messageTree.value[tempId].parent;
-        delete messageTree.value[tempId];
-        // 从父节点的 child 数组中移除
-        if (parentId && messageTree.value[parentId]) {
-          const children = messageTree.value[parentId].child;
-          if (children) {
-            const childIdx = children.indexOf(tempId);
-            if (childIdx >= 0) children.splice(childIdx, 1);
-          }
-        }
-      }
-      
-      // 如果收到过真实节点ID，也需要清理
-      if (receivedNodeId && messageTree.value[receivedNodeId]) {
-        const parentId = messageTree.value[receivedNodeId].parent;
-        delete messageTree.value[receivedNodeId];
-        if (parentId && messageTree.value[parentId]) {
-          const children = messageTree.value[parentId].child;
-          if (children) {
-            const childIdx = children.indexOf(receivedNodeId);
-            if (childIdx >= 0) children.splice(childIdx, 1);
-          }
-        }
-      }
-      
-      // 恢复 lastNodeId
-      if (messages.value.length > 0) {
-        lastNodeId.value = messages.value[messages.value.length - 1].id;
-      } else {
-        lastNodeId.value = parentId || 'root';
-      }
+      // 撤销发送的内容：从 messages 和 messageTree 中移除失败节点
+      removeFailedNode(userMsg, parentId);
       
       // 如果是新对话（没有 receivedNodeId），重置 currentChatId
       if (!receivedNodeId && !state.currentChatId) {
@@ -528,8 +536,8 @@ const handleSend = async (content: any, parent?: string) => {
   }
 
   // If the SSE stream disconnected mid-generation, attempt reconnect
-  if (disconnectedDuringStream && receivedNodeId && state.currentChatId) {
-    handleReconnect(state.currentChatId, receivedNodeId);
+  if (disconnectedDuringStream && receivedNodeId && receivedChatId) {
+    handleReconnect(receivedChatId, receivedNodeId);
   }
 };
 

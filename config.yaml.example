@@ -9,6 +9,7 @@ server:
   nginx_ready: false
   # 注意，开启后会读取X-Forwarded-For作为真实ip，会使用HTTP模式，会只允许本地连接，会限制Body大小最大为100MB，建议QQBot使用本地HTTP连接。如果必须通过Nginx连接，务必检查Body大小是否会超过100MB
   # 开启后，记得修改port。示例Nginx配置使用5212端口，反代到5213端口。public_address为用户/外部访问的地址，需使用Nginx的地址
+  turnstile_secret: "1x0000000000000000000000000000000AA"
 
 bing_crawler:
   timeout: 10000 # timeout
@@ -35,12 +36,11 @@ ocr:
 link:
 
 invite:
-  # https://developers.cloudflare.com/turnstile/get-started/?preferred-color-scheme=dark#existing-sites
-  turnstile-secret: ""
   # 无header保护，尽可能复杂
   invite-code-key: ur_key
 
 webchat:
+  # https://developers.cloudflare.com/turnstile/get-started/?preferred-color-scheme=dark#existing-sites
   default-model: "deepseek-chat"
   default-vision-model: "qwen3.5-plus" # 需要支持视觉输入
   title-model: "deepseek-chat"
@@ -64,64 +64,64 @@ webchat:
     ---
   models:
     deepseek-v4-flash:
+      api_type: chat-completions
       desc: "Deepseek V4 Flash"
-      api_key: ur_key
-      thinking-extra-body:
-        'false':
-          thinking:
-            type: disabled
-        'true':
-          thinking:
-            type: enabled
-      url: https://api.deepseek.com/
-    kimi-k2.6:
-      desc: "Kimi K2.6"
-      api_key: ur_key
-      vision: true
-      thinking-extra-body:
-        'false':
-          thinking:
-            type: disabled
-        'true':
-          thinking:
-            type: enabled
-            keep: all
-      url: https://api.moonshot.cn/v1
-    qwen3.6-plus:
-      desc: "Qwen3.6 Plus"
-      api_key: ur_key
-      vision: true
-      thinking-extra-body:
-        'false':
-          enable_thinking: false
-        'true':
-          enable_thinking: true
-          preserve_thinking: true
-      url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    mimo-v2.5-pro:
-      desc: "Mimo 2.5 Pro"
-      api_key: ur_key
-      thinking-extra-body:
-        'false':
-          thinking:
-            type: disabled
-        'true':
-          thinking:
-            type: enabled
-      url: https://token-plan-cn.xiaomimimo.com/v1
-    mimo-v2.5:
-      desc: "Mimo 2.5"
-      api_key: ur_key
-      vision: true
-      thinking-extra-body:
-        'false':
-          thinking:
-            type: disabled
-        'true':
-          thinking:
-            type: enabled
-      url: https://token-plan-cn.xiaomimimo.com/v1
-    LongCat-2.0-Preview:
-      hidden: true
+      thinking:
+        can_nonthink: true
+        effort: high
       api_key: xxx
-      url: https://api.longcat.chat/openai
+      url: https://opencode.ai/zen/go/v1
+    deepseek-v4-pro:
+      api_type: chat-completions
+      desc: "Deepseek V4 Pro"
+      api_key: xxx
+      url: https://opencode.ai/zen/go/v1
+    kimi-k2.6:
+      api_type: chat-completions
+      desc: "Kimi K2.6"
+      vision: true
+      api_key: xxx
+      url: https://opencode.ai/zen/go/v1
+    qwen3.7-plus:
+      api_type: anthropic
+      vision: true
+      desc: "Qwen3.7 Plus"
+      max_tokens: 8192
+      thinking:
+        can_nonthink: true
+        on_param: enabled
+        effort: high
+      api_key: xxx
+      url: https://opencode.ai/zen/go
+    gpt-5.6-luna:
+      api_type: responses
+      desc: "GPT-5.6 Luna"
+      vision: true
+      thinking:
+        can_nonthink: true
+        effort: high
+        request_summary: true
+      api_key: xxx
+      url: https://opencode.ai/zen/go/v1
+    minimax-m3:
+      api_type: anthropic
+      desc: "Minimax M3"
+      max_tokens: 8192
+      vision: true
+      thinking:
+        can_nonthink: true
+        on_param: adaptive
+      api_key: xxx
+      url: https://opencode.ai/zen/go
+    qwen3.7-flash:
+      api_type: chat-completions
+      desc: "Qwen3.7 Flash"
+      hidden: true
+      thinking:
+        extra_body:
+          'true':
+            enable_thinking: true
+          'false':
+            enable_thinking: false
+      api_key: xxx
+      url: https://dashscope.aliyuncs.com/compatible-mode/v1

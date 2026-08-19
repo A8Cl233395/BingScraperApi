@@ -41,16 +41,28 @@
         },
         "nginx_ready": {
           "type": "boolean",
+          "default": false,
           "description": "是否使用 Nginx 反代模式"
+        },
+        "turnstile_secret": {
+          "type": "string",
+          "description": "Cloudflare Turnstile 密钥，invite 或 webchat 启用时必填"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["cert"] },
+          "then": { "required": ["key"] }
+        },
+        {
+          "if": { "required": ["key"] },
+          "then": { "required": ["cert"] }
+        }
+      ]
     },
 
     "bing_crawler": {
-      "oneOf": [
-        { "type": "null" },
-        {
-          "type": "object",
+      "type": "object",
           "additionalProperties": false,
           "properties": {
             "timeout": {
@@ -70,11 +82,10 @@
             },
             "exa_api_key": {
               "type": ["string", "null"],
+              "default": null,
               "description": "Exa MCP API 密钥，可选，不填则使用免费额度"
             }
           }
-        }
-      ]
     },
 
     "ncm": {
@@ -124,10 +135,7 @@
     },
 
     "ocr": {
-      "oneOf": [
-        { "type": "null" },
-        {
-          "type": "object",
+      "type": "object",
           "required": ["umi_ocr_endpoint"],
           "additionalProperties": false,
           "properties": {
@@ -137,8 +145,6 @@
               "description": "Umi-OCR 服务地址"
             }
           }
-        }
-      ]
     },
 
     "link": {
@@ -150,32 +156,20 @@
     },
 
     "invite": {
-      "oneOf": [
-        { "type": "null" },
-        {
-          "type": "object",
-          "required": ["turnstile-secret", "invite-code-key"],
+      "type": "object",
+          "required": ["invite-code-key"],
           "additionalProperties": false,
           "properties": {
-            "turnstile-secret": {
-              "type": "string",
-              "description": "Cloudflare Turnstile 密钥"
-            },
             "invite-code-key": {
               "type": "string",
               "minLength": 1,
               "description": "邀请码生成接口的验证密钥"
             }
           }
-        }
-      ]
     },
 
     "webchat": {
-      "oneOf": [
-        { "type": "null" },
-        {
-          "type": "object",
+      "type": "object",
           "required": ["default-model", "default-vision-model", "title-model", "prompt_raw", "models"],
           "additionalProperties": false,
           "properties": {
@@ -229,46 +223,191 @@
                   "url": {
                     "type": "string",
                     "format": "uri",
-                    "description": "OpenAI 兼容 API 地址"
+                    "description": "API 地址，OpenAI 兼容端点或 Anthropic API 端点"
                   },
                   "vision": {
                     "type": "boolean",
                     "default": false,
                     "description": "标记为视觉模型，支持图片输入"
                   },
-                  "thinking-extra-body": {
+                  "api_type": {
+                    "type": "string",
+                    "enum": ["chat-completions", "responses", "anthropic"],
+                    "default": "chat-completions",
+                    "description": "API 协议类型：chat-completions（OpenAI 兼容）/ responses（OpenAI Responses API）/ anthropic（Anthropic Messages API）"
+                  },
+                  "max_tokens": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "最大输出 tokens，anthropic 协议必填"
+                  },
+                  "thinking": {
                     "type": "object",
-                    "required": ["false", "true"],
                     "additionalProperties": false,
                     "properties": {
-                      "false": {
-                        "type": "object",
-                        "description": "关闭思维链时的 extra_body 参数"
+                      "can_nonthink": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "是否支持关闭思维链"
                       },
-                      "true": {
+                      "on_param": {
+                        "type": "string",
+                        "description": "Anthropic 协议开启思维链时的 thinking.type 参数"
+                      },
+                      "effort": {
+                        "type": "string",
+                        "description": "Responses 或 Anthropic 协议的思考强度"
+                      },
+                      "request_summary": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Responses 或 Anthropic 协议是否请求思考摘要"
+                      },
+                      "budget_tokens": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Anthropic 协议的思考预算 token 数"
+                      },
+                      "extra_body": {
                         "type": "object",
-                        "description": "开启思维链时的 extra_body 参数"
+                        "required": ["false", "true"],
+                        "additionalProperties": false,
+                        "properties": {
+                          "false": {
+                            "type": "object",
+                            "description": "关闭思维链时传给 Chat Completions 的 extra_body 参数"
+                          },
+                          "true": {
+                            "type": "object",
+                            "description": "开启思维链时传给 Chat Completions 的 extra_body 参数"
+                          }
+                        },
+                        "description": "Chat Completions 协议的思维链参数"
                       }
-                    }
+                    },
+                    "description": "模型的思维链配置，不同 API 协议使用不同字段"
                   }
                 },
                 "if": {
-                  "properties": { "hidden": { "const": true } }
+                  "properties": { "hidden": { "const": true } },
+                  "required": ["hidden"]
                 },
                 "then": {},
                 "else": {
                   "required": ["desc"]
-                }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": { "api_type": { "const": "anthropic" } }
+                    },
+                    "then": {
+                      "required": ["max_tokens"]
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "api_type": { "const": "chat-completions" },
+                        "thinking": { "type": "object" }
+                      },
+                      "required": ["api_type", "thinking"]
+                    },
+                    "then": {
+                      "properties": {
+                        "thinking": {
+                          "anyOf": [
+                            { "required": ["extra_body"] },
+                            { "required": ["effort"] }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "thinking": { "type": "object" }
+                      },
+                      "required": ["thinking"],
+                      "not": { "required": ["api_type"] }
+                    },
+                    "then": {
+                      "properties": {
+                        "thinking": {
+                          "anyOf": [
+                            { "required": ["extra_body"] },
+                            { "required": ["effort"] }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "api_type": { "const": "responses" },
+                        "thinking": { "type": "object" }
+                      },
+                      "required": ["api_type", "thinking"]
+                    },
+                    "then": {
+                      "properties": {
+                        "thinking": { "required": ["effort"] }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "api_type": { "const": "anthropic" },
+                        "thinking": { "type": "object" }
+                      },
+                      "required": ["api_type", "thinking"]
+                    },
+                    "then": {
+                      "properties": {
+                        "thinking": {
+                          "anyOf": [
+                            {
+                              "required": ["request_summary"],
+                              "properties": { "request_summary": { "const": true } }
+                            },
+                            {
+                              "required": ["on_param"],
+                              "not": {
+                                "required": ["effort", "budget_tokens"]
+                              }
+                            }
+                           ]
+                         }
+                       }
+                     }
+                   }
+                 ]
               },
               "description": "模型配置表，key 为模型标识符"
             }
           }
-        }
-      ]
     }
   },
 
   "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          { "required": ["invite"] },
+          { "required": ["webchat"] }
+        ]
+      },
+      "then": {
+        "properties": {
+          "server": {
+            "required": ["turnstile_secret"]
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {
@@ -277,7 +416,25 @@
         "required": ["webchat"]
       },
       "then": {
-        "required": ["bing_crawler", "link"]
+        "required": ["bing_crawler", "link", "ocr", "VoiceRecognition"],
+        "properties": {
+          "server": {
+            "required": []
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["invite"]
+      },
+      "then": {
+        "required": ["webchat"],
+        "properties": {
+          "server": {
+            "required": []
+          }
+        }
       }
     },
     {

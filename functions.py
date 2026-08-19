@@ -9,6 +9,16 @@ from playwright.async_api import BrowserContext, Playwright, async_playwright, B
 from collections import OrderedDict
 from fastapi import HTTPException
 from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
+from anthropic.types import (
+    ContentBlockDeltaEvent,
+    ContentBlockStartEvent,
+    InputJSONDelta,
+    TextBlock,
+    TextDelta,
+    ThinkingDelta,
+    ToolUseBlock,
+)
 import time
 import threading
 from fastapi import WebSocket
@@ -752,6 +762,15 @@ class StreamingCache:
     current_task: asyncio.Task | None = None
 
 @dataclass
+class StreamEvent:
+    """三种协议（chat-completions / responses / anthropic）归一化后的流式事件"""
+    kind: str  # "thinking" | "content" | "tool_start" | "tool_args"
+    text: str = ""
+    index: int | None = None
+    call_id: str | None = None
+    name: str | None = None
+
+@dataclass
 class UserSession:
     session_id: str
     token: str
@@ -956,6 +975,107 @@ class ChatInstance:
             },
         }
     ]
+    responses_tools = [
+        {
+            "type": "function",
+            "name": "searchWeb",
+            "description": "进行网络搜索",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "description": "查询的内容",
+                        "type": "string",
+                    },
+                },
+                "required": ["query"]
+            },
+        },
+        {
+            "type": "function",
+            "name": "readURL",
+            "description": "访问指定URL",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "description": "访问的URL",
+                        "type": "string",
+                    },
+                },
+                "required": ["url"]
+            },
+        },
+        {
+            "type": "function",
+            "name": "manageMemory",
+            "description": "管理永久记忆，此处的记忆会持久化存储",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "description": "操作",
+                        "type": "string",
+                        "enum": ["add", "remove"],
+                    },
+                    "memory": {
+                        "description": "要操作的记忆内容，需要完全匹配",
+                        "type": "string",
+                    },
+                },
+                "required": ["operation", "memory"]
+            },
+        }
+    ]
+    anthropic_tools = [
+        {
+            "name": "searchWeb",
+            "description": "进行网络搜索",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "description": "查询的内容",
+                        "type": "string",
+                    },
+                },
+                "required": ["query"]
+            },
+        },
+        {
+            "name": "readURL",
+            "description": "访问指定URL",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "description": "访问的URL",
+                        "type": "string",
+                    },
+                },
+                "required": ["url"]
+            },
+        },
+        {
+            "name": "manageMemory",
+            "description": "管理永久记忆，此处的记忆会持久化存储",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "description": "操作",
+                        "type": "string",
+                        "enum": ["add", "remove"],
+                    },
+                    "memory": {
+                        "description": "要操作的记忆内容，需要完全匹配",
+                        "type": "string",
+                    },
+                },
+                "required": ["operation", "memory"]
+            },
+        }
+    ]
     def __init__(self, user: User, chat_tree: dict = None):  # type: ignore
         self.system_prompt = self._build_system_message(user)
         self.user = user
@@ -963,21 +1083,241 @@ class ChatInstance:
         self.streaming = False
         self.last_active: float = None # hack! # type: ignore
 
-    async def _ai(self, model, messages, thinking, enable_function):
+    async def _stream_events(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
+        api_type = MODELS[model].get("api_type", "chat-completions")
+        if api_type == "responses":
+            async for event in self._ai_responses(model, messages, thinking, enable_function):
+                yield event
+        elif api_type == "anthropic":
+            async for event in self._ai_anthropic(model, messages, thinking, enable_function):
+                yield event
+        else:
+            async for event in self._ai_completions(model, messages, thinking, enable_function):
+                yield event
+
+    async def _ai_completions(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
+        model_config = MODELS[model]
         params = {
             "model": model,
             "messages": messages,
             "stream": True
         }
         if enable_function:
-            params["tools"] = ChatInstance.tools
-        if "thinking-extra-body" in MODELS[model]:
-            if thinking:
-                params["extra_body"] = MODELS[model]["thinking-extra-body"]["true"]
+            params["tools"] = self.tools
+        if "thinking" in model_config:
+            thinking_config = model_config["thinking"]
+            if "extra_body" in thinking_config:
+                if thinking:
+                    params["extra_body"] = thinking_config["extra_body"]["true"]
+                else:
+                    params["extra_body"] = thinking_config["extra_body"]["false"]
+            elif not thinking and thinking_config.get("can_nonthink", False):
+                params["reasoning_effort"] = "none"
             else:
-                params["extra_body"] = MODELS[model]["thinking-extra-body"]["false"]
+                params["reasoning_effort"] = thinking_config["effort"]
         client = get_oclient(model)
-        return await client.chat.completions.create(**params)
+        completion = await client.chat.completions.create(**params)
+        async for chunk in completion:
+            if not chunk.choices: # wdnmd小米
+                continue
+            delta = chunk.choices[0].delta
+            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                yield StreamEvent("thinking", text=delta.reasoning_content)
+            if hasattr(delta, "content") and delta.content: # wdnmd阿里
+                yield StreamEvent("content", text=delta.content)
+            if hasattr(delta, "tool_calls") and delta.tool_calls:
+                for tool_call in delta.tool_calls:
+                    if tool_call.id and tool_call.function.name: # 新的tool call
+                        yield StreamEvent("tool_start", index=tool_call.index, call_id=tool_call.id, name=tool_call.function.name)
+                    if tool_call.function.arguments:
+                        yield StreamEvent("tool_args", index=tool_call.index, text=tool_call.function.arguments)
+
+    async def _ai_responses(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
+        # responses API 不接受 system role 消息，system 提出到 instructions 参数
+        model_config = MODELS[model]
+        instructions, input_messages = self._prepare_responses_messages(messages)
+        params = {
+            "model": model,
+            "input": input_messages,
+            "instructions": instructions,
+            "stream": True,
+        }
+        if enable_function:
+            params["tools"] = self.responses_tools
+        if "thinking" in model_config:
+            thinking_config = model_config["thinking"]
+            reasoning = {}
+            if not thinking and thinking_config.get("can_nonthink", False): # 不思考
+                reasoning["effort"] = "none"
+            else:
+                reasoning["effort"] = thinking_config["effort"]
+            if thinking_config.get("request_summary", False): # 要求思考摘要
+                reasoning["summary"] = "auto"
+            params["reasoning"] = reasoning
+
+        client = get_oclient(model)
+        completion = await client.responses.create(**params)
+        call_indices: dict[str, int] = {}
+        call_index = 0
+        async for event in completion:
+            match event.type:
+                case "response.output_item.added":
+                    item = event.item
+                    if item.type == "function_call":
+                        call_indices[item.id] = call_index
+                        yield StreamEvent("tool_start", index=call_index, call_id=item.call_id, name=item.name)
+                        call_index += 1
+                case "response.function_call_arguments.delta":
+                    yield StreamEvent("tool_args", index=call_indices[event.item_id], text=event.delta)
+                case "response.output_text.delta":
+                    yield StreamEvent("content", text=event.delta)
+                case "response.reasoning_summary_text.delta":
+                    yield StreamEvent("thinking", text=event.delta)
+                case "response.reasoning_text.delta":
+                    yield StreamEvent("thinking", text=event.delta)
+
+    async def _ai_anthropic(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
+        # anthropic 协议不接受 system role 消息，system 提出到顶层参数
+        model_config = MODELS[model]
+        system, anthropic_messages = self._prepare_anthropic_messages(messages)
+        params = {
+            "model": model,
+            "messages": anthropic_messages,
+            "system": system,
+            "max_tokens": model_config["max_tokens"],
+        }
+        if enable_function:
+            params["tools"] = self.anthropic_tools
+        if "thinking" in model_config:
+            thinking_config = model_config["thinking"]
+            if not thinking and thinking_config.get("can_nonthink", False):
+                params["thinking"] = {"type": "disabled"}
+            else:
+                if thinking_config.get("request_summary", False):
+                    params["thinking"] = {"type": "adaptive", "display": "summarized"}
+                else:
+                    params["thinking"] = {"type": thinking_config["on_param"]}
+                if "effort" in thinking_config:
+                    params["output_config"] = {"effort": thinking_config["effort"]}
+                elif thinking_config.get("budget_tokens", False):
+                    params["thinking"]["budget_tokens"] = thinking_config["budget_tokens"]
+
+        client = get_aclient(model)
+        tool_indices = {}
+        tool_index = 0
+        async with client.messages.stream(**params) as chunk_stream:
+            async for event in chunk_stream:
+                if isinstance(event, ContentBlockStartEvent):
+                    if isinstance(event.content_block, ToolUseBlock):
+                        tool_indices[event.index] = tool_index
+                        yield StreamEvent("tool_start", index=tool_index, call_id=event.content_block.id, name=event.content_block.name)
+                        tool_index += 1
+                elif isinstance(event, ContentBlockDeltaEvent):
+                    if isinstance(event.delta, ThinkingDelta):
+                        yield StreamEvent("thinking", text=event.delta.thinking)
+                    elif isinstance(event.delta, TextDelta):
+                        yield StreamEvent("content", text=event.delta.text)
+                    elif isinstance(event.delta, InputJSONDelta):
+                        index = tool_indices.get(event.index)
+                        if index is not None:
+                            yield StreamEvent("tool_args", index=index, text=event.delta.partial_json)
+
+    def _prepare_responses_messages(self, messages: list) -> tuple[str, list]:
+        """
+        将内部 OpenAI 格式消息转换为 responses API 输入格式
+        system 消息拆出为 instructions；工具调用和工具结果转为顶层 input item
+        """
+        instructions = messages[0]["content"]
+        input_messages = []
+        for msg in messages[1:]:
+            if msg["role"] == "assistant" and msg.get("tool_calls"):
+                if msg.get("content"):
+                    input_messages.append({"role": "assistant", "content": msg["content"]})
+                input_messages.extend(
+                    {
+                        "type": "function_call",
+                        "call_id": tc["id"],
+                        "name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"],
+                    }
+                    for tc in msg["tool_calls"]
+                )
+            elif msg["role"] == "tool":
+                input_messages.append({
+                    "type": "function_call_output",
+                    "call_id": msg["tool_call_id"],
+                    "output": msg["content"],
+                })
+            elif msg["role"] == "assistant":
+                input_messages.append({"role": "assistant", "content": msg.get("content") or ""})
+            elif isinstance(msg["content"], list):
+                content = []
+                for block in msg["content"]:
+                    if block["type"] == "text":
+                        content.append({"type": "input_text", "text": block["text"]})
+                    elif block["type"] == "image_url":
+                        content.append({"type": "input_image", "image_url": block["image_url"]["url"]})
+                input_messages.append({"role": msg["role"], "content": content})
+            else:
+                input_messages.append({"role": msg["role"], "content": msg["content"]})
+        return instructions, input_messages
+
+    def _prepare_anthropic_messages(self, messages: list) -> tuple[list, list]:
+        """
+        将内部 OpenAI 格式消息转换为 anthropic messages 输入格式
+        system 消息拆出为顶层参数；image_url 转为 base64 image block；assistant 的 tool_calls 转为 tool_use block；
+        tool 消息合并为 user 消息的 tool_result block
+        """
+        system = [{"type": "text", "text": messages[0]["content"]}]
+        anthropic_messages = []
+        for msg in messages[1:]:
+            if msg["role"] == "tool":
+                if (anthropic_messages and anthropic_messages[-1]["role"] == "user"
+                        and anthropic_messages[-1]["content"][0].get("type") == "tool_result"):
+                    anthropic_messages[-1]["content"].append({
+                        "type": "tool_result",
+                        "tool_use_id": msg["tool_call_id"],
+                        "content": msg["content"],
+                    })
+                else:
+                    anthropic_messages.append({
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": msg["tool_call_id"], "content": msg["content"]}],
+                    })
+                continue
+            if msg["role"] == "assistant" and msg.get("tool_calls"):
+                content = []
+                if msg.get("content"):
+                    content.append({"type": "text", "text": msg["content"]})
+                for tc in msg["tool_calls"]:
+                    input_json = {}
+                    try: # 防止json错误
+                        input_json = json.loads(tc["function"]["arguments"])
+                    except json.JSONDecodeError:
+                        pass
+                    content.append({
+                        "type": "tool_use",
+                        "id": tc["id"],
+                        "name": tc["function"]["name"],
+                        "input": input_json,
+                    })
+            elif isinstance(msg["content"], list):
+                content = []
+                for block in msg["content"]:
+                    if block["type"] == "text":
+                        content.append(block)
+                    elif block["type"] == "image_url":
+                        url = block["image_url"]["url"]
+                        meta, b64 = url.split(",", 1)
+                        media_type = meta[len("data:"):].split(";", 1)[0]
+                        content.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": media_type, "data": b64},
+                        })
+            else:
+                content = msg["content"]
+            anthropic_messages.append({"role": msg["role"], "content": content})
+        return system, anthropic_messages
 
     async def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages: list | None = None, current_node_assistant_messages=None, _model=None) -> AsyncGenerator[str | asyncio.Task, None]:
         try:
@@ -996,66 +1336,61 @@ class ChatInstance:
                 current_messages.append({"role": "user", "content": content})
             current_node_assistant_messages = current_node_assistant_messages or [] # 初始化或继承当前节点助手消息
             # 开始生成
-            completion = await self._ai(_model, current_messages, thinking, enable_function)
             answering_content = ""
             reasoning_content = ""
             is_thinking = False
             is_answering = False
             tool_calls = []
             tool_tasks: list[asyncio.Task] = []
-            async for chunk in completion:
-                if not chunk.choices: # wdnmd小米
-                    continue
-                delta = chunk.choices[0].delta
-                if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+            async for ev in self._stream_events(_model, current_messages, thinking, enable_function):
+                if ev.kind == "thinking":
                     if not is_thinking:
                         is_thinking = True
                         yield self._sse("thinking", "signal")
-                    reasoning_content += delta.reasoning_content
-                    yield self._sse(delta.reasoning_content)
-                if hasattr(delta, "content") and delta.content: # wdnmd阿里
+                    reasoning_content += ev.text
+                    yield self._sse(ev.text)
+                elif ev.kind == "content":
                     if not is_answering:
                         yield self._sse("answering", "signal")
                         is_answering = True
-                    answering_content += delta.content
-                    yield self._sse(delta.content)
-                if hasattr(delta, "tool_calls") and delta.tool_calls:
-                    for tool_call in delta.tool_calls:
-                        if tool_call.id and tool_call.function.name: # 新的tool call
-                            if tool_calls: # 处理旧的（完成生成的）tool call
-                                yield self._sse(self._tool_call_json_parser(tool_calls[-1]))
-                                yield self._sse("tool_response", "signal")
-                                task = asyncio.create_task(asyncio.to_thread(self._handle_tool_call, tool_calls[-1]))
-                                tool_tasks.append(task)
-                                yield task
-                            # 确保列表长度足够容纳 tool_call.index
-                            if tool_call.index is not None:
-                                while len(tool_calls) <= tool_call.index:
-                                    tool_calls.append(None)
-                                tool_calls[tool_call.index] = {
-                                    "id": tool_call.id,
-                                    "function": {
-                                        "arguments": "",
-                                        "name": tool_call.function.name,
-                                    },
-                                    "type": "function",
-                                }
-                            else:
-                                tool_calls.append({
-                                    "id": tool_call.id,
-                                    "function": {
-                                        "arguments": "",
-                                        "name": tool_call.function.name,
-                                    },
-                                    "type": "function",
-                                })
-                            yield self._sse("tool_call", "signal")
-                            yield self._sse(tool_call.function.name, "tool_name")
-                        if tool_call.function.arguments:
-                            if tool_call.index is not None:
-                                tool_calls[tool_call.index]["function"]["arguments"] += tool_call.function.arguments
-                            else: # wdnmd谷歌。gemini只有一个tool call并且index = None
-                                tool_calls[-1]["function"]["arguments"] += tool_call.function.arguments
+                    answering_content += ev.text
+                    yield self._sse(ev.text)
+                elif ev.kind == "tool_start":
+                    assert ev.call_id is not None and ev.name is not None  # 内部假设：tool_start 必定携带工具 ID 与名称
+                    if tool_calls: # 处理旧的（完成生成的）tool call
+                        yield self._sse(self._tool_call_json_parser(tool_calls[-1]))
+                        yield self._sse("tool_response", "signal")
+                        task = asyncio.create_task(asyncio.to_thread(self._handle_tool_call, tool_calls[-1]))
+                        tool_tasks.append(task)
+                        yield task
+                    # 确保列表长度足够容纳工具索引
+                    if ev.index is not None:
+                        while len(tool_calls) <= ev.index:
+                            tool_calls.append(None)
+                        tool_calls[ev.index] = {
+                            "id": ev.call_id,
+                            "function": {
+                                "arguments": "",
+                                "name": ev.name,
+                            },
+                            "type": "function",
+                        }
+                    else: # wdnmd谷歌。gemini只有一个tool call并且index = None
+                        tool_calls.append({
+                            "id": ev.call_id,
+                            "function": {
+                                "arguments": "",
+                                "name": ev.name,
+                            },
+                            "type": "function",
+                        })
+                    yield self._sse("tool_call", "signal")
+                    yield self._sse(ev.name, "tool_name")
+                elif ev.kind == "tool_args":
+                    if ev.index is not None:
+                        tool_calls[ev.index]["function"]["arguments"] += ev.text
+                    else: # wdnmd谷歌。gemini只有一个tool call并且index = None
+                        tool_calls[-1]["function"]["arguments"] += ev.text
             
             if not tool_calls: # 结束
                 self.streaming = False
@@ -1119,7 +1454,7 @@ class ChatInstance:
             arguments_json = json.loads(tool_call["function"]["arguments"])
             match tool_call["function"]["name"]:
                 case "readURL":
-                    content = ChatInstance.customize_reader(arguments_json["url"])
+                    content = self.customize_reader(arguments_json["url"])
                 case "searchWeb":
                     content = browser.search(arguments_json["query"])
                 case "manageMemory":
@@ -1249,15 +1584,60 @@ class ChatInstance:
                 u = t["user"][-1]["text"] if t["user"][-1]["type"] == "text" else "[image]"
             a = t["assistant"][-1]["content"]
             text = f"用户：\n{u if len(u)<50 else u[:20]+'\n...\n'+u[-20:]}\nAI：\n{a if len(a)<80 else a[:30]+'...'+a[-30:]}"
+            model_config = MODELS[title_model]
+            thinking_config = model_config.get("thinking")
+            api_type = model_config.get("api_type", "chat-completions")
+            if api_type == "responses":
+                params = {
+                    "model": title_model,
+                    "instructions": "根据对话内容生成简短的标题，不包含标点，不超过15个字，只返回标题",
+                    "input": [{"role": "user", "content": text}],
+                    "max_output_tokens": 30,
+                }
+                if thinking_config:
+                    reasoning = {}
+                    if thinking_config.get("can_nonthink", False):
+                        reasoning["effort"] = "none"
+                    else:
+                        reasoning["effort"] = thinking_config["effort"]
+                    if thinking_config.get("request_summary", False):
+                        reasoning["summary"] = "auto"
+                    params["reasoning"] = reasoning
+                r = await get_oclient(title_model).responses.create(**params)
+                return r.output_text.strip()
+            if api_type == "anthropic":
+                params = {
+                    "model": title_model,
+                    "max_tokens": 30,
+                    "system": "根据对话内容生成简短的标题，不包含标点，不超过15个字，只返回标题",
+                    "messages": [{"role": "user", "content": text}],
+                }
+                if thinking_config:
+                    if thinking_config.get("can_nonthink", False):
+                        params["thinking"] = {"type": "disabled"}
+                    else:
+                        if thinking_config.get("request_summary", False):
+                            params["thinking"] = {"type": "adaptive", "display": "summarized"}
+                        else:
+                            params["thinking"] = {"type": thinking_config["on_param"]}
+                        if "effort" in thinking_config:
+                            params["output_config"] = {"effort": thinking_config["effort"]}
+                        elif thinking_config.get("budget_tokens", False):
+                            params["thinking"]["budget_tokens"] = thinking_config["budget_tokens"]
+                r = await get_aclient(title_model).messages.create(**params)
+                for text_block in r.content:
+                    if isinstance(text_block, TextBlock):
+                        return text_block.text.strip()
+                raise TypeError("标题响应中未找到文本块")
             params = {
                 "model": title_model,
                 "messages": [{"role":"system","content":"根据对话内容生成简短的标题，不包含标点，不超过15个字，只返回标题"},{"role":"user","content":text}],
                 "max_tokens": 30,
                 "stream": False
             }
-            if "thinking-extra-body" in MODELS[title_model]:
-                params["extra_body"] = MODELS[title_model]["thinking-extra-body"]["false"]
-            r = await get_oclient(config["webchat"]["title-model"]).chat.completions.create(**params)
+            if thinking_config:
+                params["extra_body"] = thinking_config["extra_body"]["false"]
+            r = await get_oclient(title_model).chat.completions.create(**params)
             return r.choices[0].message.content.strip()
         except Exception as e:
             logger.exception(f"生成标题失败：{e}")
@@ -1486,7 +1866,7 @@ class Webchat:
         if chat_id is None:
             if request.parent is not None and request.parent != "root":
                 raise HTTPException(status_code=400, detail="parent is not allowed in new chat")
-            chat_id, chat_instance = self._prepare_new_chat(user)
+            chat_id, chat_instance = await asyncio.to_thread(self._prepare_new_chat, user)
             node_id = chat_instance.create_placehold_node("root", request.content)
             streaming_cache = user.streaming_cache[(chat_id, node_id)] = StreamingCache([], asyncio.Condition())
             async with streaming_cache.condition:
@@ -1667,7 +2047,7 @@ if __name__ != "__main__":
 
     is_usermanager_required = is_webchat_enabled or is_link_enabled or is_invite_enabled
     is_web_function_enabled = is_webchat_enabled or is_invite_enabled
-    is_fileconverter_required = is_web_function_enabled
+    is_fileconverter_required = is_webchat_enabled
 
     if is_usermanager_required:
         usermanager = UserManager()
@@ -1675,10 +2055,15 @@ if __name__ != "__main__":
     if is_fileconverter_required:
         fileconverter = FileConverter()
 
+    if is_web_function_enabled:
+        if "turnstile_secret" not in config["server"]:
+            logger.critical("Web 功能需要 Turnstile 密钥，但未配置")
+            exit(1)
+
     if is_bing_crawler_enabled:
         if config["bing_crawler"].get("use_reversed_exa_mcp_first", False):
             exa = ExaMCP(config["bing_crawler"].get("exa_api_key"))
-        browser = AsyncCrawler(config["bing_crawler"].get("timeout", 8000), config["bing_crawler"].get("strict_anti_crawl_model", False), use_exa_first=config["bing_crawler"].get("use_reversed_exa_mcp_first", False))
+        browser = AsyncCrawler(config["bing_crawler"].get("timeout", 10000), config["bing_crawler"].get("strict_anti_crawl_model", False), use_exa_first=config["bing_crawler"].get("use_reversed_exa_mcp_first", False))
 
     if is_ncm_enabled:
         ncm = Ncm()
@@ -1725,6 +2110,12 @@ if __name__ != "__main__":
             if url not in oclients:
                 oclients[url] = AsyncOpenAI(api_key=MODELS[model]["api_key"], base_url=MODELS[model]["url"])
             return oclients[url]
+        aclients = {}
+        def get_aclient(model) -> AsyncAnthropic:
+            url = MODELS[model]["url"]
+            if url not in aclients:
+                aclients[url] = AsyncAnthropic(api_key=MODELS[model]["api_key"], base_url=MODELS[model]["url"])
+            return aclients[url]
         BCRYPT_COST = config["webchat"].get("bcrypt_cost", 10)
 
     if is_invite_enabled:

@@ -255,6 +255,7 @@ function enableInteractivity(container: HTMLElement): void {
     wrapper = document.createElement('div')
     wrapper.className = 'mermaid-zoom-wrapper'
     wrapper.style.cursor = 'grab'
+    wrapper.style.touchAction = 'none'
 
     inner = document.createElement('div')
     inner.className = 'mermaid-zoom-inner'

@@ -5,6 +5,7 @@ requests
 zstandard
 trafilatura
 openai
+anthropic
 pyyaml
 pillow
 bcrypt
