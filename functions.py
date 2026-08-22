@@ -1081,7 +1081,7 @@ class ChatInstance:
         self.user = user
         self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "vision": False, "iteration": -1}}
         self.streaming = False
-        self.last_active: float = None # hack! # type: ignore
+        self.last_active: float = 0
 
     async def _stream_events(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
         api_type = MODELS[model].get("api_type", "chat-completions")
@@ -1115,6 +1115,9 @@ class ChatInstance:
                 params["reasoning_effort"] = "none"
             else:
                 params["reasoning_effort"] = thinking_config["effort"]
+        if "max_tokens" in model_config:
+            params["max_completion_tokens"] = model_config["max_tokens"]
+        
         client = get_oclient(model)
         completion = await client.chat.completions.create(**params)
         async for chunk in completion:
@@ -1154,6 +1157,8 @@ class ChatInstance:
             if thinking_config.get("request_summary", False): # 要求思考摘要
                 reasoning["summary"] = "auto"
             params["reasoning"] = reasoning
+        if "max_tokens" in model_config:
+            params["max_output_tokens"] = model_config["max_tokens"]
 
         client = get_oclient(model)
         completion = await client.responses.create(**params)
