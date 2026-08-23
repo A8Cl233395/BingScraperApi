@@ -5,6 +5,15 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import hljs from 'highlight.js/lib/common';
 
+// Lucide 图标的 SVG 属性与内部元素（用于 marked 渲染器生成的 HTML 字符串）
+const lucideSvgAttrs = 'xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+const lightbulbIconInner = '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>';
+const arrowLeftRightIconInner = '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>';
+const codeIconInner = '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>';
+const copyIconInner = '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>';
+const maximizeIconInner = '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>';
+const checkIconInner = '<path d="M20 6 9 17l-5-5"/>';
+
 let mermaidModule: any = null;
 let mermaidModulePromise: Promise<any> | null = null;
 marked.use({
@@ -32,22 +41,22 @@ marked.use({
           .replace(/>/g, '&gt;');
         const cachedChartHtml = typeof mermaidModule !== 'undefined' && mermaidModule ? (mermaidModule.getCachedMermaidChartHtml(token.text) || mermaidModule.getCachedMermaidSvg(token.text)) : undefined;
         const completeClass = isComplete ? 'mermaid-complete' : 'mermaid-incomplete';
-        const chartContent = cachedChartHtml || `<div class="mermaid-placeholder"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="14" height="14" fill="currentColor" class="mermaid-placeholder-icon"><path d="M222.7 32.1c5 16.9-4.6 34.8-21.5 39.8C164.9 86.6 128 137.3 128 197.4c0 5.6-.3 11.1-.8 16.6H384.8c-.5-5.5-.8-11.1-.8-16.6 0-60.1-36.9-110.8-72.2-125.5-16.9-5-26.5-22.9-21.5-39.8C297.9-2.2 320 12 320 32.1V48H192V32.1c0-20.1 22.1-34.3 30.7-0zM128 256H32v224c0 17.7 14.3 32 32 32H320V256H128zm352 224c17.7 0 32-14.3 32-32V256H384V480h96z"/></svg><span>图表生成中...</span></div>`;
+        const chartContent = cachedChartHtml || `<div class="mermaid-placeholder"><svg ${lucideSvgAttrs} width="14" height="14" class="mermaid-placeholder-icon">${lightbulbIconInner}</svg><span>图表生成中...</span></div>`;
 
         return `<div class="mermaid-block ${completeClass} my-4 border-[0.5px] border-border-main overflow-hidden bg-code-bg">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">mermaid</span>
     <div class="flex items-center gap-2">
       <button class="mermaid-toggle-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="切换显示">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512" class="toggle-icon-svg" width="10" height="10" fill="currentColor"><path d="M392.8 1.2c-17-4.9-34.7 5-39.6 22l-128 448c-4.9 17 5 34.7 22 39.6s34.7-5 39.6-22l128-448c4.9-17-5-34.7-22-39.6zm80.6 120.1c-12.5 12.5-12.5 32.8 0 45.3L562.7 256l-89.4 89.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l112-112c12.5-12.5 12.5-32.8 0-45.3l-112-112c-12.5-12.5-32.8-12.5-45.3 0zm-271 0c-12.5-12.5-32.8-12.5-45.3 0l-112 112c-12.5 12.5-12.5 32.8 0 45.3l112 112c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L77.3 256l89.4-89.4c12.5-12.5 12.5-32.8 0-45.3z"/></svg>
+        <svg ${lucideSvgAttrs} width="10" height="10" class="toggle-icon-svg">${arrowLeftRightIconInner}</svg>
         <span class="toggle-text text-[10px]">文字</span>
       </button>
       <button class="copy-mermaid-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="copy-icon-svg" width="10" height="10" fill="currentColor"><path d="M64 464H288c8.8 0 16-7.2 16-16V384h48v64c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V224c0-35.3 28.7-64 64-64h64v48H64c-8.8 0-16 7.2-16 16V448c0 8.8 7.2 16 16 16zM224 304H448c8.8 0 16-7.2 16-16V64c0-8.8-7.2-16-16-16H224c-8.8 0-16 7.2-16 16V288c0 8.8 7.2 16 16 16zm-64-16V64c0-35.3 28.7-64 64-64H448c35.3 0 64 28.7 64 64V288c0 35.3-28.7 64-64 64H224c-35.3 0-64-28.7-64-64z"/></svg>
+        <svg ${lucideSvgAttrs} width="10" height="10" class="copy-icon-svg">${copyIconInner}</svg>
         <span class="text-[10px]">复制</span>
       </button>
       <button class="mermaid-fullscreen-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="全屏查看">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" width="10" height="10" fill="currentColor"><path d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32S0 334.3 0 352l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"/></svg>
+        <svg ${lucideSvgAttrs} width="10" height="10">${maximizeIconInner}</svg>
         <span class="text-[10px]">全屏</span>
       </button>
     </div>
@@ -75,7 +84,7 @@ marked.use({
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${lang}</span>
     <button class="copy-code-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="copy-icon-svg" width="10" height="10" fill="currentColor"><path d="M64 464H288c8.8 0 16-7.2 16-16V384h48v64c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V224c0-35.3 28.7-64 64-64h64v48H64c-8.8 0-16 7.2-16 16V448c0 8.8 7.2 16 16 16zM224 304H448c8.8 0 16-7.2 16-16V64c0-8.8-7.2-16-16-16H224c-8.8 0-16 7.2-16 16V288c0 8.8 7.2 16 16 16zm-64-16V64c0-35.3 28.7-64 64-64H448c35.3 0 64 28.7 64 64V288c0 35.3-28.7 64-64 64H224c-35.3 0-64-28.7-64-64z"/></svg>
+      <svg ${lucideSvgAttrs} width="10" height="10" class="copy-icon-svg">${copyIconInner}</svg>
       <span class="text-[10px]">复制</span>
     </button>
   </div>
@@ -651,8 +660,6 @@ watch(editText, () => {
   nextTick(adjustEditHeight);
 });
 
-const checkIconPath = 'M256 48a208 208 0 1 1 0 416 208 208 0 1 1 0-416zm0 464A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM369 209c9.4-9.4 9.4-24.6 0-33.9s-24.6-9.4-33.9 0l-111 111-47-47c-9.4-9.4-24.6-9.4-33.9 0s-9.4 24.6 0 33.9l64 64c9.4 9.4 24.6 9.4 33.9 0L369 209z';
-
 const handleCodeCopy = (e: MouseEvent) => {
   const target = e.target as HTMLElement;
   const btn = target.closest('.copy-code-btn');
@@ -666,13 +673,12 @@ const handleCodeCopy = (e: MouseEvent) => {
       const copySvg = btn.querySelector('.copy-icon-svg');
       const text = btn.querySelector('span');
       if (copySvg && text) {
-        const path = copySvg.querySelector('path');
-        const originalPath = path!.getAttribute('d')!;
-        path!.setAttribute('d', checkIconPath);
+        const originalInner = copySvg.innerHTML;
+        copySvg.innerHTML = checkIconInner;
         copySvg.classList.add('text-green-500');
         text.textContent = '已复制';
         setTimeout(() => {
-          path!.setAttribute('d', originalPath);
+          copySvg.innerHTML = originalInner;
           copySvg.classList.remove('text-green-500');
           text.textContent = '复制';
         }, 2000);
@@ -706,9 +712,9 @@ const handleContentClick = (e: MouseEvent) => {
         toggleText.textContent = isSource ? '图表' : '文字';
         // 切换图标：代码图标 <-> 图表图标
         if (isSource) {
-          toggleIcon.innerHTML = '<path d="M32 32c17.7 0 32 14.3 32 32V400c0 8.8 7.2 16 16 16H480c17.7 0 32 14.3 32 32s-14.3 32-32 32H80c-35.3 0-64-28.7-64-64V64C16 46.3 30.3 32 48 32H32zm96 96c17.7 0 32 14.3 32 32V352c0 17.7-14.3 32-32 32s-32-14.3-32-32V160c0-17.7 14.3-32 32-32zm160 64c17.7 0 32 14.3 32 32V352c0 17.7-14.3 32-32 32s-32-14.3-32-32V224c0-17.7 14.3-32 32-32zm96 32c17.7 0 32 14.3 32 32V352c0 17.7-14.3 32-32 32s-32-14.3-32-32V256c0-17.7 14.3-32 32-32z"/>';
+          toggleIcon.innerHTML = codeIconInner;
         } else {
-          toggleIcon.innerHTML = '<path d="M392.8 1.2c-17-4.9-34.7 5-39.6 22l-128 448c-4.9 17 5 34.7 22 39.6s34.7-5 39.6-22l128-448c4.9-17-5-34.7-22-39.6zm80.6 120.1c-12.5 12.5-12.5 32.8 0 45.3L562.7 256l-89.4 89.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l112-112c12.5-12.5 12.5-32.8 0-45.3l-112-112c-12.5-12.5-32.8-12.5-45.3 0zm-271 0c-12.5-12.5-32.8-12.5-45.3 0l-112 112c-12.5 12.5-12.5 32.8 0 45.3l112 112c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L77.3 256l89.4-89.4c12.5-12.5 12.5-32.8 0-45.3z"/>';
+          toggleIcon.innerHTML = arrowLeftRightIconInner;
         }
       }
     }
@@ -831,19 +837,19 @@ const handleContentClick = (e: MouseEvent) => {
           <div class="mt-2 flex items-center justify-end gap-3 transition-opacity w-full" :class="[isEditing ? 'opacity-100' : (state.isMobile ? (siblingCount && siblingCount > 1 ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden') : 'opacity-0 group-hover:opacity-100')]">
             <!-- Sibling Navigation -->
             <div v-if="siblingCount && siblingCount > 1" class="flex items-center gap-2 text-[10px] text-text-placeholder select-none">
-                <button @click="emit('navigate', nodeId, -1)" :disabled="siblingIndex === 0" class="hover:text-text-main disabled:opacity-30 p-1"><FontAwesomeIcon :icon="['fas', 'chevron-left']" /></button>
+                <button @click="emit('navigate', nodeId, -1)" :disabled="siblingIndex === 0" class="hover:text-text-main disabled:opacity-30 p-1"><ChevronLeft /></button>
                 <span>{{ (siblingIndex || 0) + 1 }} / {{ siblingCount }}</span>
-                <button @click="emit('navigate', nodeId, 1)" :disabled="siblingIndex === siblingCount! - 1" class="hover:text-text-main disabled:opacity-30 p-1"><FontAwesomeIcon :icon="['fas', 'chevron-right']" /></button>
+                <button @click="emit('navigate', nodeId, 1)" :disabled="siblingIndex === siblingCount! - 1" class="hover:text-text-main disabled:opacity-30 p-1"><ChevronRight /></button>
             </div>
             <template v-if="!isEditing && !state.isMobile">
-              <button @click="handleEdit" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="编辑"><FontAwesomeIcon :icon="['far', 'pen-to-square']" /></button>
+              <button @click="handleEdit" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="编辑"><SquarePen /></button>
               <button @click="handleCopy" class="transition-colors text-xs flex items-center gap-1 h-[18px]" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
-                <FontAwesomeIcon :icon="copied ? ['fas', 'check'] : ['far', 'copy']" class="text-[11px] w-3 text-center" />
+                <component :is="copied ? 'Check' : 'Copy'" class="text-[11px] min-w-3 text-center" />
                 <Transition name="fade"><span v-if="copied" class="text-[10px]">已复制</span></Transition>
               </button>
             </template>
             <template v-else-if="isEditing">
-              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center hover:bg-bg-hover" title="上传文件"><FontAwesomeIcon :icon="['far', 'folder']" class="text-base" /></button>
+              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center hover:bg-bg-hover" title="上传文件"><Folder class="text-base" /></button>
               <button @click="isEditing = false" class="text-xs text-text-muted hover:text-text-main">取消</button>
               <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1 hover:bg-primary-hover">确认</button>
             </template>
@@ -857,8 +863,8 @@ const handleContentClick = (e: MouseEvent) => {
           <!-- Thinking -->
           <div v-if="thinkingContent" class="my-2 w-full">
             <div @click="isThinkingExpanded = !isThinkingExpanded" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
-              <FontAwesomeIcon :icon="['fas', 'brain']" class="text-[10px] w-3 text-center" /><span>思考过程</span>
-              <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="isThinkingExpanded ? 'rotate-90' : ''" />
+              <Brain class="text-[10px] min-w-3 text-center" /><span>思考过程</span>
+              <ChevronRight class="text-[10px] transition-transform duration-200" :class="isThinkingExpanded ? 'rotate-90' : ''" />
             </div>
             <div v-if="isThinkingExpanded" @dblclick="isThinkingExpanded = false" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ thinkingContent }}</div>
           </div>
@@ -894,8 +900,8 @@ const handleContentClick = (e: MouseEvent) => {
               <!-- Reasoning content (per-segment) -->
               <div v-if="item.role === 'assistant' && segmentThinking[idx]" class="relative z-10 my-2 w-full">
                 <div @click="toggleThinkingSegment(idx)" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
-                  <FontAwesomeIcon :icon="['fas', 'brain']" class="text-[10px] w-3 text-center" /><span>思考过程</span>
-                  <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200" :class="isThinkingSegmentExpanded(idx) ? 'rotate-90' : ''" />
+                  <Brain class="text-[10px] min-w-3 text-center" /><span>思考过程</span>
+                  <ChevronRight class="text-[10px] transition-transform duration-200" :class="isThinkingSegmentExpanded(idx) ? 'rotate-90' : ''" />
                 </div>
                 <div v-if="isThinkingSegmentExpanded(idx)" @dblclick="thinkingOverrides[idx] = false" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ segmentThinking[idx] }}</div>
               </div>
@@ -907,9 +913,9 @@ const handleContentClick = (e: MouseEvent) => {
               <template v-if="item.role === 'assistant' && item.tool_calls">
                 <div v-for="call in item.tool_calls" :key="call.id" class="relative z-10 my-2 w-full">
                   <div @click="toggleTool(call.id)" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
-                    <FontAwesomeIcon :icon="['fas', 'wrench']" class="text-[10px] w-3 text-center" />
+                    <Wrench class="text-[10px] min-w-3 text-center" />
                     <span>调用 {{ call.function.name }}</span>
-                    <FontAwesomeIcon :icon="['fas', 'chevron-right']" class="text-[10px] transition-transform duration-200 shrink-0" :class="isToolExpanded(call.id) ? 'rotate-90' : ''" />
+                    <ChevronRight class="text-[10px] transition-transform duration-200 shrink-0" :class="isToolExpanded(call.id) ? 'rotate-90' : ''" />
                     <span v-if="!isToolExpanded(call.id)" class="inline-block max-w-[50%] min-w-0 font-mono text-[10px] text-text-muted truncate align-middle" :title="call.function.arguments">{{ call.function.arguments }}</span>
                   </div>
                   <div v-if="isToolExpanded(call.id)" class="mt-1">
@@ -931,7 +937,7 @@ const handleContentClick = (e: MouseEvent) => {
           <!-- Assistant Actions -->
           <div class="mt-2 flex items-center gap-3 transition-opacity" :class="state.isMobile ? 'opacity-0 h-0 overflow-hidden' : 'opacity-0 group-hover:opacity-100'">
             <button @click="handleCopyAssistant" class="transition-colors text-xs flex items-center gap-1 h-[18px]" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
-              <FontAwesomeIcon :icon="copied ? ['fas', 'check'] : ['far', 'copy']" class="text-[11px] w-3 text-center" />
+              <component :is="copied ? 'Check' : 'Copy'" class="text-[11px] min-w-3 text-center" />
               <Transition name="fade"><span v-if="copied" class="text-[10px]">已复制</span></Transition>
             </button>
           </div>
@@ -949,19 +955,19 @@ const handleContentClick = (e: MouseEvent) => {
         @click.stop
       >
         <button @click="handleCopyAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <FontAwesomeIcon :icon="['far', 'copy']" class="w-4 text-center text-text-muted" />
+          <Copy class="min-w-4 text-center text-text-muted" />
           <span>复制</span>
         </button>
         <button @click="handleSelectTextAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <FontAwesomeIcon :icon="['fas', 'i-cursor']" class="w-4 text-center text-text-muted" />
+          <TextCursor class="min-w-4 text-center text-text-muted" />
           <span>选择文本</span>
         </button>
         <button v-if="isUser" @click="handleEditAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <FontAwesomeIcon :icon="['far', 'pen-to-square']" class="w-4 text-center text-text-muted" />
+          <SquarePen class="min-w-4 text-center text-text-muted" />
           <span>修改</span>
         </button>
         <button v-else @click="handleRegenerateAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <FontAwesomeIcon :icon="['fas', 'rotate-right']" class="w-4 text-center text-text-muted" />
+          <RotateCw class="min-w-4 text-center text-text-muted" />
           <span>重新生成</span>
         </button>
       </div>

@@ -123,7 +123,7 @@ watch(() => state.currentChatId, (newId) => {
             @dblclick.stop
             class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center hover:bg-bg-hover transition-colors"
           >
-            <FontAwesomeIcon :icon="['fas', state.isSidebarOpen ? 'align-left' : 'bars']" />
+            <component :is="state.isSidebarOpen ? 'AlignLeft' : 'Menu'" />
           </button>
           <a 
             href="#/"
@@ -132,7 +132,7 @@ watch(() => state.currentChatId, (newId) => {
             class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center hover:bg-bg-hover transition-colors no-underline" 
             title="新对话"
           >
-            <FontAwesomeIcon :icon="['far', 'pen-to-square']" />
+            <SquarePen />
           </a>
           
           <ModelSelector />

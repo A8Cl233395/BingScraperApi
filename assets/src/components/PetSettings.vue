@@ -136,13 +136,13 @@ const handleToggle = async (e: Event) => {
 <template>
   <div class="pet-section">
     <div class="pet-header">
-      <FontAwesomeIcon :icon="['fas', 'paw']" />
+      <PawPrint />
       <h2>宠物设置</h2>
     </div>
     <p class="pet-desc">导入 Codex 精灵图，宠物会根据 AI 当前状态自动播放对应动画。</p>
 
     <div v-if="isLoading" class="loading-state">
-      <FontAwesomeIcon :icon="['fas', 'spinner']" spin />
+      <Loader2 class="animate-spin" />
       <span>加载中...</span>
     </div>
 
@@ -161,10 +161,10 @@ const handleToggle = async (e: Event) => {
           <div class="pet-preview-box" title="点击上传该状态图片" @click="handleSingleImportClick(s)">
             <img v-if="petImages[s]" :src="petImages[s]!" :alt="stateLabels[s]" class="pet-preview-img">
             <div v-else class="pet-preview-placeholder">
-              <FontAwesomeIcon :icon="['fas', 'paw']" />
+<PawPrint />
             </div>
             <button v-if="petImages[s]" class="pet-remove-btn" @click.stop="handleRemove(s)">
-              <FontAwesomeIcon :icon="['fas', 'xmark']" />
+              <X />
             </button>
           </div>
         </div>
@@ -194,8 +194,8 @@ const handleToggle = async (e: Event) => {
           @change="handleImport"
         >
         <button class="pet-import-btn" @click="spriteInputRef?.click()" :disabled="isImporting">
-          <FontAwesomeIcon v-if="isImporting" :icon="['fas', 'spinner']" spin />
-          <FontAwesomeIcon v-else :icon="['fas', 'file-import']" />
+          <Loader2 v-if="isImporting" class="animate-spin" />
+          <FileInput v-else />
           <span>导入 Codex 精灵图</span>
         </button>
         <span class="pet-import-hint">拖拽图片到此处，或点击按钮选择文件</span>
@@ -203,7 +203,7 @@ const handleToggle = async (e: Event) => {
 
       <div class="pet-clear-section">
         <button class="pet-clear-btn" @click="showClearConfirm = true">
-          <FontAwesomeIcon :icon="['fas', 'trash-can']" />
+          <Trash2 />
           清空所有图片
         </button>
       </div>

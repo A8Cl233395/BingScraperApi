@@ -260,7 +260,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           class="flex items-center gap-1.5 px-3 h-8 border border-border-input text-xs hover:bg-bg-hover transition-colors"
           :class="state.isThinking ? 'bg-primary-main text-primary-text hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
         >
-          <FontAwesomeIcon :icon="['fas', 'brain']" :class="state.isThinking ? 'text-primary-text' : 'text-text-placeholder'" />
+          <Brain :class="state.isThinking ? 'text-primary-text' : 'text-text-placeholder'" />
           深度思考
         </button>
         <button 
@@ -269,7 +269,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           class="flex items-center gap-1.5 px-3 h-8 border border-border-input text-xs hover:bg-bg-hover transition-colors"
           :class="state.isEnableFunction ? 'bg-primary-main text-primary-text hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
         >
-          <FontAwesomeIcon :icon="['fas', 'wrench']" :class="state.isEnableFunction ? 'text-primary-text' : 'text-text-placeholder'" />
+          <Wrench :class="state.isEnableFunction ? 'text-primary-text' : 'text-text-placeholder'" />
           使用工具
         </button>
         <div class="relative" ref="optionsRef">
@@ -279,8 +279,8 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
             class="w-8 h-8 flex items-center justify-center border border-border-input text-text-placeholder hover:bg-bg-hover transition-colors" 
             title="默认选项"
           >
-            <FontAwesomeIcon
-              :icon="['fas', props.isChatStarted ? 'chevron-up' : 'chevron-down']"
+            <component
+              :is="props.isChatStarted ? 'ChevronUp' : 'ChevronDown'"
               class="text-xs transition-transform"
               :class="showOptions ? 'rotate-180' : ''"
             />
@@ -308,7 +308,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
                   class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
                 >
                   <span>深度思考</span>
-                  <FontAwesomeIcon v-if="state.defaultSettings.thinking" :icon="['fas', 'check']" class="text-text-main" />
+                  <Check v-if="state.defaultSettings.thinking" class="text-text-main" />
                 </div>
                 <div 
                   @click="setDefaultOption('enable_function', !state.defaultSettings.enable_function)"
@@ -316,7 +316,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
                   class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
                 >
                   <span>使用工具</span>
-                  <FontAwesomeIcon v-if="state.defaultSettings.enable_function" :icon="['fas', 'check']" class="text-text-main" />
+                  <Check v-if="state.defaultSettings.enable_function" class="text-text-main" />
                 </div>
               </div>
             </div>
@@ -339,7 +339,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           class="text-text-placeholder hover:text-text-main w-8 h-8 flex items-center justify-center transition-colors" 
           title="插入图片和文件"
         >
-          <FontAwesomeIcon :icon="['far', 'folder']" class="text-lg" />
+          <Folder class="text-lg" />
         </button>
         <button
           v-if="state.isMobile"
@@ -350,14 +350,14 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           :class="isRecording ? 'bg-danger-main text-primary-text hover:opacity-80' : isRecognizing ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'text-text-placeholder hover:text-text-main'"
           :disabled="isRecognizing"
         >
-          <FontAwesomeIcon v-if="isRecognizing" :icon="['fas', 'spinner']" class="text-sm animate-spin" />
+          <Loader2 v-if="isRecognizing" class="text-sm animate-spin" />
           <div v-else-if="isRecording" class="flex items-center gap-[2px] h-3">
             <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full"></span>
             <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.15s"></span>
             <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.3s"></span>
             <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.45s"></span>
           </div>
-          <FontAwesomeIcon v-else :icon="['fas', 'microphone']" class="text-lg" />
+          <Mic v-else class="text-lg" />
         </button>
         <button
           v-else
@@ -368,14 +368,14 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           :disabled="isRecognizing"
           :title="isRecording ? '停止录音' : isRecognizing ? '识别中...' : '语音输入'"
         >
-          <FontAwesomeIcon v-if="isRecognizing" :icon="['fas', 'spinner']" class="text-sm animate-spin" />
+          <Loader2 v-if="isRecognizing" class="text-sm animate-spin" />
           <div v-else-if="isRecording" class="flex items-center gap-[2px] h-3">
             <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full"></span>
             <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.15s"></span>
             <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.3s"></span>
             <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.45s"></span>
           </div>
-          <FontAwesomeIcon v-else :icon="['fas', 'microphone']" class="text-lg" />
+          <Mic v-else class="text-lg" />
         </button>
         <button 
           v-if="state.isStreaming"
@@ -384,7 +384,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           class="bg-danger-main text-primary-text hover:opacity-80 w-8 h-8 flex items-center justify-center transition-colors"
           title="停止生成"
         >
-          <FontAwesomeIcon :icon="['fas', 'stop']" class="text-sm" />
+          <Square class="text-sm" />
         </button>
         <button 
           v-else
@@ -394,7 +394,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           :class="(hasUnconvertedFiles || isRecording || isRecognizing) ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'bg-primary-main text-primary-text hover:bg-primary-hover'"
           :disabled="hasUnconvertedFiles || isRecording || isRecognizing"
         >
-          <FontAwesomeIcon :icon="['fas', 'paper-plane']" class="text-sm" />
+          <Send class="text-sm" />
         </button>
       </div>
 

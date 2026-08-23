@@ -27,8 +27,8 @@ const emit = defineEmits(['confirm', 'cancel']);
       >
         <div class="p-6">
           <div class="flex items-center justify-center w-12 h-12 mb-4 mx-auto" :class="isDanger ? 'bg-danger-main/10' : 'bg-primary-main/10'">
-            <FontAwesomeIcon 
-              :icon="['fas', isDanger ? 'triangle-exclamation' : 'circle-info']"
+            <component
+              :is="isDanger ? 'TriangleAlert' : 'Info'"
               :class="isDanger ? 'text-danger-main' : 'text-primary-main'"
               class="text-xl"
             />

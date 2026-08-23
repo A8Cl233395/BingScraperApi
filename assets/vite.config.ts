@@ -20,6 +20,9 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            if (id.includes('lucide')) {
+              return 'icons';
+            }
             if (id.includes('vue')) {
               return 'vendor';
             }
@@ -31,9 +34,6 @@ export default defineConfig({
             }
             if (id.includes('marked') || id.includes('katex') || id.includes('highlight.js') || id.includes('dompurify')) {
               return 'markdown';
-            }
-            if (id.includes('@fortawesome')) {
-              return 'icons';
             }
           }
         }

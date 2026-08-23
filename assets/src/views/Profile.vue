@@ -394,7 +394,7 @@ watch(activeTab, (newTab) => {
           <div class="p-4 flex justify-between items-center">
             <span class="font-bold text-lg text-text-main">个人资料</span>
             <button @click="isSidebarOpen = false" v-if="state.isMobile" class="text-text-muted hover:text-text-main">
-              <FontAwesomeIcon :icon="['fas', 'xmark']" />
+              <X />
             </button>
           </div>
 
@@ -404,7 +404,7 @@ watch(activeTab, (newTab) => {
               @click="goBack"
               class="w-full px-4 py-2 border border-dashed border-border-input text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors"
             >
-              <FontAwesomeIcon :icon="['fas', 'chevron-left']" class="mr-2" />
+              <ChevronLeft class="mr-2" />
               <span>返回聊天</span>
             </button>
           </div>
@@ -416,7 +416,7 @@ watch(activeTab, (newTab) => {
               :class="activeTab === 'account' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('account')"
             >
-              <FontAwesomeIcon :icon="['fas', 'gauge']" />
+              <Gauge />
               <span>账户设置</span>
             </button>
             <button
@@ -424,7 +424,7 @@ watch(activeTab, (newTab) => {
               :class="activeTab === 'memory' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('memory')"
             >
-              <FontAwesomeIcon :icon="['fas', 'brain']" />
+              <Brain />
               <span>记忆管理</span>
             </button>
             <button
@@ -432,7 +432,7 @@ watch(activeTab, (newTab) => {
               :class="activeTab === 'custom' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('custom')"
             >
-              <FontAwesomeIcon :icon="['fas', 'gear']" />
+              <Settings />
               <span>自定义设置</span>
             </button>
             <button
@@ -440,7 +440,7 @@ watch(activeTab, (newTab) => {
               :class="activeTab === 'pet' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('pet')"
             >
-              <FontAwesomeIcon :icon="['fas', 'paw']" />
+              <PawPrint />
               <span>宠物设置</span>
             </button>
             <button
@@ -448,7 +448,7 @@ watch(activeTab, (newTab) => {
               :class="activeTab === 'sessions' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
               @click="switchTab('sessions')"
             >
-              <FontAwesomeIcon :icon="['fas', 'laptop']" />
+              <Laptop />
               <span>会话管理</span>
             </button>
           </div>
@@ -461,13 +461,13 @@ watch(activeTab, (newTab) => {
         class="fixed top-4 left-4 z-50 p-2 bg-bg-panel border border-border-main text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors shadow-sm"
         @click="isSidebarOpen = true"
       >
-        <FontAwesomeIcon :icon="['fas', 'bars']" />
+        <Menu />
       </button>
 
       <!-- Main Content -->
       <div class="tab-content">
         <div v-if="isLoading" class="loading-state">
-          <FontAwesomeIcon :icon="['fas', 'spinner']" spin />
+          <Loader2 class="animate-spin" />
           <span>加载中...</span>
         </div>
 
@@ -477,12 +477,12 @@ watch(activeTab, (newTab) => {
           <div class="card user-summary">
             <div class="user-summary-header">
               <div class="user-summary-avatar">
-                <FontAwesomeIcon :icon="['fas', 'user']" />
+                <User />
               </div>
               <div class="user-summary-info">
                 <span class="user-summary-uid">用户 #{{ maskedUid }}</span>
                 <span class="user-summary-days">
-                  <FontAwesomeIcon :icon="['fas', 'clock']" />
+                  <Clock />
                   已使用 {{ daysUsed }} 天
                 </span>
               </div>
@@ -507,7 +507,7 @@ watch(activeTab, (newTab) => {
           <!-- 偏好设置 -->
           <div class="card preferences-card">
             <div class="card-header">
-              <FontAwesomeIcon :icon="['fas', 'gear']" />
+              <Settings />
               <h2>偏好设置</h2>
             </div>
             <div class="pref-list">
@@ -537,7 +537,7 @@ watch(activeTab, (newTab) => {
           <!-- 修改密码 -->
           <div class="card password-card">
             <div class="card-header">
-              <FontAwesomeIcon :icon="['fas', 'key']" />
+              <KeyRound />
               <h2>修改密码</h2>
             </div>
             <form @submit.prevent="handleChangePwd">
@@ -579,11 +579,11 @@ watch(activeTab, (newTab) => {
               </div>
 
               <div v-if="pwdError" class="error-message">
-                <FontAwesomeIcon :icon="['fas', 'triangle-exclamation']" />
+                <TriangleAlert />
                 {{ pwdError }}
               </div>
               <div v-if="pwdSuccess" class="success-message">
-                <FontAwesomeIcon :icon="['fas', 'check']" />
+                <Check />
                 {{ pwdSuccess }}
               </div>
 
@@ -593,7 +593,7 @@ watch(activeTab, (newTab) => {
                 :class="{ loading: isChangingPwd }"
                 :disabled="isChangingPwd"
               >
-                <FontAwesomeIcon v-if="isChangingPwd" :icon="['fas', 'spinner']" spin />
+                <Loader2 v-if="isChangingPwd" class="animate-spin" />
                 <span>修改密码</span>
               </button>
             </form>
@@ -602,7 +602,7 @@ watch(activeTab, (newTab) => {
           <!-- 退出登录 -->
           <div class="card logout-card">
             <button class="logout-btn" @click="handleLogout">
-              <FontAwesomeIcon :icon="['fas', 'right-from-bracket']" />
+              <LogOut />
               <span>退出登录</span>
             </button>
           </div>
@@ -611,7 +611,7 @@ watch(activeTab, (newTab) => {
         <!-- Memory Management -->
         <div v-else-if="activeTab === 'memory'" class="memory-section">
           <div class="memory-header">
-            <FontAwesomeIcon :icon="['fas', 'brain']" />
+            <Brain />
             <h2>记忆管理</h2>
           </div>
           <p class="memory-desc">记忆会作为上下文提供给 AI，帮助其更好地理解你的需求。</p>
@@ -633,15 +633,15 @@ watch(activeTab, (newTab) => {
                 :class="{ loading: isAddingMemory }"
                 :disabled="isAddingMemory || !newMemory.trim()"
               >
-                <FontAwesomeIcon v-if="isAddingMemory" :icon="['fas', 'spinner']" spin />
-                <FontAwesomeIcon v-else :icon="['fas', 'plus']" />
+                <Loader2 v-if="isAddingMemory" class="animate-spin" />
+                <Plus v-else />
                 <span>添加</span>
               </button>
             </div>
           </form>
 
           <div v-if="memories.length === 0" class="empty-state">
-            <FontAwesomeIcon :icon="['fas', 'brain']" />
+            <Brain />
             <span>暂无记忆</span>
           </div>
 
@@ -649,7 +649,7 @@ watch(activeTab, (newTab) => {
             <div v-for="(mem, index) in memories" :key="index" class="memory-item">
               <span class="memory-text">{{ mem }}</span>
               <button class="remove-btn" @click="handleRemoveMemory(mem)" title="删除">
-                <FontAwesomeIcon :icon="['fas', 'xmark']" />
+                <X />
               </button>
             </div>
           </div>
@@ -662,7 +662,7 @@ watch(activeTab, (newTab) => {
         <!-- Custom Settings -->
         <div v-else-if="activeTab === 'custom'" class="appearance-section">
           <div class="appearance-header">
-            <FontAwesomeIcon :icon="['fas', 'gear']" />
+            <Settings />
             <h2>自定义设置</h2>
           </div>
 
@@ -674,7 +674,7 @@ watch(activeTab, (newTab) => {
                 :class="{ active: currentTheme === 'light' }"
                 @click="setTheme('light')"
               >
-                <FontAwesomeIcon :icon="['fas', 'sun']" class="theme-icon" />
+                <Sun class="theme-icon" />
                 <span class="theme-label">浅色</span>
                 <span class="theme-desc">明亮清爽</span>
               </button>
@@ -683,7 +683,7 @@ watch(activeTab, (newTab) => {
                 :class="{ active: currentTheme === 'dark' }"
                 @click="setTheme('dark')"
               >
-                <FontAwesomeIcon :icon="['fas', 'moon']" class="theme-icon" />
+                <Moon class="theme-icon" />
                 <span class="theme-label">深色</span>
                 <span class="theme-desc">护眼舒适</span>
               </button>
@@ -692,7 +692,7 @@ watch(activeTab, (newTab) => {
                 :class="{ active: currentTheme === 'system' }"
                 @click="setTheme('system')"
               >
-                <FontAwesomeIcon :icon="['fas', 'desktop']" class="theme-icon" />
+                <Monitor class="theme-icon" />
                 <span class="theme-label">跟随系统</span>
                 <span class="theme-desc">自动切换</span>
               </button>
@@ -703,7 +703,7 @@ watch(activeTab, (newTab) => {
             <p class="setting-group-title">消息展示</p>
             <div class="setting-item">
               <div class="setting-info">
-                <FontAwesomeIcon :icon="['fas', 'brain']" class="setting-icon" />
+                <Brain class="setting-icon" />
                 <div>
                   <span class="setting-label">默认展开思考过程</span>
                   <span class="setting-desc">新消息的思考过程默认展开显示</span>
@@ -719,7 +719,7 @@ watch(activeTab, (newTab) => {
             </div>
             <div class="setting-item">
               <div class="setting-info">
-                <FontAwesomeIcon :icon="['fas', 'wrench']" class="setting-icon" />
+                <Wrench class="setting-icon" />
                 <div>
                   <span class="setting-label">默认展开工具调用</span>
                   <span class="setting-desc">新消息的工具调用默认展开显示</span>
@@ -744,18 +744,18 @@ watch(activeTab, (newTab) => {
         <!-- Sessions Management -->
         <div v-else-if="activeTab === 'sessions'" class="sessions-section">
           <div class="sessions-header">
-            <FontAwesomeIcon :icon="['fas', 'laptop']" />
+            <Laptop />
             <h2>会话管理</h2>
           </div>
           <p class="sessions-desc">管理你的登录会话，可以踢出不需要的设备。</p>
 
           <div v-if="isLoadingSessions" class="loading-state">
-            <FontAwesomeIcon :icon="['fas', 'spinner']" spin />
+            <Loader2 class="animate-spin" />
             <span>加载中...</span>
           </div>
 
           <div v-else-if="sessions.length === 0" class="empty-state">
-            <FontAwesomeIcon :icon="['fas', 'laptop']" />
+            <Laptop />
             <span>暂无会话</span>
           </div>
 
@@ -775,7 +775,7 @@ watch(activeTab, (newTab) => {
                 class="kick-btn"
                 @click="handleKickSession(sessionId)"
               >
-                <FontAwesomeIcon :icon="['fas', 'right-from-bracket']" />
+                <LogOut />
                 <span>踢出</span>
               </button>
             </div>
@@ -801,7 +801,7 @@ watch(activeTab, (newTab) => {
       <div v-if="showKickConfirm" class="modal-overlay" @click.self="showKickConfirm = false">
         <div class="kick-modal">
           <div class="kick-modal-header">
-            <FontAwesomeIcon :icon="['fas', 'right-from-bracket']" />
+            <LogOut />
             <h3>踢出会话</h3>
           </div>
           <div class="kick-modal-body">
@@ -817,7 +817,7 @@ watch(activeTab, (newTab) => {
               >
             </div>
             <div v-if="kickError" class="error-message">
-              <FontAwesomeIcon :icon="['fas', 'triangle-exclamation']" />
+              <TriangleAlert />
               {{ kickError }}
             </div>
           </div>
@@ -828,7 +828,7 @@ watch(activeTab, (newTab) => {
               :disabled="isKicking"
               @click="confirmKickSession"
             >
-              <FontAwesomeIcon v-if="isKicking" :icon="['fas', 'spinner']" spin />
+              <Loader2 v-if="isKicking" class="animate-spin" />
               <span>确认踢出</span>
             </button>
           </div>

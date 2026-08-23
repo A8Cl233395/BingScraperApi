@@ -179,7 +179,7 @@ const confirmDelete = () => {
       <div class="p-4 flex justify-between items-center">
         <span class="font-bold text-lg text-text-main">AI Chat</span>
         <button @click="state.isSidebarOpen = false" v-if="state.isMobile" class="text-text-muted hover:text-text-main">
-          <FontAwesomeIcon :icon="['fas', 'xmark']" />
+          <X />
         </button>
       </div>
       
@@ -188,7 +188,7 @@ const confirmDelete = () => {
         @click.prevent="state.currentChatId = null"
         class="px-4 py-2 border border-dashed border-border-input mx-4 mb-4 text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors no-underline"
       >
-        <FontAwesomeIcon :icon="['fas', 'plus']" class="mr-2" /> 新对话
+        <Plus class="mr-2" /> 新对话
       </a>
       
       <div class="relative flex-1 min-h-0 overflow-hidden">
@@ -198,16 +198,14 @@ const confirmDelete = () => {
           :style="indicatorStyle"
         >
           <div class="flex items-center gap-2 text-xs text-text-placeholder">
-            <FontAwesomeIcon 
+            <ArrowDown 
               v-if="!isRefreshing"
-              :icon="['fas', 'arrow-down']" 
               class="transition-transform duration-200"
               :style="{ transform: `rotate(${arrowRotation}deg)` }"
             />
-            <FontAwesomeIcon 
+            <Loader2 
               v-else
-              :icon="['fas', 'spinner']" 
-              spin
+              class="animate-spin"
             />
             <span>{{ isRefreshing ? '刷新中...' : pullDistance >= PULL_THRESHOLD ? '释放刷新' : '下拉刷新' }}</span>
           </div>
@@ -252,12 +250,12 @@ const confirmDelete = () => {
               @click.prevent.stop="handleDelete(chat[0])"
               class="hidden group-hover:flex text-text-placeholder hover:text-danger-main absolute right-2 top-1/2 -translate-y-1/2 z-20 transition-colors p-1 items-center justify-center"
             >
-              <FontAwesomeIcon :icon="['fas', 'trash-can']" class="text-xs" />
+              <Trash2 class="text-xs" />
             </button>
           </a>
           <!-- Loading indicator -->
           <div v-if="state.isLoadingHistory" class="text-center py-3 text-xs text-text-placeholder">
-            <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="mr-1" /> 加载中...
+            <Loader2 class="animate-spin mr-1" /> 加载中...
           </div>
           <div v-if="!state.hasMoreHistory && state.chats.length > 0" class="text-center py-3 text-xs text-text-placeholder">
             没有更多了
@@ -278,7 +276,7 @@ const confirmDelete = () => {
           href="/profile"
           class="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors"
         >
-          <FontAwesomeIcon :icon="['fas', 'user-gear']" />
+          <UserCog />
           <span>个人资料</span>
         </a>
       </div>

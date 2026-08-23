@@ -133,7 +133,7 @@ const handleMenuFileDelete = () => {
         @contextmenu="isMobileDevice() ? $event.preventDefault() : null"
       />
       <div v-if="isOcrProcessing && isMobileDevice()" class="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
-        <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="text-white text-sm" />
+        <Loader2 class="animate-spin text-white text-sm" />
       </div>
       <button 
         v-if="!isMobileDevice()"
@@ -141,7 +141,7 @@ const handleMenuFileDelete = () => {
         @mousedown.prevent
         class="absolute top-0 right-0 bg-black/50 text-white w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
       >
-        <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-[10px]" />
+        <X class="text-[10px]" />
       </button>
       <button 
         v-if="!isMobileDevice()"
@@ -151,8 +151,8 @@ const handleMenuFileDelete = () => {
         :disabled="isOcrProcessing"
         title="识别文字"
       >
-        <FontAwesomeIcon v-if="isOcrProcessing" :icon="['fas', 'spinner']" spin class="text-[10px]" />
-        <FontAwesomeIcon v-else :icon="['fas', 'file-lines']" class="text-[10px]" />
+        <Loader2 v-if="isOcrProcessing" class="animate-spin text-[10px]" />
+        <FileText v-else class="text-[10px]" />
       </button>
     </div>
 
@@ -164,10 +164,10 @@ const handleMenuFileDelete = () => {
       @touchcancel="cancelAudioLongPress"
       @contextmenu="isMobileDevice() ? $event.preventDefault() : null"
     >
-      <FontAwesomeIcon :icon="['fas', 'music']" class="text-lg text-text-muted" />
+      <Music class="text-lg text-text-muted" />
       <span class="text-[9px] text-text-placeholder mt-0.5 px-1 truncate w-full text-center">{{ item.originalName }}</span>
       <div v-if="isConverting && isMobileDevice()" class="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
-        <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="text-white text-sm" />
+        <Loader2 class="animate-spin text-white text-sm" />
       </div>
       <button 
         v-if="!isMobileDevice()"
@@ -175,7 +175,7 @@ const handleMenuFileDelete = () => {
         @mousedown.prevent
         class="absolute top-0 right-0 bg-black/50 text-white w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
       >
-        <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-[10px]" />
+        <X class="text-[10px]" />
       </button>
       <button 
         v-if="!isMobileDevice()"
@@ -185,8 +185,8 @@ const handleMenuFileDelete = () => {
         :disabled="isConverting"
         title="转文字"
       >
-        <FontAwesomeIcon v-if="isConverting" :icon="['fas', 'spinner']" spin class="text-[10px]" />
-        <FontAwesomeIcon v-else :icon="['fas', 'file-lines']" class="text-[10px]" />
+        <Loader2 v-if="isConverting" class="animate-spin text-[10px]" />
+        <FileText v-else class="text-[10px]" />
       </button>
     </div>
 
@@ -198,10 +198,10 @@ const handleMenuFileDelete = () => {
       @touchcancel="cancelFileLongPress"
       @contextmenu="isMobileDevice() ? $event.preventDefault() : null"
     >
-      <FontAwesomeIcon :icon="['fas', 'file']" class="text-lg text-text-muted" />
+      <File class="text-lg text-text-muted" />
       <span class="text-[9px] text-text-placeholder mt-0.5 px-1 truncate w-full text-center">{{ item.originalName }}</span>
       <div v-if="isConverting && isMobileDevice()" class="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
-        <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="text-white text-sm" />
+        <Loader2 class="animate-spin text-white text-sm" />
       </div>
       <button 
         v-if="!isMobileDevice()"
@@ -209,7 +209,7 @@ const handleMenuFileDelete = () => {
         @mousedown.prevent
         class="absolute top-0 right-0 bg-black/50 text-white w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
       >
-        <FontAwesomeIcon :icon="['fas', 'xmark']" class="text-[10px]" />
+        <X class="text-[10px]" />
       </button>
       <button 
         v-if="!isMobileDevice()"
@@ -219,14 +219,14 @@ const handleMenuFileDelete = () => {
         :disabled="isConverting"
         title="转文字"
       >
-        <FontAwesomeIcon v-if="isConverting" :icon="['fas', 'spinner']" spin class="text-[10px]" />
-        <FontAwesomeIcon v-else :icon="['fas', 'file-lines']" class="text-[10px]" />
+        <Loader2 v-if="isConverting" class="animate-spin text-[10px]" />
+        <FileText v-else class="text-[10px]" />
       </button>
     </div>
 
     <!-- 处理中占位符 -->
     <div v-if="isProcessingImage" class="w-16 h-16 border border-dashed border-border-main flex items-center justify-center bg-bg-hover">
-      <FontAwesomeIcon :icon="['fas', 'spinner']" spin class="text-text-placeholder" />
+      <Loader2 class="animate-spin text-text-placeholder" />
     </div>
     <span v-if="(images.length > 0 || audioFiles.length > 0 || otherFiles.length > 0) && isMobileDevice()" class="text-[10px] text-text-placeholder self-center ml-1">长按操作</span>
   </div>
@@ -241,12 +241,12 @@ const handleMenuFileDelete = () => {
         @click.stop
       >
         <button @click="handleMenuImageOcr" :disabled="isOcrProcessing" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm disabled:opacity-50">
-          <FontAwesomeIcon v-if="isOcrProcessing" :icon="['fas', 'spinner']" spin class="w-4 text-center text-text-muted" />
-          <FontAwesomeIcon v-else :icon="['fas', 'file-lines']" class="w-4 text-center text-text-muted" />
+          <Loader2 v-if="isOcrProcessing" class="animate-spin min-w-4 text-center text-text-muted" />
+          <FileText v-else class="min-w-4 text-center text-text-muted" />
           <span>{{ isOcrProcessing ? '识别中...' : '识别文字' }}</span>
         </button>
         <button @click="handleMenuImageDelete" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <FontAwesomeIcon :icon="['fas', 'xmark']" class="w-4 text-center text-text-muted" />
+          <X class="min-w-4 text-center text-text-muted" />
           <span>删除</span>
         </button>
       </div>
@@ -263,12 +263,12 @@ const handleMenuFileDelete = () => {
         @click.stop
       >
         <button @click="handleMenuAudioConvert" :disabled="isConverting" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm disabled:opacity-50">
-          <FontAwesomeIcon v-if="isConverting" :icon="['fas', 'spinner']" spin class="w-4 text-center text-text-muted" />
-          <FontAwesomeIcon v-else :icon="['fas', 'file-lines']" class="w-4 text-center text-text-muted" />
+          <Loader2 v-if="isConverting" class="animate-spin min-w-4 text-center text-text-muted" />
+          <FileText v-else class="min-w-4 text-center text-text-muted" />
           <span>{{ isConverting ? '转换中...' : '转文字' }}</span>
         </button>
         <button @click="handleMenuAudioDelete" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <FontAwesomeIcon :icon="['fas', 'xmark']" class="w-4 text-center text-text-muted" />
+          <X class="min-w-4 text-center text-text-muted" />
           <span>删除</span>
         </button>
       </div>
@@ -285,12 +285,12 @@ const handleMenuFileDelete = () => {
         @click.stop
       >
         <button @click="handleMenuFileConvert" :disabled="isConverting" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm disabled:opacity-50">
-          <FontAwesomeIcon v-if="isConverting" :icon="['fas', 'spinner']" spin class="w-4 text-center text-text-muted" />
-          <FontAwesomeIcon v-else :icon="['fas', 'file-lines']" class="w-4 text-center text-text-muted" />
+          <Loader2 v-if="isConverting" class="animate-spin min-w-4 text-center text-text-muted" />
+          <FileText v-else class="min-w-4 text-center text-text-muted" />
           <span>{{ isConverting ? '转换中...' : '转文字' }}</span>
         </button>
         <button @click="handleMenuFileDelete" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <FontAwesomeIcon :icon="['fas', 'xmark']" class="w-4 text-center text-text-muted" />
+          <X class="min-w-4 text-center text-text-muted" />
           <span>删除</span>
         </button>
       </div>
