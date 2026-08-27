@@ -2,6 +2,7 @@
 import { state } from '../store';
 import { ref, computed } from 'vue';
 import ConfirmModal from './ConfirmModal.vue';
+import ModelSelector from './ModelSelector.vue';
 import { useLongPress } from '../composables/useLongPress';
 
 const chatListRef = ref<HTMLElement | null>(null);
@@ -178,18 +179,25 @@ const confirmDelete = () => {
     <div :class="state.isMobile ? 'w-72' : 'w-64'" class="h-full flex flex-col shrink-0">
       <div class="p-4 flex justify-between items-center">
         <span class="font-bold text-lg text-text-main">AI Chat</span>
-        <button @click="state.isSidebarOpen = false" v-if="state.isMobile" class="text-text-muted hover:text-text-main">
-          <X />
+        <button
+          @click="state.isSidebarOpen = !state.isSidebarOpen"
+          class="-my-0.5 w-8 h-8 flex items-center justify-center text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors"
+          :title="state.isMobile ? '关闭侧栏' : '收起侧栏'"
+        >
+          <component :is="state.isMobile ? 'X' : 'AlignLeft'" />
         </button>
       </div>
-      
-      <a 
-        href="#/"
-        @click.prevent="state.currentChatId = null"
-        class="px-4 py-2 border border-dashed border-border-input mx-4 mb-4 text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors no-underline"
-      >
-        <Plus class="mr-2" /> 新对话
-      </a>
+      <div class="mx-4 mb-4 flex items-center gap-2">
+        <a
+          href="#/"
+          @click.prevent="state.currentChatId = null"
+          class="shrink-0 w-8 h-8 flex items-center justify-center border border-border-input text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors no-underline"
+          title="新对话"
+        >
+          <Plus />
+        </a>
+        <ModelSelector merged class="flex-1 min-w-0" />
+      </div>
       
       <div class="relative flex-1 min-h-0 overflow-hidden">
         <!-- 下拉刷新指示器 -->

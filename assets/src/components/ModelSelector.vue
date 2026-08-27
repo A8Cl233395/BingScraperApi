@@ -1,6 +1,22 @@
 <script setup lang="ts">
 import { state } from '../store';
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+
+defineProps<{
+  merged?: boolean;
+}>();
+
+const activeModelName = computed(() => (state.isVisionMode ? state.currentVModel : state.currentModel) || '选择模型');
+
+const activeModelClass = computed(() => {
+  const name = state.isVisionMode ? state.currentVModel : state.currentModel;
+  if (!name) return 'text-text-placeholder';
+  const isDefault = state.isVisionMode
+    ? name === state.defaultSettings.vmodel
+    : name === state.defaultSettings.model;
+  if (isDefault) return state.isVisionMode ? 'text-orange-500' : 'text-text-main';
+  return 'text-success-main';
+});
 
 const isOpen = ref(false);
 const isLoading = ref(false);
@@ -59,8 +75,21 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
 </script>
 
 <template>
-  <div ref="containerRef" class="relative ml-2" @dblclick.stop>
+  <div ref="containerRef" class="relative" :class="merged ? 'w-full' : 'ml-2'" @dblclick.stop>
     <button
+      v-if="merged"
+      @click="toggleDropdown()"
+      class="w-full h-8 flex items-center justify-between gap-1.5 border border-border-input px-3 transition-colors disabled:opacity-50 disabled:cursor-wait"
+      :class="isLoading ? 'bg-bg-hover' : 'hover:bg-bg-hover bg-bg-main'"
+      :disabled="isLoading"
+      title="选择模型"
+    >
+      <span class="text-sm truncate" :class="activeModelClass">{{ activeModelName }}</span>
+      <Loader2 v-if="isLoading" class="text-[10px] text-text-placeholder animate-spin shrink-0" />
+      <ChevronDown v-else class="text-[10px] text-text-placeholder transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
+    </button>
+    <button
+      v-else
       @click="toggleDropdown()"
       class="flex items-center gap-2 border border-border-input px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
       :class="isLoading ? 'bg-bg-hover' : 'hover:bg-bg-hover bg-bg-main'"
@@ -86,9 +115,10 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
       <!-- Dropdown -->
       <div
         v-if="isOpen"
-        class="absolute left-0 mt-2 w-64 shadow-xl z-50 overflow-hidden origin-top-left"
+        class="absolute mt-2 w-64 shadow-xl z-50 overflow-hidden"
+        :class="merged ? '-right-4 origin-top-right' : 'left-0 origin-top-left'"
       >
-        <div class="bg-bg-main border border-border-main py-1">
+        <div class="bg-bg-main border border-border-main">
           <template v-for="(info, name) in state.models" :key="name">
           <div
             class="px-4 py-2 hover:bg-bg-hover cursor-pointer flex flex-col transition-colors border-b last:border-b-0 border-border-main"

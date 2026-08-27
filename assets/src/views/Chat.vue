@@ -109,6 +109,15 @@ watch(() => state.currentChatId, (newId) => {
     window.history.pushState({}, '', newHash);
   }
 });
+
+watch(
+  [() => state.currentChatId, () => state.chats],
+  () => {
+    const chat = state.chats.find(c => c[0] === state.currentChatId);
+    document.title = chat ? `${chat[1]} | AI Chat` : 'AI Chat';
+  },
+  { deep: true }
+);
 </script>
 
 <template>
@@ -116,7 +125,11 @@ watch(() => state.currentChatId, (newId) => {
     <Sidebar />
 
     <main class="flex-1 flex flex-col h-full relative min-w-0 bg-bg-main w-full">
-      <header @dblclick="handleHeaderDblClick" class="h-14 flex items-center px-4 justify-between shrink-0 z-30 w-full bg-bg-main border-b border-border-main cursor-pointer select-none">
+      <header
+        @dblclick="handleHeaderDblClick"
+        class="flex items-center px-4 justify-between shrink-0 z-30 w-full h-14 bg-bg-main border-b border-border-main cursor-pointer select-none transition-[translate,margin-bottom] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]"
+        :class="!state.isMobile && state.isSidebarOpen ? 'translate-x-full -mb-14 pointer-events-none' : 'translate-x-0 mb-0'"
+      >
         <div class="flex items-center gap-3">
           <button 
             @click="state.isSidebarOpen = !state.isSidebarOpen" 
