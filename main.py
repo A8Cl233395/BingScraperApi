@@ -189,6 +189,7 @@ def ping():
 def status():
     return {
         "browser": is_bing_crawler_enabled,
+        "custom_reader": is_custom_reader_enabled,
         "download": is_download_service_required,
         "ocr": is_ocr_enabled,
         "transcribe": is_vr_enabled,
@@ -197,7 +198,7 @@ def status():
         "invite": is_invite_enabled,
         "link": is_link_enabled,
         "webchat": is_webchat_enabled,
-        "version": "6"
+        "version": "7"
     }
 
 # 下载服务，仅内部逻辑使用，不要写入文档
@@ -228,6 +229,12 @@ if is_bing_crawler_enabled:
     def read(url: str):
         results = browser.read(url)
         return results
+
+if is_custom_reader_enabled:
+    @app.get("/customreader/{url:path}", response_class=PlainTextResponse)
+    def custom_read(url: str):
+        result = ChatInstance.customize_reader(url) # ?
+        return result
 
 if is_ncm_enabled:
     @app.get("/ncmlyric", response_class=PlainTextResponse)

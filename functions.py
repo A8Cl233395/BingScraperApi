@@ -2049,6 +2049,7 @@ if __name__ != "__main__":
     is_webchat_enabled = "webchat" in config
     is_link_enabled = "link" in config
     is_invite_enabled = "invite" in config
+    is_custom_reader_enabled = "custom_reader" in config
 
     is_usermanager_required = is_webchat_enabled or is_link_enabled or is_invite_enabled
     is_web_function_enabled = is_webchat_enabled or is_invite_enabled
@@ -2085,6 +2086,17 @@ if __name__ != "__main__":
             if service["type"] == "aliyun":
                 is_download_service_required = True
                 break
+
+    if is_custom_reader_enabled:
+        if not is_bing_crawler_enabled:
+            logger.critical("自定义阅读器需要 Bing 爬虫，但该功能未启用")
+            exit(1)
+        if not is_bilibili_enabled:
+            logger.critical("自定义阅读器需要 Bilibili 模块，但该功能未启用")
+            exit(1)
+        if not is_ncm_enabled:
+            logger.critical("自定义阅读器需要 Ncm 模块，但该功能未启用")
+            exit(1)
 
     if is_ocr_enabled:
         ocr_service = OCR()

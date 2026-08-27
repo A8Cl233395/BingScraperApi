@@ -104,6 +104,14 @@
       "description": "B 站视频转录功能，需要同时启用 VoiceRecognition"
     },
 
+    "custom_reader": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object" }
+      ],
+      "description": "自定义阅读器功能，需要同时启用 bing_crawler、bilibili、ncm"
+    },
+
     "VoiceRecognition": {
       "type": "array",
       "minItems": 1,
@@ -379,12 +387,12 @@
                                 "required": ["effort", "budget_tokens"]
                               }
                             }
-                           ]
-                         }
-                       }
-                     }
-                   }
-                 ]
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
               },
               "description": "模型配置表，key 为模型标识符"
             }
@@ -443,6 +451,14 @@
       },
       "then": {
         "required": ["VoiceRecognition"]
+      }
+    },
+    {
+      "if": {
+        "required": ["custom_reader"]
+      },
+      "then": {
+        "required": ["bing_crawler", "bilibili", "ncm"]
       }
     },
     {
