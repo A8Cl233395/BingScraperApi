@@ -194,6 +194,7 @@ import { ref, computed, watch, nextTick, reactive, onBeforeUpdate, onUpdated, on
 import { state } from '../store';
 import { useImageEditor } from '../composables/useImageEditor';
 import { useLongPress } from '../composables/useLongPress';
+import { useToast } from '../composables/useToast';
 import FileEditorGrid from './FileEditorGrid.vue';
 
 
@@ -206,6 +207,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits(['navigate', 'edit', 'regenerate']);
+const { showToast } = useToast();
 
 const preScrollPositions = new Map<number, number[]>();
 const mermaidZoomStates = new Map<number, { scale: number; tx: number; ty: number }>();
@@ -421,6 +423,8 @@ const startLongPress = (e: TouchEvent) => {
 const handleCopyAction = () => {
   if (props.isUser) handleCopy();
   else handleCopyAssistant();
+  // 移动端操作栏隐藏，copied 反馈不可见，用 toast 提示
+  showToast('已复制到剪贴板', 'success');
   closeMenu();
 };
 
@@ -660,30 +664,40 @@ watch(editText, () => {
   nextTick(adjustEditHeight);
 });
 
+// 代码块/mermaid 复制按钮的统一反馈动画（与消息操作栏复制按钮一致：图标换对勾 + 主题成功色 + "已复制"淡入）
+const INLINE_COPY_FEEDBACK_MS = 2000;
+const showInlineCopyFeedback = (btn: HTMLElement) => {
+  const copySvg = btn.querySelector<SVGElement>('.copy-icon-svg');
+  const textEl = btn.querySelector<HTMLElement>('span');
+  if (!copySvg || !textEl) return;
+  if (btn.dataset.copyTimer) clearTimeout(Number(btn.dataset.copyTimer));
+  const originalInner = copySvg.innerHTML;
+  btn.classList.add('text-success-main');
+  btn.classList.remove('text-text-placeholder', 'hover:text-text-main');
+  copySvg.innerHTML = checkIconInner;
+  textEl.textContent = '已复制';
+  textEl.classList.remove('copy-feedback-fade');
+  void textEl.offsetWidth; // 强制重排以重新触发淡入动画
+  textEl.classList.add('copy-feedback-fade');
+  btn.dataset.copyTimer = String(setTimeout(() => {
+    delete btn.dataset.copyTimer;
+    btn.classList.remove('text-success-main');
+    btn.classList.add('text-text-placeholder', 'hover:text-text-main');
+    copySvg.innerHTML = originalInner;
+    textEl.textContent = '复制';
+  }, INLINE_COPY_FEEDBACK_MS));
+};
+
 const handleCodeCopy = (e: MouseEvent) => {
   const target = e.target as HTMLElement;
-  const btn = target.closest('.copy-code-btn');
+  const btn = target.closest<HTMLElement>('.copy-code-btn');
   if (!btn) return;
-  
+
   const wrapper = btn.closest('.code-block-wrapper');
   const codeElement = wrapper?.querySelector('code');
   if (codeElement) {
     const code = codeElement.textContent || '';
-    navigator.clipboard.writeText(code).then(() => {
-      const copySvg = btn.querySelector('.copy-icon-svg');
-      const text = btn.querySelector('span');
-      if (copySvg && text) {
-        const originalInner = copySvg.innerHTML;
-        copySvg.innerHTML = checkIconInner;
-        copySvg.classList.add('text-green-500');
-        text.textContent = '已复制';
-        setTimeout(() => {
-          copySvg.innerHTML = originalInner;
-          copySvg.classList.remove('text-green-500');
-          text.textContent = '复制';
-        }, 2000);
-      }
-    });
+    navigator.clipboard.writeText(code).then(() => showInlineCopyFeedback(btn));
   }
 };
 
@@ -722,7 +736,7 @@ const handleContentClick = (e: MouseEvent) => {
   }
   
   // 处理mermaid复制按钮
-  const copyMermaidBtn = target.closest('.copy-mermaid-btn');
+  const copyMermaidBtn = target.closest<HTMLElement>('.copy-mermaid-btn');
   if (copyMermaidBtn) {
     e.stopPropagation();
     const block = copyMermaidBtn.closest('.mermaid-block');
@@ -730,14 +744,7 @@ const handleContentClick = (e: MouseEvent) => {
       const codeElement = block.querySelector('.mermaid-source code');
       if (codeElement) {
         const code = codeElement.textContent || '';
-        navigator.clipboard.writeText(code).then(() => {
-          const textEl = copyMermaidBtn.querySelector('span');
-          if (textEl) {
-            const original = textEl.textContent;
-            textEl.textContent = '已复制';
-            setTimeout(() => { textEl.textContent = original }, 2000);
-          }
-        });
+        navigator.clipboard.writeText(code).then(() => showInlineCopyFeedback(copyMermaidBtn));
       }
     }
     return;

@@ -115,6 +115,131 @@ const handleWheel = (e: WheelEvent) => {
   }, 300);
 };
 
+// --- 悬停跟随选择框 ---
+const hoveredId = ref<number | null>(null);
+const indicatorTop = ref(0);
+const indicatorHeight = ref(0);
+const indicatorReady = ref(false);
+const justClickedId = ref<number | null>(null);
+let clickAnimTimer: ReturnType<typeof setTimeout> | null = null;
+
+const indicatorVisible = computed(
+  () => hoveredId.value !== null && hoveredId.value !== state.currentChatId
+);
+
+const hoverIndicatorStyle = computed(() => ({
+  transform: `translateY(${indicatorTop.value}px)`,
+  height: `${indicatorHeight.value}px`,
+  transition: indicatorReady.value
+    ? 'transform 0.18s ease-out, height 0.18s ease-out, opacity 0.15s ease'
+    : 'opacity 0.15s ease',
+}));
+
+const moveIndicatorTo = (el: HTMLElement) => {
+  indicatorTop.value = el.offsetTop;
+  indicatorHeight.value = el.offsetHeight;
+};
+
+const onItemEnter = (e: MouseEvent, id: number) => {
+  const el = e.currentTarget as HTMLElement;
+  if (hoveredId.value === null) {
+    // 首次进入列表时直接定位，不做滑动动画
+    indicatorReady.value = false;
+    moveIndicatorTo(el);
+    requestAnimationFrame(() => {
+      indicatorReady.value = true;
+    });
+  } else {
+    moveIndicatorTo(el);
+  }
+  hoveredId.value = id;
+};
+
+const onListLeave = () => {
+  hoveredId.value = null;
+};
+
+const repositionIndicator = () => {
+  if (hoveredId.value === null) return;
+  const el = chatListRef.value?.querySelector<HTMLElement>(
+    `[data-chat-id="${hoveredId.value}"]`
+  );
+  if (!el) return;
+  indicatorReady.value = false;
+  moveIndicatorTo(el);
+  requestAnimationFrame(() => {
+    indicatorReady.value = true;
+  });
+};
+
+// 左上角相对盒子中心的锥形角度（0° = 正上方，顺时针）
+const sweepFrom = (w: number, h: number) => 270 + (Math.atan(h / w) * 180) / Math.PI;
+
+// 生成 linear() 缓动采样：让锥形角度沿周长弧长线性推进（匀速扫过边框）
+const buildSweepEasing = (w: number, h: number, from: number): string => {
+  const hw = w / 2;
+  const hh = h / 2;
+  const deg = (r: number) => (r * 180) / Math.PI;
+  const N = 60;
+  const pts: string[] = ['0'];
+  let prev = from;
+  for (let i = 1; i <= N; i++) {
+    const s = (i / N) * 2 * (w + h);
+    let r: number;
+    if (s <= w) {
+      r = Math.atan2(-hw + s, hh); // 顶边
+    } else if (s <= w + h) {
+      r = Math.atan2(hw, hh - (s - w)); // 右边
+    } else if (s <= 2 * w + h) {
+      r = Math.atan2(hw - (s - w - h), -hh); // 底边
+    } else {
+      r = Math.atan2(-hw, -(hh - (s - 2 * w - h))); // 左边
+    }
+    let a = ((deg(r) % 360) + 360) % 360;
+    while (a < prev) a += 360;
+    prev = a;
+    pts.push(`${((a - from) / 360).toFixed(4)} ${((i / N) * 100).toFixed(2)}%`);
+  }
+  return `linear(${pts.join(', ')})`;
+};
+
+// 点击时触发虚线→实线扫描动画，起点精确对准条目左上角且沿周长匀速
+const sweepEasingCache = new Map<string, string>();
+const getSweepEasing = (w: number, h: number, from: number): string => {
+  const key = `${w}x${h}x${from.toFixed(1)}`;
+  let easing = sweepEasingCache.get(key);
+  if (!easing) {
+    easing = buildSweepEasing(w, h, from);
+    sweepEasingCache.set(key, easing);
+  }
+  return easing;
+};
+
+let sweepTarget: number | null = null;
+
+const onItemClick = (e: MouseEvent, id: number) => {
+  const el = e.currentTarget as HTMLElement;
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const from = sweepFrom(w, h);
+  el.style.setProperty('--sb-from', `${from.toFixed(2)}deg`);
+  el.style.animationTimingFunction = getSweepEasing(w, h, from);
+  sweepTarget = id;
+  if (justClickedId.value !== id) {
+    justClickedId.value = id;
+  } else {
+    // 连续点击同一条目：class 不变不会重播动画，先移除再在下一帧恢复
+    justClickedId.value = null;
+    requestAnimationFrame(() => {
+      if (sweepTarget === id) justClickedId.value = id;
+    });
+  }
+  if (clickAnimTimer) clearTimeout(clickAnimTimer);
+  clickAnimTimer = setTimeout(() => {
+    justClickedId.value = null;
+  }, 600);
+};
+
 // --- 滚动加载更多 ---
 const checkScrollBottom = () => {
   const el = chatListRef.value;
@@ -123,15 +248,24 @@ const checkScrollBottom = () => {
 };
 
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+let scrollRaf = 0;
 
 const handleScroll = () => {
-  const el = chatListRef.value;
-  if (!el) return;
-  checkScrollBottom();
-  state.updateScrollSpeed(el.scrollTop);
+  // rAF 节流：滚动高频触发时每帧最多更新一次 indicator/底部遮罩/滚动速度
+  if (!scrollRaf) {
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = 0;
+      const el = chatListRef.value;
+      if (!el) return;
+      checkScrollBottom();
+      repositionIndicator();
+      state.updateScrollSpeed(el.scrollTop);
+    });
+  }
   if (scrollTimeout) clearTimeout(scrollTimeout);
   scrollTimeout = setTimeout(() => {
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
+    const el = chatListRef.value;
+    if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
       state.fetchMoreHistory();
     }
   }, 100);
@@ -221,30 +355,59 @@ const confirmDelete = () => {
 
         <div 
           ref="chatListRef"
-          class="h-full overflow-y-auto px-2 space-y-1"
+          class="relative h-full overflow-y-auto px-2 space-y-1"
           :style="pullStyle"
           @scroll="handleScroll"
           @wheel="handleWheel"
+          @mouseleave="onListLeave"
           @touchstart.passive="handleListTouchStart"
           @touchmove="handleListTouchMove"
           @touchend="handleListTouchEnd"
           @touchcancel="handleListTouchEnd"
         >
+          <!-- 悬停跟随选择框：淡白背景 + 蓝色虚线（左右留 8px 与条目同宽） -->
+          <div
+            class="hover-indicator absolute left-2 right-2 top-0 z-0 pointer-events-none"
+            :class="{ 'is-visible': indicatorVisible }"
+            :style="hoverIndicatorStyle"
+          ></div>
+          <!-- 悬停工具条：垃圾桶与选择框同步滑动 -->
+          <div
+            v-if="!state.isMobile"
+            class="hover-toolbar absolute left-2 right-2 top-0 z-30 pointer-events-none"
+            :class="{ 'is-visible': hoveredId !== null }"
+            :style="hoverIndicatorStyle"
+          >
+            <button
+              @click="hoveredId !== null && handleDelete(hoveredId)"
+              class="absolute right-2 top-1/2 -translate-y-1/2 text-text-placeholder hover:text-danger-main transition-colors p-1 flex items-center justify-center pointer-events-auto"
+              title="删除聊天"
+            >
+              <Trash2 class="text-xs" />
+            </button>
+          </div>
           <a 
             v-for="chat in state.chats" 
             :key="chat[0]"
             :href="`#/${chat[0]}`"
+            :data-chat-id="chat[0]"
+            @mouseenter="onItemEnter($event, chat[0])"
+            @click="onItemClick($event, chat[0])"
             @touchstart="handleTouchStart($event, chat[0])"
             @touchend="handleTouchEnd"
             @touchmove="handleTouchEnd"
             @touchcancel="handleTouchEnd"
             @contextmenu="state.isMobile ? $event.preventDefault() : null"
-            class="group relative flex items-center justify-between p-2.5 hover:bg-bg-hover cursor-pointer text-text-main transition-colors no-underline"
+            class="chat-item relative flex items-center justify-between p-2.5 cursor-pointer text-text-main no-underline"
             :class="[
-              state.currentChatId === chat[0] ? 'bg-bg-active' : '',
+              state.currentChatId === chat[0] ? 'is-active' : '',
+              justClickedId === chat[0] ? 'is-anim' : '',
               pressingChatId === chat[0] ? 'scale-[0.98] bg-bg-hover' : ''
             ]"
           >
+            <!-- 选择框图层：虚线（扫描轨道）+ 实线（选中态） -->
+            <span class="box-dashed" aria-hidden="true"></span>
+            <span class="box-solid" aria-hidden="true"></span>
             <!-- Selected effect -->
             <Transition name="fade">
               <div 
@@ -253,13 +416,6 @@ const confirmDelete = () => {
               ></div>
             </Transition>
             <span class="relative z-10 truncate text-sm pr-6">{{ chat[1] }}</span>
-            <button 
-              v-if="!state.isMobile"
-              @click.prevent.stop="handleDelete(chat[0])"
-              class="hidden group-hover:flex text-text-placeholder hover:text-danger-main absolute right-2 top-1/2 -translate-y-1/2 z-20 transition-colors p-1 items-center justify-center"
-            >
-              <Trash2 class="text-xs" />
-            </button>
           </a>
           <!-- Loading indicator -->
           <div v-if="state.isLoadingHistory" class="text-center py-3 text-xs text-text-placeholder">
@@ -321,5 +477,99 @@ const confirmDelete = () => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* 选择框蓝色：跟随明暗主题 */
+.chat-item,
+.hover-indicator {
+  --sb-blue: var(--primary);
+}
+:global(html.dark) .chat-item,
+:global(html.dark) .hover-indicator {
+  --sb-blue: var(--info);
+}
+
+/* 悬停跟随选择框：稍淡白色背景 + 蓝色虚线 */
+.hover-indicator {
+  background-color: rgba(255, 255, 255, 0.07);
+  border: 1px dashed var(--sb-blue);
+  opacity: 0;
+}
+.hover-indicator.is-visible {
+  opacity: 1;
+}
+:global(html:not(.dark)) .hover-indicator {
+  background-color: rgba(255, 255, 255, 0.65);
+}
+
+/* 悬停工具条（垃圾桶）：与选择框同步滑动，悬停激活项时选择框隐藏但工具条保留 */
+.hover-toolbar {
+  opacity: 0;
+}
+.hover-toolbar.is-visible {
+  opacity: 1;
+}
+
+/* 选中态背景：比悬停稍亮 */
+.chat-item.is-active {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+:global(html:not(.dark)) .chat-item.is-active {
+  background-color: rgba(255, 255, 255, 0.85);
+}
+
+/* 扫描角度：360° 为完整实线（不支持 @property 时退化为直接显示） */
+@property --sb-sweep {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 360deg;
+}
+
+.chat-item {
+  --sb-sweep: 360deg;
+  /* 颜色 + 按压缩放（scale-[0.98]）统一平滑过渡 */
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+/* 选中态选择框：稍亮白色外圈 + 蓝色实线 */
+.box-solid,
+.box-dashed {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.box-solid {
+  border: 1px solid var(--sb-blue);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+  /* 实线框：仅已扫过的区域可见；起点角度由 JS 写入 --sb-from，对准左上角 */
+  -webkit-mask: conic-gradient(from var(--sb-from, 315deg), #000 var(--sb-sweep), transparent var(--sb-sweep));
+  mask: conic-gradient(from var(--sb-from, 315deg), #000 var(--sb-sweep), transparent var(--sb-sweep));
+}
+.box-dashed {
+  border: 1px dashed var(--sb-blue);
+  /* 虚线框：仅未扫到的区域可见，被实线逐段覆盖 */
+  -webkit-mask: conic-gradient(from var(--sb-from, 315deg), transparent var(--sb-sweep), #000 var(--sb-sweep));
+  mask: conic-gradient(from var(--sb-from, 315deg), transparent var(--sb-sweep), #000 var(--sb-sweep));
+}
+.chat-item.is-active .box-solid {
+  opacity: 1;
+}
+
+/* 点击动画：实线从左上角沿虚线扫一圈逐段覆盖；角度匀速，实际线速度由 JS 写入的
+   linear() 缓动按条目宽高比修正（不支持的浏览器退化为匀角速） */
+.chat-item.is-anim {
+  animation: sb-sweep 0.45s linear both;
+}
+.chat-item.is-anim .box-solid,
+.chat-item.is-anim .box-dashed {
+  opacity: 1;
+  transition: none;
+}
+
+@keyframes sb-sweep {
+  from { --sb-sweep: 0deg; }
+  to { --sb-sweep: 360deg; }
 }
 </style>
