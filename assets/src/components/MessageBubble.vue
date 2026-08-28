@@ -671,7 +671,9 @@ const showInlineCopyFeedback = (btn: HTMLElement) => {
   const textEl = btn.querySelector<HTMLElement>('span');
   if (!copySvg || !textEl) return;
   if (btn.dataset.copyTimer) clearTimeout(Number(btn.dataset.copyTimer));
-  const originalInner = copySvg.innerHTML;
+  // 仅首次捕获原始图标，避免反馈期间二次点击把对勾当成"原图标"
+  const originalInner = btn.dataset.copyIcon ?? copySvg.innerHTML;
+  btn.dataset.copyIcon = originalInner;
   btn.classList.add('text-success-main');
   btn.classList.remove('text-text-placeholder', 'hover:text-text-main');
   copySvg.innerHTML = checkIconInner;
@@ -681,6 +683,7 @@ const showInlineCopyFeedback = (btn: HTMLElement) => {
   textEl.classList.add('copy-feedback-fade');
   btn.dataset.copyTimer = String(setTimeout(() => {
     delete btn.dataset.copyTimer;
+    delete btn.dataset.copyIcon;
     btn.classList.remove('text-success-main');
     btn.classList.add('text-text-placeholder', 'hover:text-text-main');
     copySvg.innerHTML = originalInner;
