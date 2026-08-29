@@ -44,6 +44,8 @@ const fetchChatDetails = async (id: number) => {
     messageTree.value = res.data;
     state.chatRequiresVision = !!res.data.root?.vision;
     buildMessageChain(res.data.root.current);
+    // 内容替换完成后播放入场动画（nextTick 注册晚于 buildMessageChain 内部的 scrollToBottom）
+    nextTick(playChatEnterAnim);
   } catch (e: any) {
     if (e.response?.status === 404) {
       showToast('聊天已被删除', 'info');
@@ -622,7 +624,7 @@ onUnmounted(() => {
   }
 });
 
-watch(() => state.currentChatId, (newId) => {
+watch(() => state.currentChatId, (newId, oldId) => {
   // If the change was triggered by the same chat (e.g. stream setting the ID), ignore it
   if (newId === lastActiveChatId.value) return;
 
@@ -638,8 +640,13 @@ watch(() => state.currentChatId, (newId) => {
   }
 
   if (newId) {
+    // 判定切换方向并先播离场动画；入场动画在新内容渲染完成后触发（fetchChatDetails）
+    pendingChatAnim.value = resolveChatAnimDirection(oldId, newId);
+    startChatLeaveAnim();
     fetchChatDetails(newId);
   } else {
+    // 新建聊天：消息区收起由 Chat.vue 的过渡处理，这里直接清空，不做内容级动画
+    pendingChatAnim.value = null;
     lastActiveChatId.value = null;
     messages.value = [];
     lastNodeId.value = 'root';
@@ -664,6 +671,77 @@ const scrollToTop = () => {
     autoScroll.value = false;
   }
 };
+
+// ---------- 聊天切换动画 ----------
+// 侧边栏列表最新对话在最上方：切换到更靠下（更旧）的聊天时整体表现为向下滚动，
+// 切换到更靠上（更新）的聊天时表现为向上滚动。仅动画 transform/opacity（合成器渲染，
+// 不触发重排），不做新旧两份 DOM 并存渲染；离场/入场共用同一组参数，仅方向镜像。
+const CHAT_ANIM_DISTANCE = 24;
+const CHAT_ANIM_LEAVE_MS = 180;
+const CHAT_ANIM_ENTER_MS = 260;
+const CHAT_ANIM_EASE_IN = 'cubic-bezier(0.4, 0, 1, 1)';
+const CHAT_ANIM_EASE_OUT = 'cubic-bezier(0, 0, 0.2, 1)';
+
+const pendingChatAnim = ref<'down' | 'up' | null>(null);
+let chatAnimToken = 0;
+let chatAnimCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+
+const prefersReducedMotion = () =>
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** 目标对话在侧边栏中比当前更靠下（更旧）→ 'down'，否则（更新/新建/不在列表中）→ 'up'。null 视为列表最上方 */
+const resolveChatAnimDirection = (oldId: number | null | undefined, newId: number | null | undefined): 'down' | 'up' => {
+  const oldIdx = oldId == null ? -1 : state.chats.findIndex(c => c[0] === oldId);
+  const newIdx = newId == null ? -1 : state.chats.findIndex(c => c[0] === newId);
+  return newIdx > oldIdx ? 'down' : 'up';
+};
+
+/** 离场：旧内容沿切换方向滑出并淡出（无旧内容或偏好减少动效时跳过） */
+const startChatLeaveAnim = () => {
+  const dir = pendingChatAnim.value;
+  const el = contentRef.value;
+  if (!dir || !el || messages.value.length === 0 || prefersReducedMotion()) return;
+
+  chatAnimToken++;
+  el.style.willChange = 'transform, opacity';
+  el.style.transition = `transform ${CHAT_ANIM_LEAVE_MS}ms ${CHAT_ANIM_EASE_IN}, opacity ${CHAT_ANIM_LEAVE_MS}ms ${CHAT_ANIM_EASE_IN}`;
+  // 向下滚动：旧内容向上滑出；向上滚动：旧内容向下滑出
+  el.style.transform = `translateY(${dir === 'down' ? -CHAT_ANIM_DISTANCE : CHAT_ANIM_DISTANCE}px)`;
+  el.style.opacity = '0';
+};
+
+/** 入场：内容替换完成后从切换方向一侧滑入（向下滚动自下而上，向上滚动自上而下） */
+const playChatEnterAnim = () => {
+  const dir = pendingChatAnim.value;
+  pendingChatAnim.value = null;
+  const el = contentRef.value;
+  if (!dir || !el || messages.value.length === 0 || prefersReducedMotion()) return;
+
+  chatAnimToken++;
+  const token = chatAnimToken;
+
+  // 先无过渡跳到入场起点并强制回流提交起点状态，再过渡回原位
+  el.style.transition = 'none';
+  el.style.transform = `translateY(${dir === 'down' ? CHAT_ANIM_DISTANCE : -CHAT_ANIM_DISTANCE}px)`;
+  el.style.opacity = '0';
+  void el.offsetHeight;
+  el.style.transition = `transform ${CHAT_ANIM_ENTER_MS}ms ${CHAT_ANIM_EASE_OUT}, opacity ${CHAT_ANIM_ENTER_MS}ms ${CHAT_ANIM_EASE_OUT}`;
+  el.style.transform = '';
+  el.style.opacity = '';
+
+  if (chatAnimCleanupTimer) clearTimeout(chatAnimCleanupTimer);
+  // 动画结束后移除 will-change，释放合成层；token 防止连续切换时旧定时器误清新动画的样式
+  chatAnimCleanupTimer = setTimeout(() => {
+    if (token !== chatAnimToken) return;
+    el.style.willChange = '';
+    chatAnimCleanupTimer = null;
+  }, CHAT_ANIM_ENTER_MS + 80);
+};
+
+onUnmounted(() => {
+  if (chatAnimCleanupTimer) clearTimeout(chatAnimCleanupTimer);
+});
 
 const isNavExpanded = ref(false);
 
@@ -825,14 +903,14 @@ defineExpose({ handleSend, handleCancel, messages, scrollToTop });
     <!-- Desktop Message Navigator -->
     <Teleport to="body" v-if="!state.isMobile && messages.length > 1">
       <div 
-        class="fixed right-6 top-1/2 -translate-y-1/2 z-40 flex flex-col items-end transition-all duration-300 ease-in-out group max-h-[80vh]"
+        class="fixed right-6 top-1/2 -translate-y-1/2 z-40 flex flex-col items-end group max-h-[80vh]"
         @mouseenter="isNavExpanded = true"
         @mouseleave="isNavExpanded = false"
       >
-        <div 
-          class="flex flex-col gap-4 p-3 transition-all duration-300 ease-in-out border border-transparent overflow-y-auto overflow-x-hidden no-scrollbar show-scrollbar-on-hover"
+        <div
+          class="flex flex-col gap-4 p-3 border border-transparent overflow-y-auto overflow-x-hidden no-scrollbar show-scrollbar-on-hover transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
           :class="[
-            isNavExpanded ? 'bg-bg-panel border-border-main shadow-2xl scale-100' : 'bg-transparent scale-95'
+            isNavExpanded ? 'bg-bg-panel border-border-main shadow-2xl translate-x-0' : 'bg-transparent translate-x-1.5'
           ]"
         >
           <div 
@@ -841,14 +919,14 @@ defineExpose({ handleSend, handleCancel, messages, scrollToTop });
             class="flex items-center justify-end gap-3 cursor-pointer group/item py-0.5"
             @click="scrollToNode(node.id)"
           >
-            <div 
-              class="text-xs text-text-muted transition-all duration-300 origin-right whitespace-nowrap max-w-0 overflow-hidden opacity-0"
-              :class="isNavExpanded ? 'max-w-[240px] opacity-100' : ''"
+            <div
+              class="text-xs text-text-muted overflow-hidden whitespace-nowrap text-right transition-[width] duration-300 ease-out"
+              :class="isNavExpanded ? 'w-[240px]' : 'w-0'"
             >
               <span class="group-hover/item:text-text-main transition-colors">{{ getMsgPreview(node) }}</span>
             </div>
             <div 
-              class="h-1 rounded-full transition-all duration-300 shrink-0"
+              class="h-1 rounded-full transition-[width,background-color,box-shadow] duration-200 ease-out shrink-0"
               :class="[
                 isNavExpanded ? 'w-4' : 'w-3',
                 activeNodeId === node.id ? 'bg-primary-main shadow-[0_0_8px_rgba(var(--primary-rgb),0.5)]' : 'bg-text-placeholder/40 group-hover/item:bg-text-muted'
