@@ -176,6 +176,10 @@ webchat:
       url: https://api.example.com/v1
       vision: true                         # 可选，标记为视觉模型
       hidden: false                        # 可选，标记为隐藏模型（不会在前端显示且不可选择）
+      extra_header:                        # 可选，附加 HTTP 请求头
+        X-Custom-Header: value
+      extra_body:                          # 可选，附加请求体参数，合并到所有请求
+        temperature: 0.7
        thinking:                            # 可选，思维链参数
          can_nonthink: true                  # 是否支持关闭思维链
          request_summary: true               # Responses/Anthropic 协议是否请求思考摘要

@@ -330,7 +330,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           ref="fileInput" 
           class="hidden" 
           multiple 
-          accept="image/*,.heic,.heif,.mp3,.wav,.ogg,.aac,.flac,.pdf,.docx,.xlsx,.pptx,.doc,.xls,.ppt,.txt,.md,.json,.xml,.yaml,.yml,.csv,.html,.rtf,.log,.ini,.cfg,.conf,.sh,.bat,.py,.js,.ts,.css,.vue,.tsx,.jsx,.go,.rs,.toml,.env,.gitignore" 
+          accept="*/*"
           @change="handleFileUpload"
         />
         <button 

@@ -249,6 +249,15 @@
                     "minimum": 1,
                     "description": "最大输出 tokens，anthropic 协议必填"
                   },
+                  "extra_header": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "附加 HTTP 请求头，随该模型的所有请求发送"
+                  },
+                  "extra_body": {
+                    "type": "object",
+                    "description": "附加请求体参数，合并到该模型的所有 API 请求中（thinking.extra_body 的同名键会覆盖此处配置）"
+                  },
                   "thinking": {
                     "type": "object",
                     "additionalProperties": false,

@@ -48,6 +48,7 @@ export const state = reactive({
   defaultExpandThinking: localStorage.getItem('expand_thinking') === 'true',
   defaultExpandTools: localStorage.getItem('expand_tools') === 'true',
   chatRequiresVision: false,
+  isChatExiting: false,
   hasDraftImages: false,
   hasDraftFiles: false,
   get isVisionMode(): boolean {

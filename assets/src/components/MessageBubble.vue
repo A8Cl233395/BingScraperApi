@@ -841,7 +841,7 @@ const handleContentClick = (e: MouseEvent) => {
                 @convert-file="handleEditFileConvert"
               />
               <textarea ref="editTextareaRef" v-model="editText" maxlength="1000000" class="w-full bg-bg-main border border-border-input p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
-              <input type="file" ref="editFileInput" class="hidden" multiple accept="image/*,audio/*,.pdf,.docx,.xlsx,.pptx,.doc,.xls,.ppt,.txt,.md,.json,.xml,.yaml,.yml,.csv,.html,.rtf,.log,.ini,.cfg,.conf,.sh,.bat,.py,.js,.ts,.css,.vue,.tsx,.jsx,.go,.rs,.toml,.env,.gitignore" @change="handleEditFileUpload" />
+              <input type="file" ref="editFileInput" class="hidden" multiple accept="*/*" @change="handleEditFileUpload" />
             </div>
           </div>
           <div class="mt-2 flex items-center justify-end gap-3 transition-opacity w-full" :class="[isEditing ? 'opacity-100' : (state.isMobile ? (siblingCount && siblingCount > 1 ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden') : 'opacity-0 group-hover:opacity-100')]">

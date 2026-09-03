@@ -18,6 +18,10 @@ const isChatStarted = computed(() => {
   return state.currentChatId !== null || (messageListRef.value?.messages?.length > 0);
 });
 
+// 退出到新对话时视为未开始：容器塌缩 + 上滑出视口（进入动画的逆过程），
+// 数据在动画结束后才清空，期间 isChatStarted 仍为 true
+const isChatActive = computed(() => isChatStarted.value && !state.isChatExiting);
+
 const handleSend = (content: any) => {
   messageListRef.value?.handleSend(content);
 };
@@ -157,11 +161,11 @@ watch(
           ref="messageListRef" 
           :class="[
             'transition-all duration-500 ease-in-out',
-            isChatStarted ? 'flex-1 opacity-100' : 'h-0 opacity-0 pointer-events-none overflow-hidden'
+            isChatActive ? 'flex-1 opacity-100 translate-y-0' : 'h-0 opacity-0 pointer-events-none overflow-hidden -translate-y-[100vh]'
           ]"
         />
-  
-        <ChatInput ref="chatInputRef" :isChatStarted="isChatStarted" @send="handleSend" @stop="handleStop" @mobile-focus="mobileKeyboardActive = true" @mobile-blur="mobileKeyboardActive = false" />
+
+        <ChatInput ref="chatInputRef" :isChatStarted="isChatActive" @send="handleSend" @stop="handleStop" @mobile-focus="mobileKeyboardActive = true" @mobile-blur="mobileKeyboardActive = false" />
       </div>
     </main>
     

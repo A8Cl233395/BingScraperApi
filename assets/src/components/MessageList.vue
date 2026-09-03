@@ -402,6 +402,9 @@ const navigateSiblings = (nodeId: string, direction: number) => {
 const handleSend = async (content: any, parent?: string) => {
   const parentId = parent || lastNodeId.value;
 
+  // 退出动画进行中发送消息：取消退出并让消息区重新展开
+  cancelExitAnim();
+
   // 如果发送内容包含图片，立即标记会话需要视觉模型，
   // 防止 clearImages 清空草稿图片后 isVisionMode 短暂变为 false
   if (Array.isArray(content) && content.some((c: any) => c.type === 'image_url')) {
@@ -641,17 +644,16 @@ watch(() => state.currentChatId, (newId, oldId) => {
 
   if (newId) {
     // 判定切换方向并先播离场动画；入场动画在新内容渲染完成后触发（fetchChatDetails）
+    cancelExitAnim();
     pendingChatAnim.value = resolveChatAnimDirection(oldId, newId);
     startChatLeaveAnim();
     fetchChatDetails(newId);
   } else {
-    // 新建聊天：消息区收起由 Chat.vue 的过渡处理，这里直接清空，不做内容级动画
+    // 退出到新对话：内容先向上滑出视口外（容器保持展开），动画结束后再清空；
+    // 容器收起由 Chat.vue 的过渡处理
     pendingChatAnim.value = null;
     lastActiveChatId.value = null;
-    messages.value = [];
-    lastNodeId.value = 'root';
-    messageTree.value = { root: { child: [], current: null } };
-    state.chatRequiresVision = false;
+    exitToNewChat();
   }
 });
 
@@ -685,6 +687,7 @@ const CHAT_ANIM_EASE_OUT = 'cubic-bezier(0, 0, 0.2, 1)';
 const pendingChatAnim = ref<'down' | 'up' | null>(null);
 let chatAnimToken = 0;
 let chatAnimCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+let exitAnimTimer: ReturnType<typeof setTimeout> | null = null;
 
 const prefersReducedMotion = () =>
   typeof window.matchMedia === 'function' &&
@@ -741,7 +744,45 @@ const playChatEnterAnim = () => {
 
 onUnmounted(() => {
   if (chatAnimCleanupTimer) clearTimeout(chatAnimCleanupTimer);
+  if (exitAnimTimer) clearTimeout(exitAnimTimer);
 });
+
+/** 取消进行中的退出动画（用户在动画期间发送消息或进入其他对话） */
+const cancelExitAnim = () => {
+  if (exitAnimTimer) {
+    clearTimeout(exitAnimTimer);
+    exitAnimTimer = null;
+  }
+  state.isChatExiting = false;
+};
+
+/**
+ * 退出到新对话：内容与输入框同时做进入动画的逆过程——
+ * 容器（连同内容）向上滑出视口外并塌缩（由 Chat.vue 根据 isChatExiting 过渡），
+ * 动画结束后再清空数据。
+ */
+const exitToNewChat = () => {
+  cancelExitAnim();
+  if (messages.value.length === 0 || prefersReducedMotion()) {
+    clearChatData();
+    return;
+  }
+  state.isChatExiting = true;
+  exitAnimTimer = setTimeout(() => {
+    exitAnimTimer = null;
+    state.isChatExiting = false;
+    // 等待期间用户可能已进入其他对话，此时数据由 enter 流程接管
+    if (state.currentChatId == null) clearChatData();
+  }, 520);
+};
+
+/** 清空对话数据；容器收起动画由 Chat.vue 处理 */
+const clearChatData = () => {
+  messages.value = [];
+  lastNodeId.value = 'root';
+  messageTree.value = { root: { child: [], current: null } };
+  state.chatRequiresVision = false;
+};
 
 const isNavExpanded = ref(false);
 
@@ -900,13 +941,15 @@ defineExpose({ handleSend, handleCancel, messages, scrollToTop });
       </div>
     </div>
 
-    <!-- Desktop Message Navigator -->
-    <Teleport to="body" v-if="!state.isMobile && messages.length > 1">
-      <div 
-        class="fixed right-6 top-1/2 -translate-y-1/2 z-40 flex flex-col items-end group max-h-[80vh]"
-        @mouseenter="isNavExpanded = true"
-        @mouseleave="isNavExpanded = false"
-      >
+    <!-- Desktop Message Navigator（进入/退出动画与消息区同步） -->
+    <Teleport to="body">
+      <Transition name="chat-nav">
+        <div
+          v-if="!state.isMobile && messages.length > 1 && !state.isChatExiting"
+          class="fixed right-6 top-1/2 -translate-y-1/2 z-40 flex flex-col items-end group max-h-[80vh]"
+          @mouseenter="isNavExpanded = true"
+          @mouseleave="isNavExpanded = false"
+        >
         <div
           class="flex flex-col gap-4 p-3 border border-transparent overflow-y-auto overflow-x-hidden no-scrollbar show-scrollbar-on-hover transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
           :class="[
@@ -935,6 +978,21 @@ defineExpose({ handleSend, handleCancel, messages, scrollToTop });
           </div>
         </div>
       </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+/* 消息跳转器随消息区进入/退出动画同步显隐（与 Chat.vue 容器相同的时长与缓动） */
+.chat-nav-enter-active,
+.chat-nav-leave-active {
+  transition: transform 0.5s ease-in-out, opacity 0.5s ease-in-out;
+}
+
+.chat-nav-enter-from,
+.chat-nav-leave-to {
+  opacity: 0;
+  transform: translateX(100vw);
+}
+</style>

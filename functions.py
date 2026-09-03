@@ -916,6 +916,43 @@ class User:
         self.config_version = str(int(time.time()))
         return self.config_version
 
+def construct_params(model_config: dict, thinking: bool, api_type: str = "chat-completions") -> dict:
+    thinking_config = model_config.get("thinking")
+    params: dict = {}
+    if thinking_config:
+        if api_type == "anthropic":
+            if not thinking and thinking_config.get("can_nonthink", False):
+                params["thinking"] = {"type": "disabled"}
+            else:
+                if thinking_config.get("request_summary", False):
+                    params["thinking"] = {"type": "adaptive", "display": "summarized"}
+                else:
+                    params["thinking"] = {"type": thinking_config["on_param"]}
+                if "effort" in thinking_config:
+                    params["output_config"] = {"effort": thinking_config["effort"]}
+                elif thinking_config.get("budget_tokens", False):
+                    params["thinking"]["budget_tokens"] = thinking_config["budget_tokens"]
+        elif api_type == "responses":
+            reasoning = {}
+            if not thinking and thinking_config.get("can_nonthink", False): # 不思考
+                reasoning["effort"] = "none"
+            else:
+                reasoning["effort"] = thinking_config["effort"]
+            if thinking_config.get("request_summary", False): # 要求思考摘要
+                reasoning["summary"] = "auto"
+            params["reasoning"] = reasoning
+        elif "extra_body" in thinking_config: # chat-completions 优先 extra_body
+            params["extra_body"] = thinking_config["extra_body"]["true"] if thinking else thinking_config["extra_body"]["false"]
+        elif not thinking and thinking_config.get("can_nonthink", False): # chat-completions 不思考
+            params["reasoning_effort"] = "none"
+        else:
+            params["reasoning_effort"] = thinking_config["effort"]
+    if "extra_body" in model_config: # 合并模型级 extra_body，thinking 的同名键优先
+        params["extra_body"] = {**model_config["extra_body"], **(params.get("extra_body") or {})}
+    if model_config.get("extra_header"): # 附加请求头，随该模型的所有请求发送
+        params["extra_headers"] = model_config["extra_header"]
+    return params
+
 class ChatInstance:
     tools = [
         {
@@ -1104,17 +1141,7 @@ class ChatInstance:
         }
         if enable_function:
             params["tools"] = self.tools
-        if "thinking" in model_config:
-            thinking_config = model_config["thinking"]
-            if "extra_body" in thinking_config:
-                if thinking:
-                    params["extra_body"] = thinking_config["extra_body"]["true"]
-                else:
-                    params["extra_body"] = thinking_config["extra_body"]["false"]
-            elif not thinking and thinking_config.get("can_nonthink", False):
-                params["reasoning_effort"] = "none"
-            else:
-                params["reasoning_effort"] = thinking_config["effort"]
+        params.update(construct_params(model_config, thinking))
         if "max_tokens" in model_config:
             params["max_completion_tokens"] = model_config["max_tokens"]
         
@@ -1147,16 +1174,7 @@ class ChatInstance:
         }
         if enable_function:
             params["tools"] = self.responses_tools
-        if "thinking" in model_config:
-            thinking_config = model_config["thinking"]
-            reasoning = {}
-            if not thinking and thinking_config.get("can_nonthink", False): # 不思考
-                reasoning["effort"] = "none"
-            else:
-                reasoning["effort"] = thinking_config["effort"]
-            if thinking_config.get("request_summary", False): # 要求思考摘要
-                reasoning["summary"] = "auto"
-            params["reasoning"] = reasoning
+        params.update(construct_params(model_config, thinking, "responses"))
         if "max_tokens" in model_config:
             params["max_output_tokens"] = model_config["max_tokens"]
 
@@ -1193,19 +1211,7 @@ class ChatInstance:
         }
         if enable_function:
             params["tools"] = self.anthropic_tools
-        if "thinking" in model_config:
-            thinking_config = model_config["thinking"]
-            if not thinking and thinking_config.get("can_nonthink", False):
-                params["thinking"] = {"type": "disabled"}
-            else:
-                if thinking_config.get("request_summary", False):
-                    params["thinking"] = {"type": "adaptive", "display": "summarized"}
-                else:
-                    params["thinking"] = {"type": thinking_config["on_param"]}
-                if "effort" in thinking_config:
-                    params["output_config"] = {"effort": thinking_config["effort"]}
-                elif thinking_config.get("budget_tokens", False):
-                    params["thinking"]["budget_tokens"] = thinking_config["budget_tokens"]
+        params.update(construct_params(model_config, thinking, "anthropic"))
 
         client = get_aclient(model)
         tool_indices = {}
@@ -1590,7 +1596,6 @@ class ChatInstance:
             a = t["assistant"][-1]["content"]
             text = f"用户：\n{u if len(u)<50 else u[:20]+'\n...\n'+u[-20:]}\nAI：\n{a if len(a)<80 else a[:30]+'...'+a[-30:]}"
             model_config = MODELS[title_model]
-            thinking_config = model_config.get("thinking")
             api_type = model_config.get("api_type", "chat-completions")
             if api_type == "responses":
                 params = {
@@ -1599,15 +1604,7 @@ class ChatInstance:
                     "input": [{"role": "user", "content": text}],
                     "max_output_tokens": 30,
                 }
-                if thinking_config:
-                    reasoning = {}
-                    if thinking_config.get("can_nonthink", False):
-                        reasoning["effort"] = "none"
-                    else:
-                        reasoning["effort"] = thinking_config["effort"]
-                    if thinking_config.get("request_summary", False):
-                        reasoning["summary"] = "auto"
-                    params["reasoning"] = reasoning
+                params.update(construct_params(model_config, False, api_type))
                 r = await get_oclient(title_model).responses.create(**params)
                 return r.output_text.strip()
             if api_type == "anthropic":
@@ -1617,18 +1614,7 @@ class ChatInstance:
                     "system": "根据对话内容生成简短的标题，不包含标点，不超过15个字，只返回标题",
                     "messages": [{"role": "user", "content": text}],
                 }
-                if thinking_config:
-                    if thinking_config.get("can_nonthink", False):
-                        params["thinking"] = {"type": "disabled"}
-                    else:
-                        if thinking_config.get("request_summary", False):
-                            params["thinking"] = {"type": "adaptive", "display": "summarized"}
-                        else:
-                            params["thinking"] = {"type": thinking_config["on_param"]}
-                        if "effort" in thinking_config:
-                            params["output_config"] = {"effort": thinking_config["effort"]}
-                        elif thinking_config.get("budget_tokens", False):
-                            params["thinking"]["budget_tokens"] = thinking_config["budget_tokens"]
+                params.update(construct_params(model_config, False, api_type))
                 r = await get_aclient(title_model).messages.create(**params)
                 for text_block in r.content:
                     if isinstance(text_block, TextBlock):
@@ -1640,8 +1626,7 @@ class ChatInstance:
                 "max_tokens": 30,
                 "stream": False
             }
-            if thinking_config:
-                params["extra_body"] = thinking_config["extra_body"]["false"]
+            params.update(construct_params(model_config, False))
             r = await get_oclient(title_model).chat.completions.create(**params)
             return r.choices[0].message.content.strip()
         except Exception as e:
@@ -2125,13 +2110,13 @@ if __name__ != "__main__":
         def get_oclient(model) -> AsyncOpenAI:
             url = MODELS[model]["url"]
             if url not in oclients:
-                oclients[url] = AsyncOpenAI(api_key=MODELS[model]["api_key"], base_url=MODELS[model]["url"])
+                oclients[url] = AsyncOpenAI(api_key=MODELS[model]["api_key"], base_url=url)
             return oclients[url]
         aclients = {}
         def get_aclient(model) -> AsyncAnthropic:
             url = MODELS[model]["url"]
             if url not in aclients:
-                aclients[url] = AsyncAnthropic(api_key=MODELS[model]["api_key"], base_url=MODELS[model]["url"])
+                aclients[url] = AsyncAnthropic(api_key=MODELS[model]["api_key"], base_url=url)
             return aclients[url]
         BCRYPT_COST = config["webchat"].get("bcrypt_cost", 10)
 
