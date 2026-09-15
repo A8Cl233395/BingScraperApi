@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  系统启动图图标：等价的矢量版 icon.svg。
+  108dp 画布内将 32 坐标系图形缩放到 45% 并居中，留出 Android 12 圆形裁切安全区；
+  内容变更时需与 assets/public/icon.svg 保持同步。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.51875"
+        android:scaleY="1.51875"
+        android:translateX="29.7"
+        android:translateY="29.7">
+        <!-- 直角聊天气泡主体 -->
+        <path
+            android:fillColor="#F8F8F8"
+            android:strokeColor="#E5E5E5"
+            android:strokeWidth="1"
+            android:strokeLineJoin="round"
+            android:pathData="M4 6h24v16H12l-4 4v-4H4V6z" />
+        <!-- 三个方形小点 -->
+        <path
+            android:fillColor="#005FB8"
+            android:pathData="M10 12h2v2h-2z" />
+        <path
+            android:fillColor="#005FB8"
+            android:pathData="M16 12h2v2h-2z" />
+        <path
+            android:fillColor="#005FB8"
+            android:pathData="M22 12h2v2h-2z" />
+    </group>
+</vector>

@@ -6,6 +6,7 @@ import { useImageEditor } from '../composables/useImageEditor';
 import { useVoiceInput } from '../composables/useVoiceInput';
 import { useToast } from '../composables/useToast';
 import FileEditorGrid from './FileEditorGrid.vue';
+import VoiceInputBar from './VoiceInputBar.vue';
 
 const { showToast } = useToast();
 
@@ -42,7 +43,35 @@ const {
   clearImages,
 } = useImageEditor({ trackDraft: true });
 
-const { isRecording, isRecognizing, startRecording, stopRecording, toggleRecording } = useVoiceInput(textInput);
+const { isRecording, isRecognizing, toggleRecording } = useVoiceInput(textInput);
+
+const showVoiceInput = ref(false);
+const voiceBusy = ref(false);
+
+const closeVoiceInput = () => {
+  showVoiceInput.value = false;
+  // 组件卸载时 busy 事件可能来不及同步，主动重置
+  voiceBusy.value = false;
+};
+
+const toggleVoiceInput = () => {
+  if (voiceBusy.value) return;
+  if (!showVoiceInput.value) {
+    textareaRef.value?.blur();
+  }
+  showVoiceInput.value = !showVoiceInput.value;
+};
+
+const handleVoiceResult = (text: string) => {
+  textInput.value = textInput.value ? textInput.value + ' ' + text : text;
+  closeVoiceInput();
+  nextTick(adjustHeight);
+};
+
+const handleFilePick = () => {
+  if (showVoiceInput.value) closeVoiceInput();
+  fileInput.value?.click();
+};
 
 const hasUnconvertedFiles = computed(() =>
   audioFiles.value.length > 0 || otherFiles.value.length > 0 || isOcrProcessing.value
@@ -218,6 +247,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
 
     <div 
       class="relative border border-border-input p-3 flex flex-col focus-within:border-text-muted transition-colors bg-bg-main shadow-[0_2px_10px_rgba(0,0,0,0.05)]"
+      :class="{ 'border-text-muted': showVoiceInput }"
       @paste="handlePaste"
       @drop="handleDrop"
       @dragover.prevent
@@ -238,7 +268,13 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         @convert-file="handleFileConvertAction"
       />
 
+      <VoiceInputBar
+        v-if="showVoiceInput"
+        @result="handleVoiceResult"
+        @busy="voiceBusy = $event"
+      />
       <textarea 
+        v-else
         ref="textareaRef"
         v-model="textInput"
         rows="1" 
@@ -334,7 +370,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           @change="handleFileUpload"
         />
         <button 
-          @click="fileInput?.click()"
+          @click="handleFilePick"
           @mousedown.prevent
           class="text-text-placeholder hover:text-text-main w-8 h-8 flex items-center justify-center transition-colors" 
           title="插入图片和文件"
@@ -343,21 +379,13 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         </button>
         <button
           v-if="state.isMobile"
-          @touchstart.prevent="startRecording"
-          @touchend="stopRecording"
-          @touchcancel="stopRecording"
+          @click="toggleVoiceInput"
+          @mousedown.prevent
           class="w-8 h-8 flex items-center justify-center transition-colors"
-          :class="isRecording ? 'bg-danger-main text-primary-text hover:opacity-80' : isRecognizing ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'text-text-placeholder hover:text-text-main'"
-          :disabled="isRecognizing"
+          :class="showVoiceInput ? 'text-primary-main' : 'text-text-placeholder hover:text-text-main'"
+          :title="showVoiceInput ? '关闭语音输入' : '语音输入'"
         >
-          <Loader2 v-if="isRecognizing" class="text-sm animate-spin" />
-          <div v-else-if="isRecording" class="flex items-center gap-[2px] h-3">
-            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full"></span>
-            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.15s"></span>
-            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.3s"></span>
-            <span class="voice-bar w-[3px] h-full bg-primary-text rounded-full" style="animation-delay:0.45s"></span>
-          </div>
-          <Mic v-else class="text-lg" />
+          <Mic class="text-lg" />
         </button>
         <button
           v-else
@@ -391,8 +419,8 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           @click="handleSend"
           @mousedown.prevent
           class="w-8 h-8 flex items-center justify-center transition-colors"
-          :class="(hasUnconvertedFiles || isRecording || isRecognizing) ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'bg-primary-main text-primary-text hover:bg-primary-hover'"
-          :disabled="hasUnconvertedFiles || isRecording || isRecognizing"
+          :class="(hasUnconvertedFiles || isRecording || isRecognizing || showVoiceInput) ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'bg-primary-main text-primary-text hover:bg-primary-hover'"
+          :disabled="hasUnconvertedFiles || isRecording || isRecognizing || showVoiceInput"
         >
           <Send class="text-sm" />
         </button>

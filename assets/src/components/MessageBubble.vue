@@ -417,7 +417,9 @@ const startLongPress = (e: TouchEvent) => {
     if ((hasAssistantText || hasThinkingText) && target.closest('img')) return;
   }
   
-  startLongPressBase(e);
+  // 长按菜单触发时清除可能已建立的原生选区（Chromium/WebView 长按选择），
+  // 同时让 isTextSelected 复位，避免流式更新与自动滚动被误禁用
+  startLongPressBase(e, () => window.getSelection()?.removeAllRanges());
 };
 
 const handleCopyAction = () => {
@@ -786,7 +788,7 @@ const handleContentClick = (e: MouseEvent) => {
             class="relative flex flex-wrap gap-2"
             :class="[
               userTextContent || isEditing ? 'mb-3' : 'p-1 overflow-hidden',
-              !userTextContent && !isEditing && state.isMobile ? '' : ''
+              !userTextContent && !isEditing && state.isMobile ? 'user-select-none' : ''
             ]"
             @touchstart="(!userTextContent && !isEditing) ? startLongPress($event) : null"
             @touchend="(!userTextContent && !isEditing) ? cancelLongPress() : null"
@@ -808,7 +810,7 @@ const handleContentClick = (e: MouseEvent) => {
           <div 
             v-if="userTextContent || isEditing"
             class="relative p-4 shadow-sm bg-bg-panel transition-all duration-200 overflow-hidden min-w-0" 
-            :class="[isEditing ? 'w-full' : '', state.isMobile ? '' : '']"
+            :class="[isEditing ? 'w-full' : '', state.isMobile ? 'user-select-none' : '']"
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
             @touchmove="cancelLongPress"
@@ -883,6 +885,7 @@ const handleContentClick = (e: MouseEvent) => {
           <div 
             :id="`bubble-${nodeId}-assistant`" 
             class="w-full relative overflow-hidden p-1 -m-1 min-w-0"
+            :class="state.isMobile ? 'user-select-none' : ''"
             style="touch-action: pan-y;"
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
@@ -898,12 +901,15 @@ const handleContentClick = (e: MouseEvent) => {
               ></div>
             </Transition>
             
-            <!-- Waiting for stream (Animation 1) -->
-            <div v-if="message.isStreaming && (!message.assistant || message.assistant.length === 0) && !thinkingContent" class="relative z-10 w-full flex items-center min-h-[32px] px-1">
-              <div class="stream-waiting">
-                <div class="dot"></div>
-                <div class="dot"></div>
-                <div class="dot"></div>
+            <!-- Waiting for stream (Animation 1: 盲文点阵) -->
+            <div v-if="message.isStreaming && !message.streamConnected && (!message.assistant || message.assistant.length === 0) && !thinkingContent" class="relative z-10 w-full flex items-center min-h-[32px] px-1">
+              <div class="stream-braille">
+                <span class="braille-dot"></span>
+                <span class="braille-dot"></span>
+                <span class="braille-dot"></span>
+                <span class="braille-dot"></span>
+                <span class="braille-dot"></span>
+                <span class="braille-dot"></span>
               </div>
             </div>
             <template v-for="(item, idx) in message.assistant" :key="idx">
@@ -938,8 +944,8 @@ const handleContentClick = (e: MouseEvent) => {
               </template>
             </template>
             
-            <!-- Streaming active cursor (Animation 2) -->
-            <div v-if="message.isStreaming && (message.assistant?.length > 0 || thinkingContent)" class="relative z-10 flex items-center mt-2 mb-1 px-1 opacity-80 h-4">
+            <!-- Streaming active cursor (Animation 2): HTTP 流一连上即显示，不等文字 -->
+            <div v-if="message.isStreaming && (message.streamConnected || message.assistant?.length > 0 || thinkingContent)" class="relative z-10 flex items-center mt-2 mb-1 px-1 opacity-80 h-4">
               <span class="stream-cursor"></span>
             </div>
           </div>
@@ -988,26 +994,38 @@ const handleContentClick = (e: MouseEvent) => {
 </template>
 
 <style scoped>
-.stream-waiting {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
+/* 移动端长按区域禁用原生文本选择（Chromium/WebView 需保留 -webkit- 前缀） */
+.user-select-none {
+  -webkit-user-select: none !important;
+  user-select: none !important;
 }
-.stream-waiting .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--primary);
-  animation: pulse-dot 1.4s infinite ease-in-out both;
-}
-.stream-waiting .dot:nth-child(1) { animation-delay: -0.32s; }
-.stream-waiting .dot:nth-child(2) { animation-delay: -0.16s; }
-.stream-waiting .dot:nth-child(3) { animation-delay: 0s; }
 
-@keyframes pulse-dot {
-  0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
-  40% { transform: scale(1); opacity: 1; }
+/* 连接动画：盲文点阵（2×3 方格，3 个亮块绕环旋转，等价经典 ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ 序列） */
+.stream-braille {
+  display: grid;
+  grid-template-columns: repeat(2, 4px);
+  grid-template-rows: repeat(3, 4px);
+  gap: 3px 6px;
+  padding: 7px 4px;
+}
+.stream-braille .braille-dot {
+  width: 4px;
+  height: 4px;
+  background-color: var(--primary);
+  opacity: 0.15;
+  animation: braille-spin 0.9s step-end infinite;
+}
+/* 亮块窗口沿环 [左上,左中,左下,右下,右中,右上] 每 0.15s 前移一格 */
+.stream-braille .braille-dot:nth-child(1) { animation-delay: -0.6s; }
+.stream-braille .braille-dot:nth-child(2) { animation-delay: -0.45s; }
+.stream-braille .braille-dot:nth-child(3) { animation-delay: -0.75s; }
+.stream-braille .braille-dot:nth-child(4) { animation-delay: -0.3s; }
+.stream-braille .braille-dot:nth-child(5) { animation-delay: 0s; }
+.stream-braille .braille-dot:nth-child(6) { animation-delay: -0.15s; }
+
+@keyframes braille-spin {
+  0% { opacity: 1; }
+  50%, 100% { opacity: 0.15; }
 }
 
 .stream-cursor {

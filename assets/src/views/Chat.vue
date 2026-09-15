@@ -134,7 +134,7 @@ watch(
         class="flex items-center px-4 justify-between shrink-0 z-30 w-full h-14 bg-bg-main border-b border-border-main cursor-pointer select-none transition-[translate,margin-bottom] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]"
         :class="!state.isMobile && state.isSidebarOpen ? 'translate-x-full -mb-14 pointer-events-none' : 'translate-x-0 mb-0'"
       >
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 min-w-0">
           <button 
             @click="state.isSidebarOpen = !state.isSidebarOpen" 
             @dblclick.stop

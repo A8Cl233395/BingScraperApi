@@ -75,7 +75,7 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
 </script>
 
 <template>
-  <div ref="containerRef" class="relative" :class="merged ? 'w-full' : 'ml-2'" @dblclick.stop>
+  <div ref="containerRef" class="relative min-w-0" :class="merged ? 'w-full' : 'ml-2'" @dblclick.stop>
     <button
       v-if="merged"
       @click="toggleDropdown()"
@@ -84,22 +84,22 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
       :disabled="isLoading"
       title="选择模型"
     >
-      <span class="text-sm truncate" :class="activeModelClass">{{ activeModelName }}</span>
+      <span class="text-sm truncate min-w-0" :class="activeModelClass">{{ activeModelName }}</span>
       <Loader2 v-if="isLoading" class="text-[10px] text-text-placeholder animate-spin shrink-0" />
       <ChevronDown v-else class="text-[10px] text-text-placeholder transition-transform duration-200 shrink-0" :class="isOpen ? 'rotate-180' : ''" />
     </button>
     <button
       v-else
       @click="toggleDropdown()"
-      class="flex items-center gap-2 border border-border-input px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
+      class="flex items-center gap-2 min-w-0 max-w-full border border-border-input px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
       :class="isLoading ? 'bg-bg-hover' : 'hover:bg-bg-hover bg-bg-main'"
       :disabled="isLoading"
     >
-      <span class="text-sm flex items-center gap-1">
-        <span :class="state.isVisionMode ? 'text-text-placeholder' : 'text-text-main'">{{ state.currentModel || '选择模型' }}</span>
+      <span class="text-sm flex items-center gap-1 min-w-0">
+        <span class="truncate" :class="state.isVisionMode ? 'text-text-placeholder' : 'text-text-main'">{{ state.currentModel || '选择模型' }}</span>
         <template v-if="state.currentVModel">
-          <span class="text-text-placeholder">/</span>
-          <span :class="state.isVisionMode ? 'text-text-main' : 'text-text-placeholder'">{{ state.currentVModel }}</span>
+          <span class="text-text-placeholder shrink-0">/</span>
+          <span class="truncate" :class="state.isVisionMode ? 'text-text-main' : 'text-text-placeholder'">{{ state.currentVModel }}</span>
         </template>
       </span>
       <Loader2 v-if="isLoading" class="text-[10px] text-text-placeholder animate-spin" />

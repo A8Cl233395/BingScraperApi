@@ -3,8 +3,8 @@ events {
 }
 
 http {
-    include       mime.types; # 包含 MIME 类型映射
-
+	include       mime.types;
+	
     # WebSocket / SSE 连接升级映射
     map $http_upgrade $connection_upgrade {
         default upgrade;
@@ -19,7 +19,7 @@ http {
         http2 on;
         server_name _;
 
-        access_log off; # 关闭访问日志，防止硬盘爆炸
+        # access_log off; # 关闭访问日志，防止硬盘爆炸
 
         # ── TLS ──────────────────────────
         ssl_certificate     certs/domain.pem;
@@ -27,9 +27,6 @@ http {
         ssl_protocols       TLSv1.2 TLSv1.3;
         ssl_session_cache   shared:SSL:10m;
         ssl_session_timeout 5m;
-
-        # ── HTTP/3 通告 ──────────────────
-        # add_header Alt-Svc 'h3=":5212"' always;
 
         # ── 请求限制 ────────────────────
         client_max_body_size        100m;
@@ -41,7 +38,7 @@ http {
 
         # ── 静态文件（预压缩优先）───────
         root assets/dist;
-        brotli_static on;
+        # brotli_static on;
         gzip_static   on;
 
         # ── 动态 gzip（API 响应兜底）────
@@ -57,20 +54,25 @@ http {
             try_files $uri @backend;
         }
 
-        # HTML文件（入口）：不缓存
-        location ~* \.html$ {
+        # 访问/xxx.html
+        location ~* /.html$ {
             add_header Cache-Control "no-cache";
+            add_header Alt-Svc 'h3=":5212"' always;
             try_files $uri @backend;
         }
+        
 
         # favicon：SVG 图标长期缓存
         location = /icon.svg {
-            add_header Cache-Control "public, max-age=604800";
+            add_header Cache-Control "public, max-age=604800, immutable";
             try_files $uri @backend;
         }
 
+        # 访问/xxx
         location / {
-            try_files $uri $uri.html $uri/ @backend;
+            add_header Cache-Control "no-cache";
+            add_header Alt-Svc 'h3=":5212"' always;
+            try_files $uri.html @backend;
         }
 
         location @backend {

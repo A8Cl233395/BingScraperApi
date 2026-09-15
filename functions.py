@@ -1594,7 +1594,7 @@ class ChatInstance:
             else:
                 u = t["user"][-1]["text"] if t["user"][-1]["type"] == "text" else "[image]"
             a = t["assistant"][-1]["content"]
-            text = f"用户：\n{u if len(u)<50 else u[:20]+'\n...\n'+u[-20:]}\nAI：\n{a if len(a)<80 else a[:30]+'...'+a[-30:]}"
+            text = f"用户：\n{u if len(u)<50 else u[:20]+'\n...\n'+u[-20:]}\nAI：\n{a if len(a)<120 else a[:50]+'...'+a[-50:]}"
             model_config = MODELS[title_model]
             api_type = model_config.get("api_type", "chat-completions")
             if api_type == "responses":

@@ -24,6 +24,7 @@ interface ChatNode {
   thinking?: string;
   parent?: string;
   isStreaming?: boolean;
+  streamConnected?: boolean;
 }
 
 // Use shallowRef so that triggerRef() correctly forces re-render
@@ -278,6 +279,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
   // Reset assistant content — reconnect returns full payload, not incremental
   targetMsg.assistant.splice(0, targetMsg.assistant.length);
   targetMsg.isStreaming = true;
+  targetMsg.streamConnected = false;
   // Trigger reactivity for shallowRef
   messages.value = [...messages.value];
 
@@ -313,6 +315,8 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
             await fetchChatDetails(chatId);
             throw new Error('404_NOT_FOUND');
           }
+          // HTTP 流已建立：立即由连接动画（盲文点阵）切换为输出动画（光标），不等文字
+          targetMsg.streamConnected = true;
         },
         onclose() {
           // Prevent auto-retry on clean close (since this is a GET request, fetchEventSource auto-retries by default)
@@ -333,6 +337,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
           }
           // 重置状态，因为重试时后端会从头重放所有数据
           targetMsg.assistant.splice(0, targetMsg.assistant.length);
+          targetMsg.streamConnected = false;
           sseState.signal = 'answering';
           sseState.toolCallId = '';
           sseState.toolEntry = null;
@@ -479,6 +484,14 @@ const handleSend = async (content: any, parent?: string) => {
       body: JSON.stringify(body),
       signal: currentController.signal,
       openWhenHidden: true,
+      async onopen(response) {
+        // HTTP 流已建立：立即由连接动画（盲文点阵）切换为输出动画（光标），不等文字
+        const contentType = response.headers.get('content-type');
+        if (!contentType?.startsWith('text/event-stream')) {
+          throw new Error(`Expected content-type to be text/event-stream, Actual: ${contentType}`);
+        }
+        userMsg.streamConnected = true;
+      },
       onmessage(ev) {
         processSSEEvent(ev, userMsg, sseState, parentId);
         if (ev.event === 'id') {
@@ -570,10 +583,23 @@ const containerRef = ref<HTMLElement | null>(null);
 const contentRef = ref<HTMLElement | null>(null);
 const autoScroll = ref(true);
 const lastScrollTop = ref(0);
+// scrollToBottom 主动设置的位置。浏览器派发程序化滚动的 scroll 事件时，内容可能已继续
+// 增高，导致事件位置看似不在底部；据此识别并忽略这类“回声”事件，避免高速流式输出时
+// 被误判为用户上滑而取消 autoScroll（慢速时增幅小于 15px 容差，故不易触发）。
+let expectedScrollTop: number | null = null;
 
 const handleScroll = (e: Event) => {
   const el = e.target as HTMLElement;
   const scrollTop = el.scrollTop;
+
+  // 忽略自身触发的程序化滚动（2px 容差用于吸收设备像素取整误差）
+  if (expectedScrollTop !== null && Math.abs(scrollTop - expectedScrollTop) <= 2) {
+    expectedScrollTop = null;
+    lastScrollTop.value = scrollTop;
+    return;
+  }
+  expectedScrollTop = null;
+
   const isAtBottom = Math.abs(el.scrollHeight - scrollTop - el.clientHeight) <= 15;
   
   // 只有当用户向上滚动时取消 autoScroll；
@@ -604,6 +630,7 @@ const scrollToBottom = (force = false) => {
   if (autoScroll.value) {
     containerRef.value.scrollTop = containerRef.value.scrollHeight;
     lastScrollTop.value = containerRef.value.scrollTop;
+    expectedScrollTop = containerRef.value.scrollTop;
   }
 };
 
@@ -633,6 +660,7 @@ watch(() => state.currentChatId, (newId, oldId) => {
 
   // Reset highlight when switching chats
   activeNodeId.value = null;
+  isNavExpanded.value = false;
 
   // If we are switching while streaming, abort the current stream
   if (state.isStreaming) {
@@ -795,6 +823,94 @@ const scrollToNode = (nodeId: string) => {
   }
 };
 
+// ---------- 移动端 Message Navigator（右侧边缘左滑从视口外滑入） ----------
+const MOBILE_NAV_EDGE = 72; // 右侧触发区宽度（扩大以避开安卓全面屏手势的边缘区域）
+
+const handleNavItemClick = (nodeId: string) => {
+  scrollToNode(nodeId);
+  if (state.isMobile) isNavExpanded.value = false;
+};
+
+// 消息数不足时收起导航
+watch(() => messages.value.length, (len) => {
+  if (len <= 1) isNavExpanded.value = false;
+});
+
+// 边缘手势：从屏幕最右侧向左滑
+let edgeTouchId: number | null = null;
+let edgeStartX = 0;
+let edgeStartY = 0;
+let edgeDir: 'none' | 'h' = 'none';
+
+const resetEdgeGesture = () => {
+  edgeTouchId = null;
+  edgeDir = 'none';
+};
+
+const handleEdgeTouchStart = (e: TouchEvent) => {
+  if (!state.isMobile || e.touches.length > 1) return;
+  if (state.isSidebarOpen || state.previewImageUrl || state.showSelectionOverlay) return;
+  if (messages.value.length <= 1) return;
+
+  // 已展开时：触摸导航外任意位置收起
+  if (isNavExpanded.value) {
+    const target = e.target as HTMLElement | null;
+    if (!target?.closest?.('#message-navigator')) {
+      isNavExpanded.value = false;
+    }
+    return;
+  }
+
+  const t = e.touches[0];
+  if (t.clientX < window.innerWidth - MOBILE_NAV_EDGE) return;
+  edgeTouchId = t.identifier;
+  edgeStartX = t.clientX;
+  edgeStartY = t.clientY;
+  edgeDir = 'none';
+};
+
+const handleEdgeTouchMove = (e: TouchEvent) => {
+  if (edgeTouchId === null) return;
+  const t = Array.from(e.touches).find(item => item.identifier === edgeTouchId);
+  if (!t) return;
+
+  if (edgeDir === 'none') {
+    const dx = t.clientX - edgeStartX;
+    const dy = t.clientY - edgeStartY;
+    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+    // 判定为向左的水平滑动才展开导航，否则视为纵向滚动（放宽角度阈值，斜向滑动也可触发）
+    if (dx < 0 && Math.abs(dx) > Math.abs(dy) * 0.7) {
+      edgeDir = 'h';
+      isNavExpanded.value = true;
+    } else {
+      resetEdgeGesture();
+      return;
+    }
+  }
+
+  if (edgeDir === 'h') {
+    e.preventDefault();
+  }
+};
+
+const handleEdgeTouchEnd = () => {
+  resetEdgeGesture();
+};
+
+onMounted(() => {
+  window.addEventListener('touchstart', handleEdgeTouchStart, { passive: true });
+  window.addEventListener('touchmove', handleEdgeTouchMove, { passive: false });
+  window.addEventListener('touchend', handleEdgeTouchEnd);
+  window.addEventListener('touchcancel', handleEdgeTouchEnd);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('touchstart', handleEdgeTouchStart);
+  window.removeEventListener('touchmove', handleEdgeTouchMove);
+  window.removeEventListener('touchend', handleEdgeTouchEnd);
+  window.removeEventListener('touchcancel', handleEdgeTouchEnd);
+});
+
 let activeObserver: IntersectionObserver | null = null;
 onMounted(() => {
   activeObserver = new IntersectionObserver((entries) => {
@@ -941,38 +1057,42 @@ defineExpose({ handleSend, handleCancel, messages, scrollToTop });
       </div>
     </div>
 
-    <!-- Desktop Message Navigator（进入/退出动画与消息区同步） -->
+    <!-- Message Navigator（桌面悬停展开；移动端右侧边缘左滑从视口外滑入） -->
     <Teleport to="body">
       <Transition name="chat-nav">
         <div
-          v-if="!state.isMobile && messages.length > 1 && !state.isChatExiting"
-          class="fixed right-6 top-1/2 -translate-y-1/2 z-40 flex flex-col items-end group max-h-[80vh]"
-          @mouseenter="isNavExpanded = true"
-          @mouseleave="isNavExpanded = false"
+          v-if="messages.length > 1 && !state.isChatExiting"
+          id="message-navigator"
+          class="fixed top-1/2 -translate-y-1/2 z-40 flex flex-col items-end group max-h-[80vh] right-6"
+          :class="state.isMobile
+            ? ['transition-[translate,visibility] duration-300 ease-[cubic-bezier(0.25,0.46,0.45,0.94)]', isNavExpanded ? 'translate-x-0 visible' : 'translate-x-[calc(100%_+_1.5rem)] invisible pointer-events-none']
+            : ''"
+          @mouseenter="!state.isMobile && (isNavExpanded = true)"
+          @mouseleave="!state.isMobile && (isNavExpanded = false)"
         >
         <div
           class="flex flex-col gap-4 p-3 border border-transparent overflow-y-auto overflow-x-hidden no-scrollbar show-scrollbar-on-hover transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
           :class="[
-            isNavExpanded ? 'bg-bg-panel border-border-main shadow-2xl translate-x-0' : 'bg-transparent translate-x-1.5'
+            (state.isMobile || isNavExpanded) ? 'bg-bg-panel border-border-main shadow-2xl translate-x-0' : 'bg-transparent translate-x-1.5'
           ]"
         >
           <div 
             v-for="node in messages" 
             :key="node.id"
             class="flex items-center justify-end gap-3 cursor-pointer group/item py-0.5"
-            @click="scrollToNode(node.id)"
+            @click="handleNavItemClick(node.id)"
           >
             <div
               class="text-xs text-text-muted overflow-hidden whitespace-nowrap text-right transition-[width] duration-300 ease-out"
-              :class="isNavExpanded ? 'w-[240px]' : 'w-0'"
+              :class="(state.isMobile || isNavExpanded) ? 'w-[240px]' : 'w-0'"
             >
               <span class="group-hover/item:text-text-main transition-colors">{{ getMsgPreview(node) }}</span>
             </div>
             <div 
               class="h-1 rounded-full transition-[width,background-color,box-shadow] duration-200 ease-out shrink-0"
               :class="[
-                isNavExpanded ? 'w-4' : 'w-3',
-                activeNodeId === node.id ? 'bg-primary-main shadow-[0_0_8px_rgba(var(--primary-rgb),0.5)]' : 'bg-text-placeholder/40 group-hover/item:bg-text-muted'
+                (state.isMobile || isNavExpanded) ? 'w-4' : 'w-3',
+                activeNodeId === node.id ? 'bg-primary-main' : 'bg-text-placeholder/40 group-hover/item:bg-text-muted'
               ]"
             ></div>
           </div>

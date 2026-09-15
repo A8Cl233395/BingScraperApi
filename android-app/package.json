@@ -1,0 +1,22 @@
+{
+  "name": "neeerd-chat-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AI Chat Android 客户端（Capacitor，直接加载线上地址，原生 HTML 缓存）",
+  "scripts": {
+    "icons": "node scripts/generate-icons.mjs",
+    "sync": "cap sync android",
+    "build:debug": "npm run sync && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/core": "^8.5.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.1",
+    "@types/node": "^22.20.2",
+    "sharp": "^0.34.4",
+    "typescript": "^7.0.2"
+  }
+}
