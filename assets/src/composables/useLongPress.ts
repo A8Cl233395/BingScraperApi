@@ -72,7 +72,8 @@ export function useLongPress(options: LongPressOptions = {}) {
     const screenHeight = window.innerHeight;
 
     let left = x - 20;
-    let top = y - 20;
+    // 触点下方放不下菜单时向上弹（菜单底部在触点上方 20px），否则向下弹（菜单顶部在触点下方 20px）
+    let top = y + 20 + menuHeight > screenHeight - 10 ? y - menuHeight - 20 : y + 20;
 
     if (left + menuWidth > screenWidth - 10) left = screenWidth - menuWidth - 10;
     if (left < 10) left = 10;

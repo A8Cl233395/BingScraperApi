@@ -397,7 +397,7 @@ const {
   startLongPress: startLongPressBase,
   cancelLongPress,
   closeMenu,
-} = useLongPress({ menuWidth: 160, menuHeight: 200 });
+} = useLongPress({ menuWidth: 160, menuHeight: 130 });
 
 const startLongPress = (e: TouchEvent) => {
   if (!state.isMobile || isEditing.value) return;
@@ -962,32 +962,34 @@ const handleContentClick = (e: MouseEvent) => {
 
     </div>
 
-    <!-- Mobile Context Menu -->
-    <div v-if="showMobileMenu" class="fixed inset-0 z-1100" @click="closeMenu" @contextmenu.prevent>
-      <div class="fixed inset-0 bg-black/5"></div>
-      <div 
-        class="absolute bg-bg-panel border border-border-main shadow-xl overflow-hidden animate-in fade-in zoom-in duration-150 py-1" 
-        :style="menuStyle"
-        @click.stop
-      >
-        <button @click="handleCopyAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <Copy class="min-w-4 text-center text-text-muted" />
-          <span>复制</span>
-        </button>
-        <button @click="handleSelectTextAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <TextCursor class="min-w-4 text-center text-text-muted" />
-          <span>选择文本</span>
-        </button>
-        <button v-if="isUser" @click="handleEditAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <SquarePen class="min-w-4 text-center text-text-muted" />
-          <span>修改</span>
-        </button>
-        <button v-else @click="handleRegenerateAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
-          <RotateCw class="min-w-4 text-center text-text-muted" />
-          <span>重新生成</span>
-        </button>
+    <!-- Mobile Context Menu：Teleport 到 body，避免被 MessageList 上的 translate 属性困在消息区域内（会绘制到输入框之下） -->
+    <Teleport to="body">
+      <div v-if="showMobileMenu" class="fixed inset-0 z-1100" @click="closeMenu" @contextmenu.prevent>
+        <div class="fixed inset-0 bg-black/5"></div>
+        <div 
+          class="absolute bg-bg-panel border border-border-main shadow-xl overflow-hidden animate-in fade-in zoom-in duration-150 py-1" 
+          :style="menuStyle"
+          @click.stop
+        >
+          <button @click="handleCopyAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+            <Copy class="min-w-4 text-center text-text-muted" />
+            <span>复制</span>
+          </button>
+          <button @click="handleSelectTextAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+            <TextCursor class="min-w-4 text-center text-text-muted" />
+            <span>选择文本</span>
+          </button>
+          <button v-if="isUser" @click="handleEditAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+            <SquarePen class="min-w-4 text-center text-text-muted" />
+            <span>修改</span>
+          </button>
+          <button v-else @click="handleRegenerateAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+            <RotateCw class="min-w-4 text-center text-text-muted" />
+            <span>重新生成</span>
+          </button>
+        </div>
       </div>
-    </div>
+    </Teleport>
 
 
   </div>

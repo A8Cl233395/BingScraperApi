@@ -40,6 +40,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 语音输入录音 -->
+    <!-- 语音输入录音：Capacitor 的 onPermissionRequest 会同时申请这两个权限，
+         缺少 MODIFY_AUDIO_SETTINGS 会导致 WebView 拒绝 getUserMedia（普通权限，安装时自动授予） -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 </manifest>
