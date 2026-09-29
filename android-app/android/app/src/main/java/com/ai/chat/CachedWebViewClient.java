@@ -12,18 +12,10 @@ import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -42,21 +34,21 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * 只拦截 4 个页面的主框架 GET 请求，API / SSE / 静态资源一律透传，
  * 静态资源（带内容哈希）继续使用 WebView 自带的 HTTP 缓存。
+ *
+ * 磁盘存取（正文/元数据/版本管理）见 PageCacheStore，本类只负责拦截决策与更新重载。
  */
 public class CachedWebViewClient extends BridgeWebViewClient {
 
     private static final String TAG = "CachedWV";
-    private static final String CACHE_FORMAT = "1";
     private static final Set<String> ROUTES = new HashSet<>(Arrays.asList("/webchat", "/login", "/profile", "/invite"));
     private static final long REVALIDATE_MIN_INTERVAL_MS = 30_000L;   // 同一路径校验的最小间隔
     private static final long RELOAD_MIN_INTERVAL_MS = 10_000L;       // 页面重载的最小间隔
     private static final long FIRST_NAV_RETRY_DELAY_MS = 600L;        // 首次导航未拦截时的重试延迟
     private static final long RELOAD_DEFER_DELAY_MS = 1_500L;         // 页面加载完成前重载的延后间隔
     private static final int MAX_RELOAD_DEFERS = 8;                   // 重载最多延后次数
-    private static final int MAX_BODY_BYTES = 2 * 1024 * 1024;
 
     private final Bridge bridge;
-    private final File cacheDir;
+    private final PageCacheStore cacheStore;
     private final HtmlCacheBridge htmlCacheBridge = new HtmlCacheBridge(this);
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final ConcurrentHashMap<String, Long> lastRevalidateAt = new ConcurrentHashMap<>();
@@ -73,8 +65,7 @@ public class CachedWebViewClient extends BridgeWebViewClient {
     public CachedWebViewClient(Bridge bridge) {
         super(bridge);
         this.bridge = bridge;
-        this.cacheDir = new File(bridge.getContext().getFilesDir(), "webcache");
-        ensureCacheFormat();
+        this.cacheStore = new PageCacheStore(bridge.getContext().getFilesDir());
     }
 
     /** HTML 校验 JS 桥（MainActivity 注册到 WebView） */
@@ -143,7 +134,7 @@ public class CachedWebViewClient extends BridgeWebViewClient {
             }
             if (firstNavRetried.compareAndSet(false, true)
                     && lastInterceptAt.get() == 0L
-                    && bodyFile(route).exists()) {
+                    && cacheStore.hasBody(route)) {
                 Log.w(TAG, "首次导航仍未经过拦截，再次重启: " + route);
                 webView.loadUrl(bridge.getAppUrl());
             }
@@ -186,7 +177,7 @@ public class CachedWebViewClient extends BridgeWebViewClient {
             lastInterceptAt.set(System.currentTimeMillis());
             currentMainRoute = route;
             activeWebView = view;
-            byte[] cached = readFile(bodyFile(route));
+            byte[] cached = cacheStore.readBody(route);
             if (cached != null && cached.length > 0) {
                 return htmlResponse(cached);
             }
@@ -204,7 +195,7 @@ public class CachedWebViewClient extends BridgeWebViewClient {
             return;
         }
         byte[] data = body.getBytes(StandardCharsets.UTF_8);
-        if (data.length > MAX_BODY_BYTES) {
+        if (data.length > PageCacheStore.MAX_BODY_BYTES) {
             Log.w(TAG, "校验响应体过大，忽略: " + route);
             return;
         }
@@ -217,15 +208,15 @@ public class CachedWebViewClient extends BridgeWebViewClient {
 
     private void applyFetched(String route, String etag, String lastModified, byte[] body) {
         try {
-            Meta meta = readMeta(route);
-            String newHash = sha256(body);
+            PageCacheStore.Meta meta = cacheStore.readMeta(route);
+            String newHash = PageCacheStore.sha256(body);
             if (newHash.equals(meta.sha256)) {
                 Log.d(TAG, route + " 线上无变化（WebView 校验），仅更新校验信息");
-                writeCache(route, body, etag, lastModified, newHash);
+                cacheStore.writeCache(route, body, etag, lastModified, newHash);
                 return;
             }
             boolean hadCache = meta.sha256.length() > 0;
-            writeCache(route, body, etag, lastModified, newHash);
+            cacheStore.writeCache(route, body, etag, lastModified, newHash);
             Log.i(TAG, route + " 检测到更新（WebView 校验），缓存已刷新");
             if (hadCache) {
                 maybeReload(route);
@@ -304,131 +295,7 @@ public class CachedWebViewClient extends BridgeWebViewClient {
         }
     }
 
-    private void ensureCacheFormat() {
-        File versionFile = new File(cacheDir, "cache.version");
-        try {
-            if (!cacheDir.exists() && !cacheDir.mkdirs()) {
-                Log.w(TAG, "缓存目录创建失败: " + cacheDir);
-                return;
-            }
-            byte[] versionBytes = versionFile.exists() ? readFile(versionFile) : null;
-            String current = versionBytes != null
-                    ? new String(versionBytes, StandardCharsets.UTF_8).trim()
-                    : "";
-            if (!CACHE_FORMAT.equals(current)) {
-                File[] files = cacheDir.listFiles();
-                if (files != null) {
-                    for (File f : files) {
-                        //noinspection ResultOfMethodCallIgnored
-                        f.delete();
-                    }
-                }
-                writeFile(versionFile, CACHE_FORMAT.getBytes(StandardCharsets.UTF_8));
-                Log.i(TAG, "缓存格式已初始化: v" + CACHE_FORMAT);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "缓存初始化失败: " + e);
-        }
-    }
-
-    private File bodyFile(String route) {
-        return new File(cacheDir, route.substring(1) + ".html");
-    }
-
-    private File metaFile(String route) {
-        return new File(cacheDir, route.substring(1) + ".meta");
-    }
-
-    private Meta readMeta(String route) {
-        Meta meta = new Meta();
-        try {
-            File file = metaFile(route);
-            if (!file.exists()) {
-                return meta;
-            }
-            Properties props = new Properties();
-            try (InputStream in = new FileInputStream(file)) {
-                props.load(in);
-            }
-            meta.etag = props.getProperty("etag", "");
-            meta.lastModified = props.getProperty("last-modified", "");
-            meta.sha256 = props.getProperty("sha256", "");
-        } catch (Exception e) {
-            Log.w(TAG, "读取缓存元数据失败: " + e);
-        }
-        return meta;
-    }
-
-    private void writeCache(String route, byte[] body, String etag, String lastModified, String hash) {
-        try {
-            writeFile(bodyFile(route), body);
-            Properties props = new Properties();
-            props.setProperty("etag", etag == null ? "" : etag);
-            props.setProperty("last-modified", lastModified == null ? "" : lastModified);
-            props.setProperty("sha256", hash);
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            props.store(buffer, null);
-            writeFile(metaFile(route), buffer.toByteArray());
-        } catch (Exception e) {
-            Log.w(TAG, "写入缓存失败 " + route + ": " + e);
-        }
-    }
-
     private WebResourceResponse htmlResponse(byte[] body) {
         return new WebResourceResponse("text/html", "utf-8", new ByteArrayInputStream(body));
-    }
-
-    private static byte[] readFile(File file) {
-        if (file == null || !file.exists()) {
-            return null;
-        }
-        try (InputStream in = new FileInputStream(file); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
-            int len;
-            while ((len = in.read(buffer)) != -1) {
-                out.write(buffer, 0, len);
-            }
-            return out.toByteArray();
-        } catch (Exception e) {
-            Log.w(TAG, "读取文件失败 " + file + ": " + e);
-            return null;
-        }
-    }
-
-    /** 原子写入：先写临时文件再重命名，避免拦截线程读到半截内容 */
-    private static void writeFile(File file, byte[] data) throws Exception {
-        File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
-        try (FileOutputStream out = new FileOutputStream(tmp)) {
-            out.write(data);
-            out.flush();
-        }
-        if (!tmp.renameTo(file)) {
-            //noinspection ResultOfMethodCallIgnored
-            file.delete();
-            if (!tmp.renameTo(file)) {
-                throw new IOException("重命名失败: " + tmp + " -> " + file);
-            }
-        }
-    }
-
-    private static String sha256(byte[] data) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(data);
-            StringBuilder sb = new StringBuilder(hash.length * 2);
-            for (byte b : hash) {
-                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
-                sb.append(Character.forDigit(b & 0xF, 16));
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private static class Meta {
-        String etag = "";
-        String lastModified = "";
-        String sha256 = "";
     }
 }

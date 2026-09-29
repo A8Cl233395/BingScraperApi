@@ -33,6 +33,7 @@ import {
   Pin,
   Plus,
   RotateCw,
+  Search,
   Send,
   Settings,
   Square,
@@ -83,6 +84,7 @@ export function registerLucide(app: App) {
   app.component('Pin', Pin)
   app.component('Plus', Plus)
   app.component('RotateCw', RotateCw)
+  app.component('Search', Search)
   app.component('Send', Send)
   app.component('Settings', Settings)
   app.component('Square', Square)

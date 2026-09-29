@@ -112,7 +112,7 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
       @leave="(el: any) => { el.style.transition = 'none'; el.style.height = el.scrollHeight + 'px'; el.offsetHeight; el.style.transition = 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1)'; el.style.height = '0px'; }"
       @after-leave="(el: any) => { el.style.transition = ''; }"
     >
-      <!-- Dropdown -->
+      <!-- Dropdown（merged：-right-4 使下拉框与侧栏右边缘对齐） -->
       <div
         v-if="isOpen"
         class="absolute mt-2 w-64 shadow-xl z-50 overflow-hidden"

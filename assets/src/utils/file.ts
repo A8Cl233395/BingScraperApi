@@ -1,21 +1,9 @@
 import api from './api';
 
 /**
- * 将音频文件读取为 ArrayBuffer
+ * 将文件读取为 ArrayBuffer
  */
-export async function processAudio(file: File): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-/**
- * 将其他文件读取为 ArrayBuffer
- */
-export async function processFile(file: File): Promise<ArrayBuffer> {
+export async function readAsArrayBuffer(file: File): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as ArrayBuffer);

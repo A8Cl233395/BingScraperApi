@@ -594,6 +594,15 @@ if is_webchat_enabled:
         history = webchat.get_history(uid, before, after, limit)
         return history
     
+    @app.get("/api/search", response_class=JSONResponse)
+    @user_rate_limit(60)
+    def api_search(request: Request, q: Annotated[str, Query(min_length=1, max_length=100)], before: Annotated[int | None, Query()] = None, limit: Annotated[int, Query(ge=1, le=100)] = 20):
+        uid = int(request.headers["uid"])
+        query = q.strip()
+        if not query: # 纯空白输入直接返回空结果，避免 LIKE '%%' 全表返回
+            return []
+        return webchat.search_history(uid, query, before, limit)
+    
     @app.get("/api/message", response_class=JSONResponse)
     def api_message(request: Request, id: Annotated[int, Query()]):
         user_id = int(request.headers["uid"])

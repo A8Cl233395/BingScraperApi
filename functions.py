@@ -1117,7 +1117,7 @@ class ChatInstance:
         self.system_prompt = self._build_system_message(user)
         self.user = user
         self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "vision": False, "iteration": -1}}
-        self.streaming = False
+        self.running: int = 0
         self.last_active: float = 0
 
     async def _stream_events(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
@@ -1144,6 +1144,7 @@ class ChatInstance:
         params.update(construct_params(model_config, thinking))
         if "max_tokens" in model_config:
             params["max_completion_tokens"] = model_config["max_tokens"]
+            params["max_tokens"] = model_config["max_tokens"]
         
         client = get_oclient(model)
         completion = await client.chat.completions.create(**params)
@@ -1332,7 +1333,7 @@ class ChatInstance:
 
     async def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages: list | None = None, current_node_assistant_messages=None, _model=None) -> AsyncGenerator[str | asyncio.Task, None]:
         try:
-            self.streaming = True
+            self.running += 1
             self.last_active = time.time() # 更新缓存时间
             # 检查多模态
             if not self.chat_tree["root"]["vision"]:
@@ -1404,7 +1405,6 @@ class ChatInstance:
                         tool_calls[-1]["function"]["arguments"] += ev.text
             
             if not tool_calls: # 结束
-                self.streaming = False
                 # 丢弃current_messages
                 current_node_assistant_messages.append({"role": "assistant", "content": answering_content})
                 if is_thinking:
@@ -1437,16 +1437,16 @@ class ChatInstance:
                 ): # 直到ai完成所有操作
                     yield data
         except asyncio.CancelledError:
-            self.streaming = False
             self._remove_node(node_id)
             # 注意：tool_tasks 中的后台任务未取消，它们在线程池中运行且有超时保护，会自然退出
-            raise
+            raise # 向上传递
         except Exception as e:
-            self.streaming = False
             self._remove_node(node_id)
             id = os.urandom(4).hex()
             yield self._sse(f"发生错误！Trace ID: {id}", "error")
             logger.exception(f"Trace ID {id}\n错误: {e}")
+        finally:
+            self.running = max(0, self.running - 1) # 确保running不小于0
 
     def _remove_node(self, node_id):
         """安全移除节点（幂等）"""
@@ -1701,9 +1701,11 @@ class Webchat:
                 chat_cache_copy = user.chat_cache.copy()
                 for chat_id, chat_instance in chat_cache_copy.items():
                     if time.time() - chat_instance.last_active > 60 * 5: # 5min
-                        if chat_instance.streaming: # 正在流中，不保存
+                        if chat_instance.running: # 正在流中，不保存
                             continue
                         self._save_chat(user, chat_id)
+                        if chat_instance.running: # 再次检查，防止竞态
+                            continue
                         try:
                             del user.chat_cache[chat_id]
                         except Exception:
@@ -1762,7 +1764,7 @@ class Webchat:
                     streaming_cache.data.append(f"event: title\ndata: {json.dumps(title, ensure_ascii=False)}\n\n")
                     streaming_cache.condition.notify_all()
         except asyncio.CancelledError:
-            pass
+            raise
         except Exception as e:
             logger.exception(f"生成对话失败: {e}")
         finally:
@@ -1836,6 +1838,19 @@ class Webchat:
                 cursor = self.conn.cursor()
                 cursor.execute(f"SELECT id, title FROM u{user_id} ORDER BY id DESC LIMIT ?", (limit,))
                 messages = cursor.fetchall()
+        return messages
+
+    def search_history(self, user_id: int, query: str, before: int | None = None, limit: int = 20):
+        # 转义 LIKE 通配符，避免用户输入的 % 和 _ 被当作模糊匹配符
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        with self.conn:
+            cursor = self.conn.cursor()
+            if before is None:
+                cursor.execute(f"SELECT id, title FROM u{user_id} WHERE title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ?", (pattern, limit))
+            else: # 分段返回：取 id 比上一页最后一条更小的记录
+                cursor.execute(f"SELECT id, title FROM u{user_id} WHERE title LIKE ? ESCAPE '\\' AND id < ? ORDER BY id DESC LIMIT ?", (pattern, before, limit))
+            messages = cursor.fetchall()
         return messages
 
     def get_message(self, user_id: int, chat_id: int):

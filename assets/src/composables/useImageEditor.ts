@@ -1,6 +1,6 @@
 import { ref, watch } from 'vue';
 import { processImage, performOcr } from '../utils/image';
-import { processAudio, processFile, performVr, performMarkitdown, detectAndReadTextFile } from '../utils/file';
+import { readAsArrayBuffer, performVr, performMarkitdown, detectAndReadTextFile } from '../utils/file';
 import { state } from '../store';
 import { useToast } from './useToast';
 
@@ -86,14 +86,14 @@ export function useImageEditor(options?: { maxImages?: number; trackDraft?: bool
             images.value.push(base64);
           } catch (error) {
             console.error('Failed to process image:', error);
-            alert('图片处理失败，请稍后重试');
+            showToast('图片处理失败，请稍后重试', 'error');
           } finally {
             isProcessingImage.value = false;
           }
         } else if (isAudioFile(file.name)) {
           isProcessingAudio.value = true;
           try {
-            const data = await processAudio(file);
+            const data = await readAsArrayBuffer(file);
             audioFiles.value.push({
               type: 'audio',
               data,
@@ -105,7 +105,7 @@ export function useImageEditor(options?: { maxImages?: number; trackDraft?: bool
             });
           } catch (error) {
             console.error('Failed to process audio:', error);
-            alert('音频处理失败，请稍后重试');
+            showToast('音频处理失败，请稍后重试', 'error');
           } finally {
             isProcessingAudio.value = false;
           }
@@ -114,7 +114,7 @@ export function useImageEditor(options?: { maxImages?: number; trackDraft?: bool
           isProcessingFile.value = true;
           try {
             if (MARKITDOWN_EXTENSIONS.includes(ext)) {
-              const data = await processFile(file);
+              const data = await readAsArrayBuffer(file);
               otherFiles.value.push({
                 type: 'file',
                 data,

@@ -100,10 +100,19 @@ watch(textInput, () => {
   nextTick(adjustHeight);
 });
 
+let lastBlockedSendToastAt = 0;
+
 const handleSend = () => {
   if (state.isStreaming || isRecording.value || isRecognizing.value) return;
   if (textInput.value.trim() || images.value.length > 0) {
-    if (hasUnconvertedFiles.value) return;
+    if (hasUnconvertedFiles.value) {
+      // 发送按钮此时为禁用态，Enter 键发送会在这里静默失败；节流提示避免长按连发
+      if (Date.now() - lastBlockedSendToastAt > 1500) {
+        lastBlockedSendToastAt = Date.now();
+        showToast('还有文件未转换为文字，请稍候再发送', 'info');
+      }
+      return;
+    }
     
     // 只有文本没有图片时，直接以字符串形式传输
     if (images.value.length === 0 && textInput.value.trim()) {

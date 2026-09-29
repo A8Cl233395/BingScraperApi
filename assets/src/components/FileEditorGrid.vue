@@ -67,11 +67,14 @@ const {
 
 const menuTargetIndex = defineModel<number>('menuTargetIndex', { default: -1 });
 
+// 长按菜单触发时清除可能已建立的原生选区（Chromium/WebView 长按选择）
+const clearNativeSelection = () => window.getSelection()?.removeAllRanges();
+
 // 图片长按处理
 const handleImageTouchStart = (e: TouchEvent, index: number) => {
   if (!isMobileDevice()) return;
   menuTargetIndex.value = index;
-  startImageLongPress(e);
+  startImageLongPress(e, clearNativeSelection);
 };
 
 const handleMenuImageOcr = () => {
@@ -88,7 +91,7 @@ const handleMenuImageDelete = () => {
 const handleAudioTouchStart = (e: TouchEvent, index: number) => {
   if (!isMobileDevice()) return;
   menuTargetIndex.value = index;
-  startAudioLongPress(e);
+  startAudioLongPress(e, clearNativeSelection);
 };
 
 const handleMenuAudioConvert = () => {
@@ -105,7 +108,7 @@ const handleMenuAudioDelete = () => {
 const handleFileTouchStart = (e: TouchEvent, index: number) => {
   if (!isMobileDevice()) return;
   menuTargetIndex.value = index;
-  startFileLongPress(e);
+  startFileLongPress(e, clearNativeSelection);
 };
 
 const handleMenuFileConvert = () => {
@@ -123,7 +126,9 @@ const handleMenuFileDelete = () => {
   <!-- 图片预览网格 -->
   <div v-if="images.length > 0 || audioFiles.length > 0 || otherFiles.length > 0 || isProcessingImage" class="flex flex-wrap gap-2 mb-2">
     <!-- 图片 -->
-    <div v-for="(img, index) in images" :key="'img-' + index" class="relative group w-16 h-16 overflow-hidden border border-border-main">
+    <div v-for="(img, index) in images" :key="'img-' + index" class="relative group w-16 h-16 overflow-hidden border border-border-main"
+      :class="isMobileDevice() ? 'user-select-none' : ''"
+    >
       <img :src="img" class="w-full h-full object-cover cursor-pointer"
         @click="state.previewImageUrl = img"
         @touchstart="handleImageTouchStart($event, index)"
@@ -158,6 +163,7 @@ const handleMenuFileDelete = () => {
 
     <!-- 音频文件 -->
     <div v-for="(item, index) in audioFiles" :key="'audio-' + index" class="relative group w-16 h-16 border border-border-main flex flex-col items-center justify-center bg-bg-hover cursor-default"
+      :class="isMobileDevice() ? 'user-select-none' : ''"
       @touchstart="handleAudioTouchStart($event, index)"
       @touchend="cancelAudioLongPress"
       @touchmove="cancelAudioLongPress"
@@ -192,6 +198,7 @@ const handleMenuFileDelete = () => {
 
     <!-- 其他文件 -->
     <div v-for="(item, index) in otherFiles" :key="'file-' + index" class="relative group w-16 h-16 border border-border-main flex flex-col items-center justify-center bg-bg-hover cursor-default"
+      :class="isMobileDevice() ? 'user-select-none' : ''"
       @touchstart="handleFileTouchStart($event, index)"
       @touchend="cancelFileLongPress"
       @touchmove="cancelFileLongPress"
@@ -297,3 +304,11 @@ const handleMenuFileDelete = () => {
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+/* 移动端长按区域禁用原生文本选择（Chromium/WebView 需保留 -webkit- 前缀） */
+.user-select-none {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+</style>

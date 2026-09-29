@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { state } from '../store';
 import api from '../utils/api';
+import { clearAuth, redirectToLogin } from '../utils/auth';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import PetSettings from '../components/PetSettings.vue';
 import { type ThemeMode, applyTheme, storeTheme, getCurrentTheme } from '../utils/theme';
@@ -129,12 +130,10 @@ const handleChangePwd = async () => {
     newPwd.value = '';
     newPwdConfirm.value = '';
     showToast('密码修改成功，即将重新登录...');
-    const uid = localStorage.getItem('uid');
-    localStorage.removeItem('uid');
-    localStorage.removeItem('session');
-    localStorage.removeItem('token');
+    const uid = localStorage.getItem('uid') || '';
+    clearAuth();
     setTimeout(() => {
-      window.location.href = `/login#uid=${uid || ''}`;
+      redirectToLogin(uid);
     }, 1000);
   } catch (error: any) {
     const status = error.response?.status;
@@ -297,16 +296,14 @@ const handleLogout = () => {
 };
 
 const confirmLogout = async () => {
-  const uid = localStorage.getItem('uid');
+  const uid = localStorage.getItem('uid') || '';
   try {
     await api.get('/api/logout');
   } catch {
     // 忽略请求失败
   }
-  localStorage.removeItem('uid');
-  localStorage.removeItem('session');
-  localStorage.removeItem('token');
-  window.location.href = `/login#uid=${uid || ''}`;
+  clearAuth();
+  redirectToLogin(uid);
 };
 
 const goBack = () => {

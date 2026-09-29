@@ -1,202 +1,11 @@
-<script lang="ts">
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
-import hljs from 'highlight.js/lib/common';
-
-// Lucide 图标的 SVG 属性与内部元素（用于 marked 渲染器生成的 HTML 字符串）
-const lucideSvgAttrs = 'xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
-const lightbulbIconInner = '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>';
-const arrowLeftRightIconInner = '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>';
-const codeIconInner = '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>';
-const copyIconInner = '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>';
-const maximizeIconInner = '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>';
-const checkIconInner = '<path d="M20 6 9 17l-5-5"/>';
-
-let mermaidModule: any = null;
-let mermaidModulePromise: Promise<any> | null = null;
-marked.use({
-  breaks: true,
-  gfm: true,
-  hooks: {
-    postprocess(html) {
-      // Wrap tables with a scrollable div for mobile compatibility
-      return html.replace(/<table/g, '<div class="table-wrapper"><table')
-                 .replace(/<\/table>/g, '</table></div>');
-    }
-  },
-  renderer: {
-    code(token) {
-      const lang = token.lang || 'text';
-      
-      if (lang === 'mermaid') {
-        const fenceMatch = token.raw.match(/^(?:```+|~~~+)/);
-        const isComplete = fenceMatch && token.raw.trimEnd().endsWith(fenceMatch[0]);
-
-        const escapedCode = token.text
-          .replace(/&/g, '&amp;')
-          .replace(/"/g, '&quot;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        const cachedChartHtml = typeof mermaidModule !== 'undefined' && mermaidModule ? (mermaidModule.getCachedMermaidChartHtml(token.text) || mermaidModule.getCachedMermaidSvg(token.text)) : undefined;
-        const completeClass = isComplete ? 'mermaid-complete' : 'mermaid-incomplete';
-        const chartContent = cachedChartHtml || `<div class="mermaid-placeholder"><svg ${lucideSvgAttrs} width="14" height="14" class="mermaid-placeholder-icon">${lightbulbIconInner}</svg><span>图表生成中...</span></div>`;
-
-        return `<div class="mermaid-block ${completeClass} my-4 border-[0.5px] border-border-main overflow-hidden bg-code-bg">
-  <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
-    <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">mermaid</span>
-    <div class="flex items-center gap-2">
-      <button class="mermaid-toggle-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="切换显示">
-        <svg ${lucideSvgAttrs} width="10" height="10" class="toggle-icon-svg">${arrowLeftRightIconInner}</svg>
-        <span class="toggle-text text-[10px]">文字</span>
-      </button>
-      <button class="copy-mermaid-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
-        <svg ${lucideSvgAttrs} width="10" height="10" class="copy-icon-svg">${copyIconInner}</svg>
-        <span class="text-[10px]">复制</span>
-      </button>
-      <button class="mermaid-fullscreen-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="全屏查看">
-        <svg ${lucideSvgAttrs} width="10" height="10">${maximizeIconInner}</svg>
-        <span class="text-[10px]">全屏</span>
-      </button>
-    </div>
-  </div>
-  <div class="mermaid-content">
-    <div class="mermaid-chart">${chartContent}</div>
-    <pre class="mermaid-source !m-0 !p-3 !bg-code-bg overflow-x-auto"><code class="hljs language-mermaid">${escapedCode}</code></pre>
-  </div>
-</div>`;
-      }
-
-      let highlightedCode;
-      try {
-        if (lang && hljs.getLanguage(lang)) {
-          highlightedCode = hljs.highlight(token.text, { language: lang }).value;
-        } else {
-          highlightedCode = hljs.highlightAuto(token.text).value;
-        }
-      } catch (e) {
-        highlightedCode = token.text;
-      }
-      
-      return `
-<div class="code-block-wrapper my-4 border-[0.5px] border-border-main overflow-hidden bg-code-bg" style="touch-action: pan-x pan-y;">
-  <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
-    <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${lang}</span>
-    <button class="copy-code-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
-      <svg ${lucideSvgAttrs} width="10" height="10" class="copy-icon-svg">${copyIconInner}</svg>
-      <span class="text-[10px]">复制</span>
-    </button>
-  </div>
-  <pre class="!m-0 !p-3 !bg-code-bg overflow-x-auto" style="touch-action: pan-x pan-y;"><code class="hljs language-${lang}">${highlightedCode}</code></pre>
-</div>`;
-    }
-  }
-});
-
-// Add a custom extension to protect LaTeX from being mangled by marked
-marked.use({
-  extensions: [
-    {
-      name: 'strong',
-      level: 'inline',
-      start(src) { return src.indexOf('**'); },
-      tokenizer(src) {
-        const match = src.match(/^\*\*([^\s\*](?:[\s\S]*?[^\s\*])??)\*\*(?!\*)/);
-        if (match) {
-          return {
-            type: 'strong',
-            raw: match[0],
-            text: match[1],
-            tokens: this.lexer.inlineTokens(match[1])
-          };
-        }
-      }
-    },
-    {
-      name: 'em',
-      level: 'inline',
-      start(src) { return src.indexOf('*'); },
-      tokenizer(src) {
-        const match = src.match(/^\*([^\s\*](?:[\s\S]*?[^\s\*])??)\*(?!\*)/);
-        if (match) {
-          return {
-            type: 'em',
-            raw: match[0],
-            text: match[1],
-            tokens: this.lexer.inlineTokens(match[1])
-          };
-        }
-      }
-    },
-    {
-      name: 'inlineMath',
-      level: 'inline',
-      start(src) { return src.indexOf('$'); },
-      tokenizer(src) {
-        const match = src.match(/^\$((?:[^\$]|\\\$)+)\$/);
-        if (match) return { type: 'inlineMath', raw: match[0], text: match[1] };
-      },
-      renderer(token) {
-        try {
-          return katex.renderToString(token.text, { displayMode: false, throwOnError: false });
-        } catch (e) { return token.raw; }
-      }
-    },
-    {
-      name: 'blockMath',
-      level: 'block',
-      start(src) { return src.indexOf('$$'); },
-      tokenizer(src) {
-        const match = src.match(/^\$\$([\s\S]*?)\$\$/);
-        if (match) return { type: 'blockMath', raw: match[0], text: match[1] };
-      },
-      renderer(token) {
-        try {
-          return `<div class="math-block">${katex.renderToString(token.text, { displayMode: true, throwOnError: false })}</div>`;
-        } catch (e) { return token.raw; }
-      }
-    },
-    {
-      name: 'latexInline',
-      level: 'inline',
-      start(src) { return src.indexOf('\\('); },
-      tokenizer(src) {
-        const match = src.match(/^\\\(([\s\S]*?)\\\)/);
-        if (match) return { type: 'latexInline', raw: match[0], text: match[1] };
-        },
-      renderer(token) {
-        try {
-          return katex.renderToString(token.text, { displayMode: false, throwOnError: false });
-        } catch (e) { return token.raw; }
-      }
-    },
-    {
-      name: 'latexBlock',
-      level: 'block',
-      start(src) { return src.indexOf('\\['); },
-      tokenizer(src) {
-        const match = src.match(/^\\\[([\s\S]*?)\\\]/);
-        if (match) return { type: 'latexBlock', raw: match[0], text: match[1] };
-      },
-      renderer(token) {
-        try {
-          return `<div class="math-block">${katex.renderToString(token.text, { displayMode: true, throwOnError: false })}</div>`;
-        } catch (e) { return token.raw; }
-      }
-    }
-  ]
-});
-</script>
-
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, reactive, onBeforeUpdate, onUpdated, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, nextTick, reactive, onBeforeUnmount } from 'vue';
 import { state } from '../store';
 import { useImageEditor } from '../composables/useImageEditor';
 import { useLongPress } from '../composables/useLongPress';
 import { useToast } from '../composables/useToast';
 import FileEditorGrid from './FileEditorGrid.vue';
-
+import MarkdownView from './MarkdownView.vue';
 
 const props = defineProps<{
   message: any;
@@ -208,120 +17,6 @@ const props = defineProps<{
 
 const emit = defineEmits(['navigate', 'edit', 'regenerate']);
 const { showToast } = useToast();
-
-const preScrollPositions = new Map<number, number[]>();
-const mermaidZoomStates = new Map<number, { scale: number; tx: number; ty: number }>();
-
-onBeforeUpdate(() => {
-  const container = document.getElementById(`bubble-${props.nodeId}-assistant`);
-  if (container) {
-    const segments = container.querySelectorAll('.prose');
-    segments.forEach((seg, sIdx) => {
-      const pres = seg.querySelectorAll('pre');
-      const wrappers = seg.querySelectorAll('.table-wrapper');
-      const positions: number[] = [];
-      pres.forEach(pre => positions.push(pre.scrollLeft));
-      wrappers.forEach(w => positions.push(w.scrollLeft));
-      preScrollPositions.set(sIdx, positions);
-
-      const mermaidBlocks = seg.querySelectorAll('.mermaid-block');
-      mermaidBlocks.forEach((block, bIdx) => {
-        const wrapper = block.querySelector('.mermaid-zoom-wrapper') as HTMLElement;
-        if (!wrapper) return;
-        const inner = wrapper.querySelector('.mermaid-zoom-inner') as HTMLElement;
-        if (!inner) return;
-        const transform = inner.style.transform;
-        const scaleMatch = transform.match(/scale\(([^)]+)\)/);
-        const translateMatch = transform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-        if (scaleMatch && translateMatch) {
-          mermaidZoomStates.set(sIdx * 1000 + bIdx, {
-            scale: parseFloat(scaleMatch[1]),
-            tx: parseFloat(translateMatch[1]),
-            ty: parseFloat(translateMatch[2])
-          });
-        }
-      });
-    });
-  }
-});
-
-onUpdated(() => {
-  const container = document.getElementById(`bubble-${props.nodeId}-assistant`);
-  if (container) {
-    const segments = container.querySelectorAll('.prose');
-    segments.forEach((seg, sIdx) => {
-      if (preScrollPositions.has(sIdx)) {
-        const positions = preScrollPositions.get(sIdx)!;
-        const pres = seg.querySelectorAll('pre');
-        const preCount = pres.length;
-        pres.forEach((pre, pIdx) => {
-          if (positions[pIdx] !== undefined) {
-            pre.scrollLeft = positions[pIdx];
-          }
-        });
-        const wrappers = seg.querySelectorAll('.table-wrapper');
-        wrappers.forEach((w, wIdx) => {
-          const idx = preCount + wIdx;
-          if (positions[idx] !== undefined) {
-            w.scrollLeft = positions[idx];
-          }
-        });
-      }
-    });
-
-    const restoreMermaidZoomState = () => {
-      if (!container) return;
-      const segments = container.querySelectorAll('.prose');
-      segments.forEach((seg, sIdx) => {
-        const mermaidBlocks = seg.querySelectorAll('.mermaid-block');
-        mermaidBlocks.forEach((block, bIdx) => {
-          const key = sIdx * 1000 + bIdx;
-          const saved = mermaidZoomStates.get(key);
-          if (!saved) return;
-          const wrapper = block.querySelector('.mermaid-zoom-wrapper') as HTMLElement;
-          if (!wrapper) return;
-          const inner = wrapper.querySelector('.mermaid-zoom-inner') as HTMLElement;
-          if (!inner) return;
-          inner.style.transform = `scale(${saved.scale}) translate(${saved.tx}px, ${saved.ty}px)`;
-          const resetBtn = wrapper.querySelector('.mermaid-zoom-reset') as HTMLElement;
-          if (resetBtn) {
-            resetBtn.style.display = (saved.scale !== 1 || saved.tx !== 0 || saved.ty !== 0) ? '' : 'none';
-          }
-        });
-      });
-      mermaidZoomStates.clear();
-    };
-
-    // mermaid 代码块在 marked 解析器完成围栏闭合后才输出，流式期间也可安全渲染
-    if (mermaidModule) {
-      mermaidModule.renderMermaidPlaceholders(container).then(restoreMermaidZoomState);
-    } else if (mermaidModulePromise) {
-      mermaidModulePromise.then(m => m.renderMermaidPlaceholders(container)).then(restoreMermaidZoomState);
-    } else {
-      if (!container.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) return;
-      mermaidModulePromise = import('../utils/mermaid').then(m => {
-        mermaidModule = m;
-        return m;
-      });
-      mermaidModulePromise.then(m => m.renderMermaidPlaceholders(container)).then(restoreMermaidZoomState);
-    }
-  }
-});
-
-onMounted(() => {
-  const container = document.getElementById(`bubble-${props.nodeId}-assistant`);
-  if (container && !mermaidModulePromise && container.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) {
-    mermaidModulePromise = import('../utils/mermaid').then(m => {
-      mermaidModule = m;
-      return m;
-    });
-  }
-  if (container) {
-    mermaidModulePromise?.then(m => m.renderMermaidPlaceholders(container));
-  }
-});
-
-
 
 const isThinkingExpanded = ref(state.defaultExpandThinking);
 const thinkingOverrides = reactive<Record<number | string, boolean>>({});
@@ -378,7 +73,6 @@ const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 onBeforeUnmount(() => {
-  preScrollPositions.clear();
   if (copiedTimer) clearTimeout(copiedTimer);
 });
 
@@ -401,22 +95,22 @@ const {
 
 const startLongPress = (e: TouchEvent) => {
   if (!state.isMobile || isEditing.value) return;
-  
+
   if (props.isUser) {
     // 用户消息无需额外检查
   } else {
     if (props.message.isStreaming) return;
   }
-  
+
   const target = e.target as HTMLElement;
   if (props.isUser) {
     if (userTextContent.value && target.closest('img')) return;
   } else {
     const hasAssistantText = props.message.assistant?.some((m: any) => m.content && m.content.trim());
-    const hasThinkingText = thinkingContent.value || Object.values(segmentThinking).some(s => s && s.trim());
+    const hasThinkingText = !!thinkingContent.value || !!props.message.assistant?.some((m: any) => m.reasoning_content && m.reasoning_content.trim());
     if ((hasAssistantText || hasThinkingText) && target.closest('img')) return;
   }
-  
+
   // 长按菜单触发时清除可能已建立的原生选区（Chromium/WebView 长按选择），
   // 同时让 isTextSelected 复位，避免流式更新与自动滚动被误禁用
   startLongPressBase(e, () => window.getSelection()?.removeAllRanges());
@@ -467,114 +161,21 @@ const userTextContent = computed(() => {
 });
 
 // === ASSISTANT message rendering (per-segment) ===
-const segmentHtml = reactive<Record<number | string, string>>({});
-const segmentThinking = reactive<Record<number | string, string>>({});
-const thinkingContent = ref('');
+// Markdown 正文由 MarkdownView 按段渲染：props 不变的段会被 Vue 整体跳过，
+// 不重新解析也不重写 DOM，已完成段落的选区与代码块滚动位置因此天然保留
+const thinkingContent = computed(() => (props.isUser ? '' : props.message?.thinking || ''));
 
-let pendingUpdate: Record<number, string> | null = null;
-let pendingThinkingSegmentsUpdate: Record<number, string> | null = null;
-let pendingThinkingUpdate: string | null = null;
-
-let resumeTimeout: any = null;
-const applyPendingUpdates = () => {
-  if (pendingUpdate) {
-    for (const key in segmentHtml) delete segmentHtml[key];
-    Object.assign(segmentHtml, pendingUpdate);
-    pendingUpdate = null;
+// 流式拖尾作用于增长段 = 流式期间最后一个有正文的 assistant 条目
+// （工具调用前后的文本段都要覆盖，不能简单取数组末位）
+const tailSegmentIdx = computed(() => {
+  if (props.isUser || !props.message?.isStreaming) return -1;
+  const arr = props.message.assistant;
+  if (!Array.isArray(arr)) return -1;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (arr[i]?.content) return i;
   }
-  if (pendingThinkingSegmentsUpdate) {
-    for (const key in segmentThinking) delete segmentThinking[key];
-    Object.assign(segmentThinking, pendingThinkingSegmentsUpdate);
-    pendingThinkingSegmentsUpdate = null;
-  }
-  if (pendingThinkingUpdate !== null) {
-    thinkingContent.value = pendingThinkingUpdate;
-    pendingThinkingUpdate = null;
-  }
-};
-
-watch([() => state.isMouseDown, () => state.isTextSelected], ([mouseDown, textSelected]) => {
-  if (resumeTimeout) clearTimeout(resumeTimeout);
-
-  if (!mouseDown && !textSelected) {
-    // Give some buffer time for selection state to stabilize after mouseup
-    resumeTimeout = setTimeout(() => {
-      if (!state.isMouseDown && !state.isTextSelected) {
-        applyPendingUpdates();
-      }
-    }, 300);
-  }
+  return -1;
 });
-
-watch(() => props.isUser ? null : props.message?.assistant, (arr) => {
-  if (props.isUser || !arr) return;
-  
-  const map: Record<number, string> = {};
-  const thinkingMap: Record<number, string> = {};
-  let hasChanges = false;
-  let hasThinkingChanges = false;
-
-  for (let i = 0; i < arr.length; i++) {
-    const item = arr[i];
-    if (item.role === 'assistant' && item.content) {
-      try {
-        const raw = marked.parse(item.content) as string;
-        const r = DOMPurify.sanitize(raw, { USE_PROFILES: { html: true, svg: true }, ADD_TAGS: ['foreignObject'], ADD_ATTR: ['transform', 'style', 'class'] });
-        map[i] = r;
-        if (segmentHtml[i] !== r) {
-          hasChanges = true;
-        }
-      } catch { 
-        map[i] = item.content; 
-        if (segmentHtml[i] !== item.content) hasChanges = true;
-      }
-    }
-    if (item.role === 'assistant' && item.reasoning_content) {
-      thinkingMap[i] = item.reasoning_content;
-      if (segmentThinking[i] !== item.reasoning_content) {
-        hasThinkingChanges = true;
-      }
-    }
-  }
-
-  for (const key in segmentHtml) {
-    if (!(key in map)) hasChanges = true;
-  }
-  for (const key in segmentThinking) {
-    if (!(key in thinkingMap)) hasThinkingChanges = true;
-  }
-  
-  if (hasChanges) {
-    if (state.isTextSelected || state.isMouseDown) {
-      pendingUpdate = map;
-    } else {
-      for (const key in segmentHtml) delete segmentHtml[key];
-      Object.assign(segmentHtml, map);
-      pendingUpdate = null;
-    }
-  }
-  if (hasThinkingChanges) {
-    if (state.isTextSelected || state.isMouseDown) {
-      pendingThinkingSegmentsUpdate = thinkingMap;
-    } else {
-      for (const key in segmentThinking) delete segmentThinking[key];
-      Object.assign(segmentThinking, thinkingMap);
-      pendingThinkingSegmentsUpdate = null;
-    }
-  }
-}, { deep: true, immediate: true });
-
-watch(() => props.isUser ? null : props.message?.thinking, (val) => {
-  if (props.isUser) return;
-  const content = val || '';
-  
-  if (state.isTextSelected || state.isMouseDown) {
-    pendingThinkingUpdate = content;
-  } else {
-    thinkingContent.value = content;
-    pendingThinkingUpdate = null;
-  }
-}, { immediate: true });
 
 const images = computed(() => {
   if (!props.isUser || !Array.isArray(props.message)) return [];
@@ -603,9 +204,9 @@ const handleCopyAssistant = () => {
   navigator.clipboard.writeText(text);
   showCopyFeedback();
 };
-const handleEdit = () => { 
-  isEditing.value = true; 
-  editText.value = userTextContent.value; 
+const handleEdit = () => {
+  isEditing.value = true;
+  editText.value = userTextContent.value;
   editImages.value = [...images.value];
   nextTick(() => {
     adjustEditHeight();
@@ -615,12 +216,12 @@ const handleEdit = () => {
         editTextareaRef.value.focus();
       }
     }, 100);
-  }); 
+  });
 };
 
-const submitEdit = () => { 
+const submitEdit = () => {
   if (editAudioFiles.value.length > 0 || editOtherFiles.value.length > 0) return;
-  
+
   // 只有文本没有图片时，直接以字符串形式传输（与 ChatInput 保持一致）
   if (editImages.value.length === 0 && editText.value.trim()) {
     emit('edit', props.nodeId, editText.value.trim());
@@ -634,8 +235,8 @@ const submitEdit = () => {
     }
     emit('edit', props.nodeId, content);
   }
-  
-  isEditing.value = false; 
+
+  isEditing.value = false;
 };
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter') {
@@ -666,113 +267,6 @@ watch(editText, () => {
   nextTick(adjustEditHeight);
 });
 
-// 代码块/mermaid 复制按钮的统一反馈动画（与消息操作栏复制按钮一致：图标换对勾 + 主题成功色 + "已复制"淡入）
-const INLINE_COPY_FEEDBACK_MS = 2000;
-const showInlineCopyFeedback = (btn: HTMLElement) => {
-  const copySvg = btn.querySelector<SVGElement>('.copy-icon-svg');
-  const textEl = btn.querySelector<HTMLElement>('span');
-  if (!copySvg || !textEl) return;
-  if (btn.dataset.copyTimer) clearTimeout(Number(btn.dataset.copyTimer));
-  // 仅首次捕获原始图标，避免反馈期间二次点击把对勾当成"原图标"
-  const originalInner = btn.dataset.copyIcon ?? copySvg.innerHTML;
-  btn.dataset.copyIcon = originalInner;
-  btn.classList.add('text-success-main');
-  btn.classList.remove('text-text-placeholder', 'hover:text-text-main');
-  copySvg.innerHTML = checkIconInner;
-  textEl.textContent = '已复制';
-  textEl.classList.remove('copy-feedback-fade');
-  void textEl.offsetWidth; // 强制重排以重新触发淡入动画
-  textEl.classList.add('copy-feedback-fade');
-  btn.dataset.copyTimer = String(setTimeout(() => {
-    delete btn.dataset.copyTimer;
-    delete btn.dataset.copyIcon;
-    btn.classList.remove('text-success-main');
-    btn.classList.add('text-text-placeholder', 'hover:text-text-main');
-    copySvg.innerHTML = originalInner;
-    textEl.textContent = '复制';
-  }, INLINE_COPY_FEEDBACK_MS));
-};
-
-const handleCodeCopy = (e: MouseEvent) => {
-  const target = e.target as HTMLElement;
-  const btn = target.closest<HTMLElement>('.copy-code-btn');
-  if (!btn) return;
-
-  const wrapper = btn.closest('.code-block-wrapper');
-  const codeElement = wrapper?.querySelector('code');
-  if (codeElement) {
-    const code = codeElement.textContent || '';
-    navigator.clipboard.writeText(code).then(() => showInlineCopyFeedback(btn));
-  }
-};
-
-const handleContentClick = (e: MouseEvent) => {
-  const target = e.target as HTMLElement;
-  if (target.tagName === 'IMG') {
-    const src = (target as HTMLImageElement).src;
-    if (src) {
-      state.previewImageUrl = src;
-    }
-    return;
-  }
-  
-  // 处理mermaid切换按钮
-  const toggleBtn = target.closest('.mermaid-toggle-btn');
-  if (toggleBtn) {
-    e.stopPropagation();
-    const block = toggleBtn.closest('.mermaid-block');
-    if (block) {
-      const content = block.querySelector('.mermaid-content');
-      const toggleText = toggleBtn.querySelector('.toggle-text');
-      const toggleIcon = toggleBtn.querySelector('.toggle-icon-svg');
-      if (content && toggleText && toggleIcon) {
-        content.classList.toggle('show-source');
-        const isSource = content.classList.contains('show-source');
-        toggleText.textContent = isSource ? '图表' : '文字';
-        // 切换图标：代码图标 <-> 图表图标
-        if (isSource) {
-          toggleIcon.innerHTML = codeIconInner;
-        } else {
-          toggleIcon.innerHTML = arrowLeftRightIconInner;
-        }
-      }
-    }
-    return;
-  }
-  
-  // 处理mermaid复制按钮
-  const copyMermaidBtn = target.closest<HTMLElement>('.copy-mermaid-btn');
-  if (copyMermaidBtn) {
-    e.stopPropagation();
-    const block = copyMermaidBtn.closest('.mermaid-block');
-    if (block) {
-      const codeElement = block.querySelector('.mermaid-source code');
-      if (codeElement) {
-        const code = codeElement.textContent || '';
-        navigator.clipboard.writeText(code).then(() => showInlineCopyFeedback(copyMermaidBtn));
-      }
-    }
-    return;
-  }
-  
-  // 处理mermaid全屏按钮
-  const fullscreenMermaidBtn = target.closest('.mermaid-fullscreen-btn');
-  if (fullscreenMermaidBtn) {
-    e.stopPropagation();
-    const block = fullscreenMermaidBtn.closest('.mermaid-block');
-    if (block) {
-      const code = block.querySelector('.mermaid-source code')?.textContent || '';
-      if (code && mermaidModule) {
-        const dataUrl = mermaidModule.getSvgDataUrl(code);
-        if (dataUrl) state.previewImageUrl = dataUrl;
-      }
-    }
-    return;
-  }
-  
-  handleCodeCopy(e);
-};
-
 </script>
 
 <template>
@@ -781,10 +275,10 @@ const handleContentClick = (e: MouseEvent) => {
 
       <template v-if="isUser">
         <div class="group flex flex-col min-w-0 max-w-full" :class="isEditing ? 'w-full items-start' : 'items-end'">
-          
+
           <!-- Image Content (Outside bubble if there is text) -->
-          <div 
-            v-if="images.length > 0 && !isEditing" 
+          <div
+            v-if="images.length > 0 && !isEditing"
             class="relative flex flex-wrap gap-2"
             :class="[
               userTextContent || isEditing ? 'mb-3' : 'p-1 overflow-hidden',
@@ -798,7 +292,7 @@ const handleContentClick = (e: MouseEvent) => {
           >
             <!-- Selected effect for image-only messages -->
             <Transition name="fade">
-              <div 
+              <div
                 v-if="!userTextContent && !isEditing && isPressing"
                 class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
               ></div>
@@ -807,9 +301,9 @@ const handleContentClick = (e: MouseEvent) => {
           </div>
 
           <!-- Text Bubble Section -->
-          <div 
+          <div
             v-if="userTextContent || isEditing"
-            class="relative p-4 shadow-sm bg-bg-panel transition-all duration-200 overflow-hidden min-w-0" 
+            class="relative p-4 shadow-sm bg-bg-panel transition-all duration-200 overflow-hidden min-w-0"
             :class="[isEditing ? 'w-full' : '', state.isMobile ? 'user-select-none' : '']"
             @touchstart="startLongPress"
             @touchend="cancelLongPress"
@@ -819,13 +313,13 @@ const handleContentClick = (e: MouseEvent) => {
           >
             <!-- Selected effect for text bubble -->
             <Transition name="fade">
-              <div 
+              <div
                 v-if="isPressing"
                 class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
               ></div>
             </Transition>
-            
-            <div v-if="!isEditing" class="relative z-10 text-text-main wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed" @click="handleCodeCopy">{{ userTextContent }}</div>
+
+            <div v-if="!isEditing" class="relative z-10 text-text-main wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed">{{ userTextContent }}</div>
             <div v-else class="w-full" @paste="handleEditPaste" @drop="handleEditDrop" @dragover.prevent>
               <!-- Edit Image Previews -->
               <FileEditorGrid
@@ -882,8 +376,8 @@ const handleContentClick = (e: MouseEvent) => {
           </div>
 
           <!-- Assistant content -->
-          <div 
-            :id="`bubble-${nodeId}-assistant`" 
+          <div
+            :id="`bubble-${nodeId}-assistant`"
             class="w-full relative overflow-hidden p-1 -m-1 min-w-0"
             :class="state.isMobile ? 'user-select-none' : ''"
             style="touch-action: pan-y;"
@@ -895,12 +389,12 @@ const handleContentClick = (e: MouseEvent) => {
           >
             <!-- Selected effect -->
             <Transition name="fade">
-              <div 
+              <div
                 v-if="isPressing"
                 class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
               ></div>
             </Transition>
-            
+
             <!-- Waiting for stream (Animation 1: 盲文点阵) -->
             <div v-if="message.isStreaming && !message.streamConnected && (!message.assistant || message.assistant.length === 0) && !thinkingContent" class="relative z-10 w-full flex items-center min-h-[32px] px-1">
               <div class="stream-braille">
@@ -913,17 +407,17 @@ const handleContentClick = (e: MouseEvent) => {
               </div>
             </div>
             <template v-for="(item, idx) in message.assistant" :key="idx">
-              <!-- Reasoning content (per-segment) -->
-              <div v-if="item.role === 'assistant' && segmentThinking[idx]" class="relative z-10 my-2 w-full">
+              <!-- Reasoning content (per-segment)。思考过程经插值原地更新 text node、不重建节点，流式期间不会摧毁选区，无需冻结 -->
+              <div v-if="item.role === 'assistant' && item.reasoning_content" class="relative z-10 my-2 w-full">
                 <div @click="toggleThinkingSegment(idx)" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
                   <Brain class="text-[10px] min-w-3 text-center" /><span>思考过程</span>
                   <ChevronRight class="text-[10px] transition-transform duration-200" :class="isThinkingSegmentExpanded(idx) ? 'rotate-90' : ''" />
                 </div>
-                <div v-if="isThinkingSegmentExpanded(idx)" @dblclick="thinkingOverrides[idx] = false" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ segmentThinking[idx] }}</div>
+                <div v-if="isThinkingSegmentExpanded(idx)" @dblclick="thinkingOverrides[idx] = false" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ item.reasoning_content }}</div>
               </div>
 
               <!-- Text content -->
-              <div v-if="item.role === 'assistant' && item.content && segmentHtml[idx]" class="relative z-10 prose prose-sm max-w-none text-text-main wrap-anywhere" v-html="segmentHtml[idx]" @click="handleContentClick"></div>
+              <MarkdownView v-if="item.role === 'assistant' && item.content" :content="item.content" :streaming="idx === tailSegmentIdx" />
 
               <!-- Tool calls -->
               <template v-if="item.role === 'assistant' && item.tool_calls">
@@ -943,13 +437,13 @@ const handleContentClick = (e: MouseEvent) => {
                 </div>
               </template>
             </template>
-            
+
             <!-- Streaming active cursor (Animation 2): HTTP 流一连上即显示，不等文字 -->
             <div v-if="message.isStreaming && (message.streamConnected || message.assistant?.length > 0 || thinkingContent)" class="relative z-10 flex items-center mt-2 mb-1 px-1 opacity-80 h-4">
               <span class="stream-cursor"></span>
             </div>
           </div>
-          
+
           <!-- Assistant Actions -->
           <div class="mt-2 flex items-center gap-3 transition-opacity" :class="state.isMobile ? 'opacity-0 h-0 overflow-hidden' : 'opacity-0 group-hover:opacity-100'">
             <button @click="handleCopyAssistant" class="transition-colors text-xs flex items-center gap-1 h-[18px]" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
@@ -966,8 +460,8 @@ const handleContentClick = (e: MouseEvent) => {
     <Teleport to="body">
       <div v-if="showMobileMenu" class="fixed inset-0 z-1100" @click="closeMenu" @contextmenu.prevent>
         <div class="fixed inset-0 bg-black/5"></div>
-        <div 
-          class="absolute bg-bg-panel border border-border-main shadow-xl overflow-hidden animate-in fade-in zoom-in duration-150 py-1" 
+        <div
+          class="absolute bg-bg-panel border border-border-main shadow-xl overflow-hidden animate-in fade-in zoom-in duration-150 py-1"
           :style="menuStyle"
           @click.stop
         >

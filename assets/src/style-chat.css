@@ -338,3 +338,21 @@ html.dark .prose tr:nth-child(even) {
     opacity: 0.8;
   }
 }
+
+/* 流式输出拖尾：新字符按各自出现时刻做负延迟淡入（进度跨重渲染无缝衔接），
+   淡入在真实时间里完成，chunk 停顿期间字符照常落定，不会停在半透明状态。
+   动画时长需与 markdown.ts 的 STREAM_TAIL_FADE 保持一致 */
+@keyframes stream-tail-in {
+  from { opacity: 0.1; filter: blur(0.6px); }
+  to { opacity: 1; filter: none; }
+}
+
+.prose .stream-tail-unit {
+  animation: stream-tail-in 0.5s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prose .stream-tail-unit {
+    animation: none;
+  }
+}

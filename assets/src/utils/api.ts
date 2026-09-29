@@ -1,25 +1,21 @@
 import axios from 'axios';
+import { getAuthHeaders, clearAuth, redirectToLogin } from './auth';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE,
 });
 
 api.interceptors.request.use((config) => {
-  const uid = localStorage.getItem('uid');
-  const session = localStorage.getItem('session');
-  const token = localStorage.getItem('token');
+  const headers = getAuthHeaders();
 
-  if (!uid || !session || !token) {
+  if (!headers.uid || !headers.session || !headers.token) {
     if (!window.location.pathname.startsWith('/login')) {
-      const uidHash = uid ? `#uid=${uid}` : '';
-      window.location.href = `/login${uidHash}`;
+      redirectToLogin();
     }
     return Promise.reject(new axios.Cancel('未登录，已跳转到登录页'));
   }
 
-  config.headers['uid'] = uid;
-  config.headers['session'] = session;
-  config.headers['token'] = token;
+  Object.assign(config.headers, headers);
   return config;
 });
 
@@ -27,12 +23,8 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      const uid = localStorage.getItem('uid');
-      localStorage.removeItem('uid');
-      localStorage.removeItem('session');
-      localStorage.removeItem('token');
-      const uidHash = uid ? `#uid=${uid}` : '';
-      window.location.href = `/login${uidHash}`;
+      clearAuth();
+      redirectToLogin();
     }
     return Promise.reject(error);
   }

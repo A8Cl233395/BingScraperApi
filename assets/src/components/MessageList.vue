@@ -4,6 +4,7 @@ import { state } from '../store';
 import MessageBubble from './MessageBubble.vue';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import api from '../utils/api';
+import { getAuthHeaders } from '../utils/auth';
 import { useToast } from '../composables/useToast';
 
 const { showToast } = useToast();
@@ -284,9 +285,6 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
   messages.value = [...messages.value];
 
   const sseState = { signal: 'answering', toolCallId: '', toolEntry: null as AssistantMessage | null, assistantEntry: null as AssistantMessage | null };
-  const session = localStorage.getItem('session');
-  const token = localStorage.getItem('token');
-  const uid = localStorage.getItem('uid');
 
   if (abortController.value) abortController.value.abort();
   const currentController = new AbortController();
@@ -307,7 +305,7 @@ const handleReconnect = async (chatId: number, nodeId: string) => {
       `${import.meta.env.VITE_API_BASE}/api/reconnect?id=${chatId}&node_id=${nodeId}`,
       {
         method: 'GET',
-        headers: { 'session': session || '', 'token': token || '', 'uid': uid || '' },
+        headers: getAuthHeaders(),
         signal: currentController.signal,
         openWhenHidden: true,
         async onopen(response) {
@@ -455,9 +453,6 @@ const handleSend = async (content: any, parent?: string) => {
   if (state.isEnableFunction !== state.defaultSettings.enable_function) body.enable_function = state.isEnableFunction;
 
   const sseState = { signal: 'answering', toolCallId: '', toolEntry: null as AssistantMessage | null, assistantEntry: null as AssistantMessage | null };
-  const session = localStorage.getItem('session');
-  const token = localStorage.getItem('token');
-  const uid = localStorage.getItem('uid');
 
   if (abortController.value) {
     abortController.value.abort();
@@ -469,18 +464,14 @@ const handleSend = async (content: any, parent?: string) => {
 
   // Track whether we received a node_id (needed for disconnect reconnect)
   let receivedNodeId: string | null = null;
-  let receivedChatId: number | null = state.currentChatId;
+  const originalChatId = state.currentChatId;
+  let receivedChatId: number | null = originalChatId;
   let disconnectedDuringStream = false;
 
   try {
     await fetchEventSource(`${import.meta.env.VITE_API_BASE}/api/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'session': session || '',
-        'token': token || '',
-        'uid': uid || ''
-      },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(body),
       signal: currentController.signal,
       openWhenHidden: true,
@@ -524,10 +515,12 @@ const handleSend = async (content: any, parent?: string) => {
       // 撤销发送的内容：从 messages 和 messageTree 中移除失败节点
       removeFailedNode(userMsg, parentId);
       
-      // 如果是新对话（没有 receivedNodeId），重置 currentChatId
-      if (!receivedNodeId && !state.currentChatId) {
-        // 从侧边栏移除新对话占位
-        state.chats = state.chats.filter(c => c[0] !== null);
+      // 新对话已创建（收到 id 事件）但未产生任何节点：移除侧边栏占位并回到新对话状态
+      if (!receivedNodeId && originalChatId === null && receivedChatId !== null) {
+        state.chats = state.chats.filter(c => c[0] !== receivedChatId);
+        if (state.currentChatId === receivedChatId) {
+          state.currentChatId = null;
+        }
       }
     }
   } finally {
@@ -602,24 +595,32 @@ const handleScroll = (e: Event) => {
 
   const isAtBottom = Math.abs(el.scrollHeight - scrollTop - el.clientHeight) <= 15;
   
-  // 只有当用户向上滚动时取消 autoScroll；
+  // 只有当位置真正上移（用户向上滚动）时才取消 autoScroll；
+  // 位置不变或下移（键盘弹出、容器尺寸变化引起浏览器自动调整）不改动跟随状态。
   // 当滚动处于底部时，仅在用户向下滑动（scrollTop >= lastScrollTop）时重新激活 autoScroll，
   // 避免 DOM 元素塌陷/重绘导致 scrollTop 被浏览器强制归零或变小从而误触 autoScroll 的问题。
   if (isAtBottom) {
     if (scrollTop >= lastScrollTop.value) {
-      autoScroll.value = true;
+      if (!autoScroll.value && !isSelectionInteracting()) {
+        // 用户重新滑回底部：立即贴底并恢复跟随，避免与输入框/键盘之间残留缝隙
+        autoScroll.value = true;
+        scrollToBottom();
+      }
     }
-  } else {
+  } else if (scrollTop < lastScrollTop.value) {
     autoScroll.value = false;
   }
   lastScrollTop.value = scrollTop;
 };
 
+// 用户正在按下鼠标或选择文本时禁止自动滚动，避免打断操作
+const isSelectionInteracting = () => state.isMouseDown || state.isTextSelected;
+
 const scrollToBottom = (force = false) => {
   if (!containerRef.value) return;
 
   // Don't auto-scroll if user is selecting text or mouse is down
-  if (!force && (state.isMouseDown || state.isTextSelected)) {
+  if (!force && isSelectionInteracting()) {
     return;
   }
 
@@ -636,6 +637,10 @@ const scrollToBottom = (force = false) => {
 
 // Use ResizeObserver to handle content size changes (e.g. during streaming)
 let observer: ResizeObserver | null = null;
+// 容器高度变化（键盘弹出/收起、窗口缩放、输入框换行撑高等）时重新贴底：
+// 键盘弹出会让聊天区变矮，处于跟随状态时必须重新贴底，
+// 否则最后一条消息会被输入框遮挡（浏览器自身不会调整滚动位置，也不会派发 scroll 事件）。
+let containerObserver: ResizeObserver | null = null;
 onMounted(() => {
   observer = new ResizeObserver(() => {
     if (autoScroll.value && state.isStreaming) {
@@ -646,11 +651,23 @@ onMounted(() => {
   if (contentRef.value) {
     observer.observe(contentRef.value);
   }
+
+  containerObserver = new ResizeObserver(() => {
+    if (autoScroll.value) {
+      scrollToBottom();
+    }
+  });
+  if (containerRef.value) {
+    containerObserver.observe(containerRef.value);
+  }
 });
 
 onUnmounted(() => {
   if (observer) {
     observer.disconnect();
+  }
+  if (containerObserver) {
+    containerObserver.disconnect();
   }
 });
 
@@ -824,7 +841,7 @@ const scrollToNode = (nodeId: string) => {
 };
 
 // ---------- 移动端 Message Navigator（右侧边缘左滑从视口外滑入） ----------
-const MOBILE_NAV_EDGE = 72; // 右侧触发区宽度（扩大以避开安卓全面屏手势的边缘区域）
+const MOBILE_NAV_EDGE = 60; // 右侧触发区宽度（扩大以避开安卓全面屏手势的边缘区域）
 
 const handleNavItemClick = (nodeId: string) => {
   scrollToNode(nodeId);
@@ -935,17 +952,18 @@ onUnmounted(() => {
   if (activeObserver) activeObserver.disconnect();
 });
 
-watch(messages, (newMsgs) => {
+// 仅在消息节点集合变化（增删或临时 id 转正）时重新挂载观察器；
+// deep 监听会让流式期间的每个增量都触发全量遍历与重新 observe
+watch(() => messages.value.map(node => node.id).join('\n'), () => {
   nextTick(() => {
-    if (activeObserver) {
-      activeObserver.disconnect();
-      newMsgs.forEach(node => {
-        const el = document.getElementById(`msg-${node.id}`);
-        if (el) activeObserver?.observe(el);
-      });
-    }
+    if (!activeObserver) return;
+    activeObserver.disconnect();
+    messages.value.forEach(node => {
+      const el = document.getElementById(`msg-${node.id}`);
+      if (el) activeObserver?.observe(el);
+    });
   });
-}, { deep: true });
+});
 
 const getMsgPreview = (node: ChatNode) => {
   if (typeof node.user === 'string') return node.user;

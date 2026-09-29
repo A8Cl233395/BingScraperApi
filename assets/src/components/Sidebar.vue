@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { state } from '../store';
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import ConfirmModal from './ConfirmModal.vue';
 import ModelSelector from './ModelSelector.vue';
 import { useLongPress } from '../composables/useLongPress';
@@ -14,6 +14,194 @@ const isAtBottom = ref(false);
 const { startLongPress, cancelLongPress } = useLongPress({
   onPressStart: () => {},
 });
+
+// --- 标题搜索 ---
+const SEARCH_DEBOUNCE = 300;
+const isSearchOpen = ref(false);
+const searchQuery = ref('');
+const searchResults = ref<[number, string][]>([]);
+const isSearching = ref(false);
+const hasMoreSearch = ref(true);
+const isLoadingMoreSearch = ref(false);
+const searchInputRef = ref<HTMLInputElement | null>(null);
+let searchDebounce: ReturnType<typeof setTimeout> | null = null;
+let searchSeq = 0; // 递增序号，丢弃过期请求的结果
+let isComposing = false; // 输入法组合状态
+
+// 已应用到列表的查询词：搜索完成前不改动列表，输入过程中保持上一次的状态
+const appliedQuery = ref('');
+const isSearchMode = computed(() => isSearchOpen.value && appliedQuery.value !== '');
+const displayChats = computed(() => (isSearchMode.value ? searchResults.value : state.chats));
+
+// 应用搜索结果；列表内容发生整体切换时回到顶部并清掉悬停框
+const applySearchResults = (query: string, results: [number, string][]) => {
+  const shouldReset = query !== appliedQuery.value;
+  appliedQuery.value = query;
+  searchResults.value = results;
+  if (shouldReset) resetListScroll();
+};
+
+const openSearch = () => {
+  isSearchOpen.value = true;
+  // preventScroll：聚焦瞬间避免浏览器为输入框滚动容器（侧栏内容比带 1px 右边框的内容盒宽 1px）
+  nextTick(() => searchInputRef.value?.focus({ preventScroll: true }));
+};
+
+const cancelSearchDebounce = () => {
+  if (searchDebounce) {
+    clearTimeout(searchDebounce);
+    searchDebounce = null;
+  }
+};
+
+const clearSearch = () => {
+  cancelSearchDebounce();
+  searchSeq++;
+  searchQuery.value = '';
+  isSearching.value = false;
+  hasMoreSearch.value = true;
+  isLoadingMoreSearch.value = false;
+  applySearchResults('', []);
+};
+
+const closeSearch = () => {
+  isSearchOpen.value = false;
+  clearSearch();
+};
+
+const handleClearSearch = () => {
+  clearSearch();
+  searchInputRef.value?.focus();
+};
+
+const toggleSearch = () => {
+  if (isSearchOpen.value) closeSearch();
+  else openSearch();
+};
+
+const runSearch = async () => {
+  const query = searchQuery.value.trim();
+  const seq = ++searchSeq;
+  if (!query) {
+    isSearching.value = false;
+    applySearchResults('', []);
+    return;
+  }
+  isSearching.value = true;
+  hasMoreSearch.value = true;
+  try {
+    const results = await state.searchChats(query, undefined, state.dynamicLimit);
+    if (seq !== searchSeq) return; // 已有更新的请求，丢弃本次结果
+    applySearchResults(query, results);
+    hasMoreSearch.value = results.length >= state.dynamicLimit;
+  } catch (e) {
+    // 请求失败时保持上一次的结果，避免输入过程中列表被清空
+    if (seq === searchSeq) console.error('搜索对话失败', e);
+  } finally {
+    if (seq === searchSeq) isSearching.value = false;
+  }
+};
+
+// 滚动到底继续加载搜索结果（与普通列表一致，按 id 游标分段返回）
+const fetchMoreSearch = async () => {
+  if (!isSearchMode.value || isSearching.value || isLoadingMoreSearch.value || !hasMoreSearch.value) return;
+  const query = appliedQuery.value;
+  // 正在输入新查询（与已应用的结果不一致）时不翻页
+  if (!query || searchQuery.value.trim() !== query || searchResults.value.length === 0) return;
+  const seq = searchSeq;
+  isLoadingMoreSearch.value = true;
+  try {
+    const lastId = searchResults.value[searchResults.value.length - 1][0];
+    const results = await state.searchChats(query, lastId, state.dynamicLimit);
+    if (seq !== searchSeq) return; // 查询已变化，丢弃本次结果
+    if (results.length === 0) {
+      hasMoreSearch.value = false;
+    } else {
+      searchResults.value.push(...results);
+      hasMoreSearch.value = results.length >= state.dynamicLimit;
+    }
+  } catch (e) {
+    if (seq === searchSeq) console.error('加载更多搜索结果失败', e);
+  } finally {
+    if (seq === searchSeq) isLoadingMoreSearch.value = false;
+  }
+};
+
+const scheduleSearch = () => {
+  cancelSearchDebounce();
+  searchDebounce = setTimeout(runSearch, SEARCH_DEBOUNCE);
+};
+
+const handleSearchInput = (e: Event) => {
+  searchQuery.value = (e.target as HTMLInputElement).value;
+  // 组合中只同步文本，等 compositionend 再防抖搜索（部分浏览器 isComposing 不可靠，用标志位兜底）
+  if (isComposing || (e as InputEvent).isComposing) return;
+  scheduleSearch();
+};
+
+const handleSearchCompositionStart = () => {
+  isComposing = true;
+};
+
+const handleSearchCompositionEnd = (e: CompositionEvent) => {
+  isComposing = false;
+  searchQuery.value = (e.target as HTMLInputElement).value;
+  scheduleSearch();
+};
+
+// --- 搜索抽屉滑动手势（移动端） ---
+// 在顶部行横向滑动开合搜索抽屉：关闭态向右滑打开（抽屉从左滑出，方向呼应），打开态向左滑关闭
+const SWIPE_THRESHOLD = 48;
+let swipeTouchId: number | null = null;
+let swipeStartX = 0;
+let swipeStartY = 0;
+let swipeDir: 'none' | 'h' = 'none';
+
+const resetSwipeGesture = () => {
+  swipeTouchId = null;
+  swipeDir = 'none';
+};
+
+const handleRowTouchStart = (e: TouchEvent) => {
+  if (!state.isMobile || e.touches.length > 1) return;
+  const t = e.touches[0];
+  swipeTouchId = t.identifier;
+  swipeStartX = t.clientX;
+  swipeStartY = t.clientY;
+  swipeDir = 'none';
+};
+
+const handleRowTouchMove = (e: TouchEvent) => {
+  if (swipeTouchId === null) return;
+  const t = Array.from(e.touches).find(item => item.identifier === swipeTouchId);
+  if (!t) return;
+  const dx = t.clientX - swipeStartX;
+  const dy = t.clientY - swipeStartY;
+  if (swipeDir === 'none') {
+    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+    // 水平位移占优才认定为横向滑动，否则视为纵向操作放弃
+    if (Math.abs(dx) <= Math.abs(dy)) {
+      resetSwipeGesture();
+      return;
+    }
+    swipeDir = 'h';
+  }
+  e.preventDefault();
+};
+
+const handleRowTouchEnd = (e: TouchEvent) => {
+  if (swipeTouchId === null) return;
+  const t = Array.from(e.changedTouches).find(item => item.identifier === swipeTouchId);
+  if (!t) return; // 抬起的是另一根手指，跟踪中的滑动继续
+  const wasHorizontal = swipeDir === 'h';
+  resetSwipeGesture();
+  if (!wasHorizontal) return;
+  // 阻止合成的 click，避免滑动误触「新对话」/模型选择器/竖条
+  e.preventDefault();
+  const dx = t.clientX - swipeStartX;
+  if (dx >= SWIPE_THRESHOLD && !isSearchOpen.value) openSearch();
+  else if (dx <= -SWIPE_THRESHOLD && isSearchOpen.value) closeSearch();
+};
 
 // --- 下拉刷新 ---
 const PULL_THRESHOLD = 40;
@@ -44,7 +232,7 @@ const arrowRotation = computed(() => {
 
 const handleListTouchStart = (e: TouchEvent) => {
   const el = chatListRef.value;
-  if (!el || el.scrollTop > 0 || isRefreshing.value) return;
+  if (!el || el.scrollTop > 0 || isRefreshing.value || isSearchMode.value) return;
   canPull = true;
   startY = e.touches[0].clientY;
 };
@@ -78,7 +266,7 @@ const handleListTouchEnd = async () => {
   canPull = false;
   isPulling.value = false;
 
-  if (pullDistance.value >= PULL_THRESHOLD && state.chats.length > 0) {
+  if (pullDistance.value >= PULL_THRESHOLD && state.chats.length > 0 && !isSearchMode.value) {
     pullDistance.value = 48;
     isRefreshing.value = true;
     await state.fetchNewChats();
@@ -93,7 +281,7 @@ let wheelDecay: ReturnType<typeof setTimeout> | null = null;
 
 const handleWheel = (e: WheelEvent) => {
   const el = chatListRef.value;
-  if (!el || e.deltaY >= 0 || el.scrollTop > 0 || isRefreshing.value) return;
+  if (!el || e.deltaY >= 0 || el.scrollTop > 0 || isRefreshing.value || isSearchMode.value) return;
 
   isPulling.value = true;
   wheelAccum += Math.abs(e.deltaY) * 0.3;
@@ -101,7 +289,7 @@ const handleWheel = (e: WheelEvent) => {
 
   if (wheelDecay) clearTimeout(wheelDecay);
   wheelDecay = setTimeout(async () => {
-    if (pullDistance.value >= PULL_THRESHOLD && state.chats.length > 0) {
+    if (pullDistance.value >= PULL_THRESHOLD && state.chats.length > 0 && !isSearchMode.value) {
       pullDistance.value = 48;
       isPulling.value = false;
       isRefreshing.value = true;
@@ -164,7 +352,11 @@ const repositionIndicator = () => {
   const el = chatListRef.value?.querySelector<HTMLElement>(
     `[data-chat-id="${hoveredId.value}"]`
   );
-  if (!el) return;
+  if (!el) {
+    // 条目已被替换或删除，清掉悬停态，避免残留位移撑高滚动区域
+    hoveredId.value = null;
+    return;
+  }
   indicatorReady.value = false;
   moveIndicatorTo(el);
   requestAnimationFrame(() => {
@@ -247,6 +439,18 @@ const checkScrollBottom = () => {
   isAtBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
 };
 
+// 列表内容整体切换（普通列表 ⇄ 搜索结果）时置顶，并清掉悬停框
+// （悬停框是绝对定位元素，残留的 translateY 会撑高滚动区域，导致大片空白）
+const resetListScroll = () => {
+  hoveredId.value = null;
+  indicatorTop.value = 0;
+  indicatorHeight.value = 0;
+  nextTick(() => {
+    if (chatListRef.value) chatListRef.value.scrollTop = 0;
+    checkScrollBottom();
+  });
+};
+
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
 let scrollRaf = 0;
 
@@ -265,9 +469,9 @@ const handleScroll = () => {
   if (scrollTimeout) clearTimeout(scrollTimeout);
   scrollTimeout = setTimeout(() => {
     const el = chatListRef.value;
-    if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
-      state.fetchMoreHistory();
-    }
+    if (!el || el.scrollTop + el.clientHeight < el.scrollHeight - 50) return;
+    if (isSearchMode.value) fetchMoreSearch();
+    else state.fetchMoreHistory();
   }, 100);
 };
 
@@ -294,7 +498,9 @@ const handleDelete = (id: number) => {
 
 const confirmDelete = () => {
   if (chatToDelete.value !== null) {
-    state.deleteChat(chatToDelete.value);
+    const id = chatToDelete.value;
+    state.deleteChat(id);
+    searchResults.value = searchResults.value.filter(chat => chat[0] !== id);
     chatToDelete.value = null;
     showDeleteConfirm.value = false;
   }
@@ -303,7 +509,7 @@ const confirmDelete = () => {
 
 <template>
   <aside 
-    class="bg-bg-panel h-full transition-all duration-300 ease-in-out shrink-0 z-100 shadow-[1px_0_5px_rgba(0,0,0,0.05)] overflow-hidden"
+    class="bg-bg-panel h-full transition-all duration-300 ease-in-out shrink-0 z-100 shadow-[1px_0_5px_rgba(0,0,0,0.05)] overflow-hidden sidebar-shell"
     :class="[
       state.isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
       state.isMobile ? 'fixed inset-y-0 left-0 w-72' : 'relative w-64',
@@ -321,16 +527,71 @@ const confirmDelete = () => {
           <component :is="state.isMobile ? 'X' : 'AlignLeft'" />
         </button>
       </div>
-      <div class="mx-4 mb-4 flex items-center gap-2">
-        <a
-          href="#/"
-          @click.prevent="state.currentChatId = null"
-          class="shrink-0 w-8 h-8 flex items-center justify-center border border-border-input text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors no-underline"
-          title="新对话"
+      <!-- 搜索入口竖条移到行首（与「AI Chat」标题左对齐），搜索抽屉改为从左侧滑入 -->
+      <div
+        class="mx-4 mb-4 flex items-center gap-2"
+        @touchstart="handleRowTouchStart"
+        @touchmove="handleRowTouchMove"
+        @touchend="handleRowTouchEnd"
+        @touchcancel="resetSwipeGesture"
+      >
+        <!-- 搜索入口竖条：与对话列表滚动条等宽（5px）、同色，悬停显示抽屉方向箭头 -->
+        <button
+          @click="toggleSearch"
+          class="group/sb relative w-[5px] h-8 shrink-0"
+          :title="isSearchOpen ? '关闭搜索' : '搜索对话'"
         >
-          <Plus />
-        </a>
-        <ModelSelector merged class="flex-1 min-w-0" />
+          <span
+            class="absolute inset-0 transition-colors duration-200"
+            :class="isSearchOpen ? 'bg-primary-main' : 'bg-border-input group-hover/sb:bg-text-placeholder'"
+          ></span>
+          <span class="pointer-events-none absolute left-[3px] top-1/2 -translate-y-1/2 text-[11px] leading-none text-text-placeholder opacity-0 transition-opacity duration-200 group-hover/sb:opacity-100">
+            <ChevronRight class="transition-transform duration-200" :class="isSearchOpen ? 'rotate-180' : ''" />
+          </span>
+          <!-- 扩大点击热区（视觉仍是 5px 竖条） -->
+          <span class="absolute -inset-y-1 -left-2 -right-2"></span>
+        </button>
+        <!-- 抽屉容器：新对话 + 模型选择器 ⇄ 搜索框 -->
+        <div class="relative flex-1 min-w-0 h-8">
+          <div class="absolute inset-0 flex items-center gap-2" :inert="isSearchOpen">
+            <a
+              href="#/"
+              @click.prevent="state.currentChatId = null"
+              class="shrink-0 w-8 h-8 flex items-center justify-center border border-border-input text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors no-underline"
+              title="新对话"
+            >
+              <Plus />
+            </a>
+            <ModelSelector merged class="flex-1 min-w-0" />
+          </div>
+          <!-- 搜索抽屉：从左侧滑入，覆盖整行 -->
+          <Transition name="drawer">
+            <div v-if="isSearchOpen" class="absolute inset-0 z-10 bg-bg-panel">
+              <Search class="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
+              <input
+                ref="searchInputRef"
+                :value="searchQuery"
+                type="text"
+                placeholder="搜索对话标题"
+                class="w-full h-8 bg-bg-main border border-border-input pl-8 pr-8 text-sm text-text-main outline-none transition-colors focus:border-primary-main placeholder:text-text-placeholder"
+                @input="handleSearchInput"
+                @compositionstart="handleSearchCompositionStart"
+                @compositionend="handleSearchCompositionEnd"
+                @keydown.esc="closeSearch"
+              />
+              <!-- 搜索中：右侧显示转圈（输入过程中列表保持上一次的结果，用这里的转圈表示正在搜） -->
+              <Loader2 v-if="isSearching" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-text-placeholder animate-spin pointer-events-none" />
+              <button
+                v-else-if="searchQuery"
+                @click="handleClearSearch"
+                class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center text-text-placeholder hover:text-text-main transition-colors"
+                title="清空"
+              >
+                <X class="text-xs" />
+              </button>
+            </div>
+          </Transition>
+        </div>
       </div>
       
       <div class="relative flex-1 min-h-0 overflow-hidden">
@@ -387,7 +648,7 @@ const confirmDelete = () => {
             </button>
           </div>
           <a 
-            v-for="chat in state.chats" 
+            v-for="chat in displayChats" 
             :key="chat[0]"
             :href="`#/${chat[0]}`"
             :data-chat-id="chat[0]"
@@ -417,11 +678,21 @@ const confirmDelete = () => {
             </Transition>
             <span class="relative z-10 truncate text-sm pr-6">{{ chat[1] }}</span>
           </a>
+          <!-- 搜索状态提示 -->
+          <div v-if="isSearchMode && (isSearching || isLoadingMoreSearch)" class="text-center py-3 text-xs text-text-placeholder">
+            <Loader2 class="animate-spin mr-1" /> {{ isSearching ? '搜索中...' : '加载中...' }}
+          </div>
+          <div v-else-if="isSearchMode && searchResults.length === 0" class="text-center py-3 text-xs text-text-placeholder truncate px-2">
+            未找到匹配「{{ appliedQuery }}」的对话
+          </div>
+          <div v-else-if="isSearchMode && !hasMoreSearch" class="text-center py-3 text-xs text-text-placeholder">
+            没有更多了
+          </div>
           <!-- Loading indicator -->
-          <div v-if="state.isLoadingHistory" class="text-center py-3 text-xs text-text-placeholder">
+          <div v-else-if="!isSearchMode && state.isLoadingHistory" class="text-center py-3 text-xs text-text-placeholder">
             <Loader2 class="animate-spin mr-1" /> 加载中...
           </div>
-          <div v-if="!state.hasMoreHistory && state.chats.length > 0" class="text-center py-3 text-xs text-text-placeholder">
+          <div v-else-if="!isSearchMode && !state.hasMoreHistory && state.chats.length > 0" class="text-center py-3 text-xs text-text-placeholder">
             没有更多了
           </div>
         </div>
@@ -469,6 +740,29 @@ const confirmDelete = () => {
 </template>
 
 <style scoped>
+/* 侧栏内容（w-64）比带 1px 右边框的内容盒宽 1px，聚焦右边缘的搜索竖条时浏览器会把它滚进视野，
+   整列被顶出 1px 且不回弹。overflow: clip 同样裁切但不产生滚动容器（不支持时保留 overflow-hidden） */
+.sidebar-shell {
+  overflow: clip;
+}
+
+/* 搜索抽屉：从搜索竖条一侧向右展开覆盖「新对话 + 模型选择器」，收起时向竖条方向收回
+   （clip-path 裁切展开而非位移：内容不随动画变形，也不会再越过侧栏左边缘） */
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: clip-path 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.drawer-enter-from,
+.drawer-leave-to {
+  clip-path: inset(0 100% 0 0);
+}
+
+.drawer-enter-to,
+.drawer-leave-from {
+  clip-path: inset(0 0 0 0);
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease;

@@ -151,6 +151,14 @@ export const state = reactive({
     }
   },
 
+  async searchChats(query: string, before?: number, limit?: number) {
+    const params: Record<string, any> = { q: query };
+    if (before !== undefined) params.before = before;
+    if (limit !== undefined) params.limit = limit;
+    const res = await api.get('/api/search', { params });
+    return res.data as [number, string][];
+  },
+
   async fetchMoreHistory() {
     if (this.isLoadingHistory || !this.hasMoreHistory || this.chats.length === 0) return;
     this.isLoadingHistory = true;

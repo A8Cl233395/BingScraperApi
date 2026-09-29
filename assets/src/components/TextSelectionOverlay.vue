@@ -1,10 +1,36 @@
 <script setup lang="ts">
+import { onMounted, onUnmounted, watch } from 'vue';
 import { state } from '../store';
+
+// 移动端浏览器/系统返回键关闭浮层：打开时压入一条不改变 URL 的历史记录，
+// 返回键触发 popstate 时关闭浮层；点击关闭按钮则主动回退该记录，避免历史栈堆积
+let overlayPushed = false;
 
 const close = () => {
   state.showSelectionOverlay = false;
   state.selectionText = '';
+  if (overlayPushed) {
+    overlayPushed = false;
+    window.history.back();
+  }
 };
+
+watch(() => state.showSelectionOverlay, (open) => {
+  if (open && !overlayPushed) {
+    overlayPushed = true;
+    window.history.pushState({ selectionOverlay: true }, '');
+  }
+});
+
+const handlePopState = () => {
+  if (!state.showSelectionOverlay) return;
+  overlayPushed = false;
+  state.showSelectionOverlay = false;
+  state.selectionText = '';
+};
+
+onMounted(() => window.addEventListener('popstate', handlePopState));
+onUnmounted(() => window.removeEventListener('popstate', handlePopState));
 </script>
 
 <template>

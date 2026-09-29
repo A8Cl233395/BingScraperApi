@@ -6,7 +6,8 @@ import { compression } from 'vite-plugin-compression2'
 export default defineConfig({
   plugins: [
     vue(),
-    compression({ algorithms: ['brotliCompress', 'gzip'] }),
+    // compression({ algorithms: ['brotliCompress', 'gzip'] }),
+    compression({ algorithms: ['gzip'] })
   ],
   build: {
     reportCompressedSize: false,

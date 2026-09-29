@@ -103,6 +103,30 @@ async function initMermaid(): Promise<void> {
 }
 
 
+/** 用新 SVG 替换 inner 中的旧 SVG（复用缩放 wrapper 时保留缩放状态） */
+function swapInnerSvg(inner: HTMLElement, svg: SVGSVGElement): void {
+  const oldSvg = inner.querySelector('svg')
+  if (oldSvg) oldSvg.remove()
+  inner.appendChild(svg)
+}
+
+/**
+ * 将 SVG 接入图表容器：无缩放 wrapper 时整体注入；
+ * 已有 wrapper 时仅替换其中的 SVG（流式更新时保留缩放状态）
+ */
+function mountChartSvg(chartEl: HTMLElement, svgHtml: string): void {
+  const existingWrapper = chartEl.querySelector('.mermaid-zoom-wrapper')
+  if (!existingWrapper) {
+    chartEl.innerHTML = svgHtml
+    return
+  }
+  const inner = existingWrapper.querySelector('.mermaid-zoom-inner') as HTMLElement | null
+  const temp = document.createElement('div')
+  temp.innerHTML = svgHtml
+  const newSvg = temp.querySelector('svg')
+  if (inner && newSvg) swapInnerSvg(inner, newSvg)
+}
+
 export async function renderMermaidPlaceholders(root: Element | Document = document): Promise<void> {
   const blocks = root.querySelectorAll('.mermaid-block.mermaid-complete:not(.rendered)')
   if (blocks.length === 0) return
@@ -157,22 +181,7 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
 
     const cached = svgCache.get(code)
     if (cached) {
-      // 检查是否已有 wrapper（流式更新时保留缩放状态）
-      const existingWrapper = chartEl.querySelector('.mermaid-zoom-wrapper')
-      if (existingWrapper) {
-        // 只更新 SVG 内容，保留 wrapper 和缩放状态
-        const inner = existingWrapper.querySelector('.mermaid-zoom-inner') as HTMLElement
-        if (inner) {
-          const oldSvg = inner.querySelector('svg')
-          if (oldSvg) oldSvg.remove()
-          const temp = document.createElement('div')
-          temp.innerHTML = cached
-          const newSvg = temp.querySelector('svg')
-          if (newSvg) inner.appendChild(newSvg)
-        }
-      } else {
-        chartEl.innerHTML = cached
-      }
+      mountChartSvg(chartEl, cached)
       enableInteractivity(chartEl)
       chartCache.set(code, chartEl.innerHTML)
       continue
@@ -189,22 +198,7 @@ export async function renderMermaidPlaceholders(root: Element | Document = docum
       })
       svgCache.set(code, sanitized)
 
-      // 检查是否已有 wrapper（流式更新时保留缩放状态）
-      const existingWrapper = chartEl.querySelector('.mermaid-zoom-wrapper')
-      if (existingWrapper) {
-        // 只更新 SVG 内容，保留 wrapper 和缩放状态
-        const inner = existingWrapper.querySelector('.mermaid-zoom-inner') as HTMLElement
-        if (inner) {
-          const oldSvg = inner.querySelector('svg')
-          if (oldSvg) oldSvg.remove()
-          const temp = document.createElement('div')
-          temp.innerHTML = sanitized
-          const newSvg = temp.querySelector('svg')
-          if (newSvg) inner.appendChild(newSvg)
-        }
-      } else {
-        chartEl.innerHTML = sanitized
-      }
+      mountChartSvg(chartEl, sanitized)
       enableInteractivity(chartEl)
       chartCache.set(code, chartEl.innerHTML)
 
@@ -248,12 +242,7 @@ function enableInteractivity(container: HTMLElement): void {
     inner = wrapper.querySelector('.mermaid-zoom-inner') as HTMLElement
     resetBtn = wrapper.querySelector('.mermaid-zoom-reset') as HTMLElement
 
-    // 将新的 SVG 移入现有的 inner 容器（替换旧的 SVG）
-    const oldSvg = inner.querySelector('svg')
-    if (oldSvg) {
-      oldSvg.remove()
-    }
-    inner.appendChild(svg)
+    swapInnerSvg(inner, svg)
   } else {
     // 创建新的缩放/拖拽容器
     wrapper = document.createElement('div')
