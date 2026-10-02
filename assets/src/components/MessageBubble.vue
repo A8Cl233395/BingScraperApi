@@ -378,7 +378,7 @@ watch(editText, () => {
           <!-- Assistant content -->
           <div
             :id="`bubble-${nodeId}-assistant`"
-            class="w-full relative overflow-hidden p-1 -m-1 min-w-0"
+            class="self-stretch relative overflow-hidden p-1 -m-1 min-w-0"
             :class="state.isMobile ? 'user-select-none' : ''"
             style="touch-action: pan-y;"
             @touchstart="startLongPress"

@@ -15,6 +15,10 @@ let lastTouchMidY = 0;
 
 const fitScale = ref(1);
 
+// 移动端浏览器/系统返回键关闭预览：打开时压入一条不改变 URL 的历史记录，
+// 返回键触发 popstate 时关闭预览；点击关闭按钮则主动回退该记录，避免历史栈堆积
+let previewPushed = false;
+
 const resetView = () => {
   scale.value = fitScale.value;
   translateX.value = 0;
@@ -25,8 +29,18 @@ watch(() => state.previewImageUrl, (newUrl) => {
   if (newUrl) {
     fitScale.value = 1;
     resetView();
+    if (!previewPushed) {
+      previewPushed = true;
+      window.history.pushState({ imagePreview: true }, '');
+    }
   }
 });
+
+const handlePopState = () => {
+  if (!state.previewImageUrl) return;
+  previewPushed = false;
+  state.previewImageUrl = null;
+};
 
 const handleImageLoad = (e: Event) => {
   const img = e.target as HTMLImageElement;
@@ -45,6 +59,10 @@ const handleImageLoad = (e: Event) => {
 
 const closePreview = () => {
   state.previewImageUrl = null;
+  if (previewPushed) {
+    previewPushed = false;
+    window.history.back();
+  }
 };
 
 const handleWheel = (e: WheelEvent) => {
@@ -190,11 +208,13 @@ const downloadImage = async () => {
 onMounted(() => {
   window.addEventListener('mousemove', handleMouseMove);
   window.addEventListener('mouseup', handleMouseUp);
+  window.addEventListener('popstate', handlePopState);
 });
 
 onUnmounted(() => {
   window.removeEventListener('mousemove', handleMouseMove);
   window.removeEventListener('mouseup', handleMouseUp);
+  window.removeEventListener('popstate', handlePopState);
 });
 
 // Handle escape key to close

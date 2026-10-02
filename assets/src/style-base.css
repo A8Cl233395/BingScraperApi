@@ -130,27 +130,30 @@ html.dark {
   }
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 5px;
-}
+/* Custom Scrollbar（仅指针设备：触屏保留原生 overlay 滚动条，
+   避免自定义样式使滚动条占据布局宽度、挤占消息区右侧空间） */
+@media (hover: hover) and (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
-::-webkit-scrollbar-thumb {
-  background: var(--border-input);
-  border-radius: 0;
-}
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-input);
+    border-radius: 0;
+  }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-placeholder);
-}
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-placeholder);
+  }
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-input) transparent;
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-input) transparent;
+  }
 }
 
 body {
