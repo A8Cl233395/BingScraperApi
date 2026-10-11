@@ -11,6 +11,7 @@ const lightbulbIconInner = '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5
 export const arrowLeftRightIconInner = '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>';
 export const codeIconInner = '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>';
 export const copyIconInner = '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>';
+const eyeIconInner = '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>';
 const maximizeIconInner = '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>';
 export const checkIconInner = '<path d="M20 6 9 17l-5-5"/>';
 
@@ -82,7 +83,7 @@ marked.use({
   </div>
   <div class="mermaid-content">
     <div class="mermaid-chart">${chartContent}</div>
-    <pre class="mermaid-source !m-0 !p-3 !bg-code-bg overflow-x-auto"><code class="hljs language-mermaid">${escapedCode}</code></pre>
+    <pre class="mermaid-source m-0! p-3! bg-code-bg! overflow-x-auto"><code class="hljs language-mermaid">${escapedCode}</code></pre>
   </div>
 </div>`;
       }
@@ -98,16 +99,29 @@ marked.use({
         highlightedCode = token.text;
       }
 
+      // html/svg 代码块支持“查看”沙箱预览：与 mermaid 一致仅在围栏闭合后出现，
+      // 流式输出中不完整的块不渲染按钮，避免预览到半截 HTML
+      const fenceMatch = token.raw.match(/^(?:```+|~~~+)/);
+      const isComplete = fenceMatch && token.raw.trimEnd().endsWith(fenceMatch[0]);
+      const baseLang = lang.split(/\s+/)[0].toLowerCase();
+      const viewBtn = (baseLang === 'html' || baseLang === 'svg') && isComplete ? `
+      <button class="view-code-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" data-lang="${baseLang}" title="查看渲染结果">
+        <svg ${lucideSvgAttrs} width="10" height="10">${eyeIconInner}</svg>
+        <span class="text-[10px]">查看</span>
+      </button>` : '';
+
       return `
 <div class="code-block-wrapper my-4 border-[0.5px] border-border-main overflow-hidden bg-code-bg" style="touch-action: pan-x pan-y;">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${lang}</span>
+    <div class="flex items-center gap-2">${viewBtn}
     <button class="copy-code-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
       <svg ${lucideSvgAttrs} width="10" height="10" class="copy-icon-svg">${copyIconInner}</svg>
       <span class="text-[10px]">复制</span>
     </button>
+    </div>
   </div>
-  <pre class="!m-0 !p-3 !bg-code-bg overflow-x-auto" style="touch-action: pan-x pan-y;"><code class="hljs language-${lang}">${highlightedCode}</code></pre>
+  <pre class="m-0! p-3! bg-code-bg! overflow-x-auto" style="touch-action: pan-x pan-y;"><code class="hljs language-${lang}">${highlightedCode}</code></pre>
 </div>`;
     }
   }

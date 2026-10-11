@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from functools import wraps 
 from typing import Annotated
 from fastapi import FastAPI, Request, HTTPException, WebSocketDisconnect
 from fastapi.params import Query, Body
@@ -198,7 +197,7 @@ def status():
         "invite": is_invite_enabled,
         "link": is_link_enabled,
         "webchat": is_webchat_enabled,
-        "version": "7"
+        "version": "8"
     }
 
 # 下载服务，仅内部逻辑使用，不要写入文档

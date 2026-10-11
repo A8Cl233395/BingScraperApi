@@ -43,6 +43,7 @@ from markitdown.converters import (
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 import trafilatura
 import bcrypt
+from functools import wraps 
 
 class AsyncCrawler:
     def __init__(self, timeout=8000, strict_anti_crawl_model=False, use_exa_first=False):
@@ -719,6 +720,18 @@ class UserManager:
         if not os.path.exists("link_datas"):
             os.makedirs("link_datas")
         self.users: dict[int, User] = {}
+        self.daemon_thread = threading.Thread(target=self._daemon, daemon=True, name="UserManagerDaemonThread")
+        self.daemon_thread.start()
+
+    def _daemon(self):
+        while True:
+            time.sleep(60)
+            # list() 快照：迭代期间 get_user 新建用户会抛 RuntimeError 杀死线程；逐用户 try 防单次失败终止自动保存
+            for _, user in list(self.users.items()):
+                try:
+                    user.save()
+                except Exception:
+                    logger.exception("在保存用户数据时发生错误")
     
     def get_user(self, user_id: int):
         if user_id not in self.users:
@@ -736,10 +749,11 @@ class UserManager:
         return False
 
     def save(self):
-        for user_id, user in self.users.items():
-            with open(f"link_datas/{user_id}.json", "w", encoding="utf-8") as f:
-                logger.info(f"正在保存用户 {user_id} 数据到文件: link_datas/{user_id}.json")
-                json.dump(user.data, f, ensure_ascii=False)
+        for _, user in self.users.items():
+            try:
+                user.save()
+            except Exception as e:
+                logger.exception("在保存用户数据时发生错误")
 
 class Link:
     def __init__(self):
@@ -807,6 +821,7 @@ class User:
         self.chat_cache: dict[int, ChatInstance] = {}
         # tuple: (chat_id, node_id)
         self.streaming_cache: dict[tuple[int, str], StreamingCache] = {}
+        self._edited: bool = False
         self.clear_expired_sessions()
     
     @property
@@ -822,6 +837,19 @@ class User:
             "config_version": self.config_version,
         }
     
+    def save(self):
+        with self.lock:
+            if not self._edited:
+                logger.debug(f"跳过保存用户 {self.user_id}")
+                return
+            # 临时文件 + rename 原子替换：daemon 周期写盘后进程被强杀不再产生截断的 JSON
+            tmp_path = f"link_datas/{self.user_id}.json.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False)
+            os.replace(tmp_path, f"link_datas/{self.user_id}.json")
+            self._edited = False
+            logger.debug(f"已保存用户 {self.user_id} 数据到文件: link_datas/{self.user_id}.json")
+    
     def handle_memory(self, data):
         with self.lock:
             if data["operate"] == "add":
@@ -829,12 +857,34 @@ class User:
             elif data["operate"] == "remove":
                 if data["data"] in self.memory:
                     self.memory.remove(data["data"])
+            self._edited = True
     
     def handle_sync(self, data):
+        push = False
         with self.lock:
             if data["operate"] == "push_all":
                 if "memory" in data:
                     self.memory = data["memory"]
+                    self._edited = True
+            elif data["operate"] == "pull_all":
+                send_to_websocket({
+                "user": self.user_id,
+                "type": "memory",
+                "operate": "sync",
+                "data": self.memory,
+                })
+        if push:
+            self.push_memory()
+
+    def push_memory(self):
+        with self.lock:
+            memory = list(self.memory)  # 快照后锁外发送：self.lock 不可重入，持锁期间不能再次加锁
+        return send_to_websocket({
+            "user": self.user_id,
+            "type": "memory",
+            "operate": "sync",
+            "data": memory,
+        })
 
     def add_memory(self, memory: str):
         with self.lock:
@@ -847,6 +897,7 @@ class User:
             if not success:
                 return False
             self.memory.append(memory)
+            self._edited = True
             return True
     
     def remove_memory(self, memory: str):
@@ -862,6 +913,7 @@ class User:
             if not success:
                 return False
             self.memory.remove(memory)
+        self._edited = True
         return True
     
     def verify_token(self, session_id: str, token: str) -> bool:
@@ -880,6 +932,7 @@ class User:
             "expire": time.time() + 2592000,  # 30d
             "note": note,
         }
+        self._edited = True
         return UserSession(session_id, token)
     
     def checkpwd(self, pwd: str) -> bool:
@@ -890,6 +943,7 @@ class User:
     def setpwd(self, pwd: str) -> str:
         self.sessions.clear()
         self.secret = bcrypt.hashpw(pwd.encode(), bcrypt.gensalt(BCRYPT_COST))
+        self._edited = True
         return pwd
 
     def list_sessions(self):
@@ -898,11 +952,13 @@ class User:
     def kick_session(self, session_id: str):
         if session_id in self.sessions:
             del self.sessions[session_id]
+            self._edited = True
 
     def clear_expired_sessions(self):
         expired = [sid for sid, v in self.sessions.items() if time.time() > v["expire"]]
         for session_id in expired:
             self.kick_session(session_id)
+            self._edited = True
     
     def set_config(self, data: dict):
         if "model" in data:
@@ -914,6 +970,7 @@ class User:
         if "enable_function" in data:
             self.enable_function = data["enable_function"]
         self.config_version = str(int(time.time()))
+        self._edited = True
         return self.config_version
 
 def construct_params(model_config: dict, thinking: bool, api_type: str = "chat-completions") -> dict:

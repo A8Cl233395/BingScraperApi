@@ -222,6 +222,20 @@ const handleContentClick = (e: MouseEvent) => {
     return;
   }
 
+  // 处理代码块“查看”按钮（html/svg 沙箱预览）：textContent 即还原后的源码，
+  // 预览内容为点击时刻的快照，不随流式输出更新
+  const viewBtn = target.closest<HTMLElement>('.view-code-btn');
+  if (viewBtn) {
+    e.stopPropagation();
+    const codeElement = viewBtn.closest('.code-block-wrapper')?.querySelector('pre code');
+    if (codeElement) {
+      state.htmlPreviewCode = codeElement.textContent || '';
+      state.htmlPreviewLang = viewBtn.dataset.lang || 'html';
+      state.showHtmlPreview = true;
+    }
+    return;
+  }
+
   // 处理代码块复制按钮
   const btn = target.closest<HTMLElement>('.copy-code-btn');
   if (!btn) return;

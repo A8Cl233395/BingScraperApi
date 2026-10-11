@@ -7,6 +7,7 @@ import ChatInput from '../components/ChatInput.vue';
 import MessageList from '../components/MessageList.vue';
 import ImagePreview from '../components/ImagePreview.vue';
 import TextSelectionOverlay from '../components/TextSelectionOverlay.vue';
+import HtmlPreview from '../components/HtmlPreview.vue';
 
 const PetAvatar = defineAsyncComponent(() => import('../components/PetAvatar.vue'));
 
@@ -128,7 +129,7 @@ watch(
   <div class="h-screen w-screen overflow-hidden" :class="state.isMobile ? '' : 'flex'">
     <Sidebar />
 
-    <main class="flex-1 flex flex-col h-full relative min-w-0 bg-bg-main w-full">
+    <main class="flex-1 flex flex-col h-full relative min-w-0 bg-bg-main w-full overflow-hidden">
       <header
         @dblclick="handleHeaderDblClick"
         class="flex items-center px-4 justify-between shrink-0 z-30 w-full h-14 bg-bg-main border-b border-border-main cursor-pointer select-none transition-[translate,margin-bottom] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]"
@@ -168,6 +169,8 @@ watch(
         <ChatInput ref="chatInputRef" :isChatStarted="isChatActive" @send="handleSend" @stop="handleStop" @mobile-focus="mobileKeyboardActive = true" @mobile-blur="mobileKeyboardActive = false" />
       </div>
     </main>
+
+    <HtmlPreview />
     
     <ImagePreview />
     <TextSelectionOverlay />
