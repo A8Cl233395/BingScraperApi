@@ -64,6 +64,7 @@ export const state = reactive({
   hasMoreHistory: true,
   isLoadingHistory: false,
   isLoadingNewChats: false,
+  isLoadingGapFill: false,
   lastScrollTime: 0,
   lastScrollTop: 0,
   scrollSpeed: 0,
@@ -200,6 +201,35 @@ export const state = reactive({
       showToast('获取新对话失败', 'error');
     } finally {
       this.isLoadingNewChats = false;
+    }
+  },
+
+  // 补全对话空洞：新建对话返回的 id 大于已知最大 id+1 时，说明期间其他会话创建了对话，
+  // 拉取 id 大于 prevMax 的对话按 id 顺序归位：比新对话占位旧的空洞对话插到占位下方，
+  // 拉取期间刚创建的（比占位新）插到占位上方，两侧各自保持降序（接口返回整体降序，
+  // 过滤后顺序不变）；排除占位本身，靠去重容忍与下拉刷新并发
+  async fillChatGap(prevMax: number, chatId: number) {
+    if (this.isLoadingGapFill || this.chats.length === 0) return;
+    this.isLoadingGapFill = true;
+    try {
+      const res = await api.get(`/api/history?after=${prevMax}&limit=100`);
+      const newChats = res.data.filter((chat: [number, string]) =>
+        chat[0] !== chatId && !this.chats.some(c => c[0] === chat[0]));
+      if (newChats.length === 0) return;
+      const at = this.chats.findIndex(c => c[0] === chatId);
+      if (at === -1) {
+        // 占位已不在列表（如刚被删除）：按降序整体插到头部即可
+        this.chats.unshift(...newChats);
+        return;
+      }
+      const newer = newChats.filter((chat: [number, string]) => chat[0] > chatId);
+      const gap = newChats.filter((chat: [number, string]) => chat[0] < chatId);
+      this.chats.splice(at, 0, ...newer);                 // 比占位新的插入其上方
+      this.chats.splice(at + newer.length + 1, 0, ...gap); // 空洞对话插入占位下方
+    } catch (e) {
+      console.error('Failed to fill chat gap', e);
+    } finally {
+      this.isLoadingGapFill = false;
     }
   },
 

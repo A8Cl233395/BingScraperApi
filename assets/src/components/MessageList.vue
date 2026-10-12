@@ -182,7 +182,12 @@ const processSSEEvent = (
     state.currentChatId = chatId;
     // Add a placeholder for new chats in the sidebar
     if (!state.chats.some(c => c[0] === chatId)) {
+      const prevMax = state.chats.length > 0 ? state.chats[0][0] : null;
       state.chats.unshift([chatId, '新对话']);
+      // 新对话 id 跳号时，拉取期间其他会话创建的中间对话补全列表
+      if (prevMax !== null && chatId > prevMax + 1) {
+        state.fillChatGap(prevMax, chatId);
+      }
     }
   } else if (eventType === 'title') {
     const chat = state.chats.find(c => c[0] === state.currentChatId);
