@@ -14,7 +14,8 @@ const isWide = ref(wideQuery.matches);
 const handleMediaChange = (e: MediaQueryListEvent) => { isWide.value = e.matches; };
 const splitMode = computed(() => isWide.value && !state.isMobile);
 
-const title = computed(() => (state.htmlPreviewLang === 'svg' ? 'SVG 预览' : 'HTML 预览'));
+// 预览仅面向 html 代码块（svg 代码块走图表块渲染 + 全屏预览，不再经此组件）
+const title = 'HTML 预览';
 
 // === 分屏面板宽度 ===
 // store 里的 htmlPreviewWidth 是用户拖拽后的持久化值（0 表示未调整过，用视口 40% 兜底）；
@@ -81,12 +82,35 @@ const handleResize = () => {
 };
 
 // === srcdoc 组装 ===
-// 完整文档（含 <html 或 <!doctype）原样使用；片段包一层带 charset/viewport 的骨架
-// （svg 片段自然落入 body 渲染）。经 Vue :srcdoc 绑定写入，无需手动转义。
+// 完整文档（含 <html 或 <!doctype）原样使用；片段包一层带 charset/viewport 的骨架。
+// 经 Vue :srcdoc 绑定写入，无需手动转义。
+//
+// 必须注入 <base href="about:srcdoc">：srcdoc 文档的 baseURI 默认继承父页面
+// （about:srcdoc 以创建者文档的 base URL 作为 fallback base），href="#x" 会被解析成
+// 父页面 URL#x——点击即把 iframe 整体导航出预览；沙箱跨文档导航后仍是不透明源，
+// 页面内 localStorage 直接抛 SecurityError、接口请求 origin 为 null 触发 CORS 失败，
+// 表现为白屏。注入后 hash 解析为 about:srcdoc#x，属同文档片段导航，
+// :target / hashchange / location.hash / pushState（hash 路由）全部正常。
+// 文档自带 <base> 时不注入（tree order 首个 base 生效，避免破坏其相对资源解析）。
+// 注意注入后相对资源 URL 无法解析（原来会错误地落到应用服务端路径，同样不该依赖），
+// 预览场景的资源基本为内联或绝对 URL，可接受。
+const SRCDOC_BASE = '<base href="about:srcdoc">';
+
+const injectBase = (html: string): string => {
+  if (/<base[\s>]/i.test(html)) return html; // 已有 base：保持其语义
+  if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${SRCDOC_BASE}</head>`);
+  const headOpen = html.match(/<head[^>]*>/i);
+  if (headOpen) return html.replace(headOpen[0], headOpen[0] + SRCDOC_BASE);
+  // 无 head：跟在 doctype 后（base 前置会吞掉 doctype 触发怪异模式）；再退化为整体前置
+  const doctype = html.match(/^\s*<!doctype[^>]*>/i);
+  if (doctype) return doctype[0] + SRCDOC_BASE + html.slice(doctype[0].length);
+  return SRCDOC_BASE + html;
+};
+
 const srcdoc = computed(() => {
   const code = state.htmlPreviewCode;
-  if (/<html[\s>]/i.test(code) || /<!doctype\s/i.test(code)) return code;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${code}</body></html>`;
+  if (/<html[\s>]/i.test(code) || /<!doctype\s/i.test(code)) return injectBase(code);
+  return injectBase(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${code}</body></html>`);
 });
 
 // 刷新：递增 key 重建 iframe 强制重载（srcdoc 不变时改属性不会触发重新加载）

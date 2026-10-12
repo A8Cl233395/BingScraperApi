@@ -73,10 +73,9 @@ export const state = reactive({
   isTextSelected: false,
   selectionText: '',
   showSelectionOverlay: false,
-  // HTML/SVG 代码块“查看”预览（HtmlPreview.vue）
+  // HTML 代码块“查看”预览（HtmlPreview.vue）
   showHtmlPreview: false,
   htmlPreviewCode: '',
-  htmlPreviewLang: '',
   htmlPreviewWidth: Number(localStorage.getItem('html_preview_width')) || 0, // 拖拽后的面板宽度（px），0 表示未调整过
   models: {} as Record<string, { desc: string; vision?: boolean; thinking?: boolean }>,
 

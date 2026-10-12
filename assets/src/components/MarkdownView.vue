@@ -3,13 +3,12 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { state } from '../store';
 import {
   renderMarkdown,
-  loadMermaid,
-  getMermaidModule,
   createMessageShadowRoot,
   arrowLeftRightIconInner,
   codeIconInner,
   checkIconInner,
 } from '../utils/markdown';
+import { renderChartPlaceholders, getChartSvgDataUrl, chartTypeOf } from '../utils/chart';
 import type { StreamTailState } from '../utils/markdown';
 
 const props = defineProps<{ content: string; streaming?: boolean }>();
@@ -33,32 +32,17 @@ let resumeTimer: number | null = null;
 // === Shadow DOM 渲染 ===
 // 消息 HTML（含模型内联 <style>）写进影子根，样式隔离由浏览器原生保证（详见
 // markdown.ts）。v-html 写不进影子根，内容更新改为手动写 DOM；子树整体重建会丢失
-// pre/表格横向滚动与图表缩放状态，重写前后保存/恢复。mermaid 重渲染是异步的，
-// 且会用缓存 HTML 覆盖图表容器，缩放状态须等它完成后恢复。
+// pre/表格横向滚动，重写前后保存/恢复。图表块只显示不交互（缩放/拖拽在「查看」
+// 进入的全屏预览里），无需恢复缩放状态。
 let contentEl: HTMLElement | null = null;
 let savedPreScrolls: number[] = [];
 let savedWrapperScrolls: number[] = [];
-let savedZooms: { transform: string; resetDisplay: string }[] = [];
-
-const restoreZooms = (el: HTMLElement) => {
-  el.querySelectorAll<HTMLElement>('.mermaid-zoom-inner').forEach((inner, i) => {
-    const saved = savedZooms[i];
-    if (!saved) return;
-    inner.style.transform = saved.transform;
-    const resetBtn = inner.parentElement?.querySelector<HTMLElement>('.mermaid-zoom-reset');
-    if (resetBtn) resetBtn.style.display = saved.resetDisplay;
-  });
-};
 
 const applyHtml = () => {
   const el = contentEl;
   if (!el) return;
   savedPreScrolls = Array.from(el.querySelectorAll('pre'), pre => pre.scrollLeft);
   savedWrapperScrolls = Array.from(el.querySelectorAll<HTMLElement>('.table-wrapper'), wrapper => wrapper.scrollLeft);
-  savedZooms = Array.from(el.querySelectorAll<HTMLElement>('.mermaid-zoom-inner'), inner => ({
-    transform: inner.style.transform,
-    resetDisplay: (inner.parentElement?.querySelector<HTMLElement>('.mermaid-zoom-reset'))?.style.display ?? '',
-  }));
   el.innerHTML = html.value;
   el.querySelectorAll('pre').forEach((pre, i) => {
     if (savedPreScrolls[i] !== undefined) pre.scrollLeft = savedPreScrolls[i];
@@ -66,11 +50,9 @@ const applyHtml = () => {
   el.querySelectorAll<HTMLElement>('.table-wrapper').forEach((wrapper, i) => {
     if (savedWrapperScrolls[i] !== undefined) wrapper.scrollLeft = savedWrapperScrolls[i];
   });
-  // mermaid 代码块在 marked 解析器完成围栏闭合后才输出，流式期间也可安全渲染
-  if (getMermaidModule() || el.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) {
-    loadMermaid().then(m => m.renderMermaidPlaceholders(el)).then(() => restoreZooms(el));
-  } else {
-    restoreZooms(el);
+  // 图表块（mermaid/svg）在解析器完成围栏闭合后才输出，流式期间也可安全渲染
+  if (el.querySelector('.chart-block.chart-complete:not(.rendered)')) {
+    renderChartPlaceholders(el);
   }
 };
 
@@ -121,7 +103,7 @@ onBeforeUnmount(() => {
   if (resumeTimer) clearTimeout(resumeTimer);
 });
 
-// 代码块/mermaid 复制按钮的统一反馈动画（与消息操作栏复制按钮一致：图标换对勾 + 主题成功色 + "已复制"淡入）
+// 代码块/图表块复制按钮的统一反馈动画（与消息操作栏复制按钮一致：图标换对勾 + 主题成功色 + "已复制"淡入）
 const INLINE_COPY_FEEDBACK_MS = 2000;
 const showInlineCopyFeedback = (btn: HTMLElement) => {
   const copySvg = btn.querySelector<SVGElement>('.copy-icon-svg');
@@ -149,7 +131,7 @@ const showInlineCopyFeedback = (btn: HTMLElement) => {
 };
 
 // 内容渲染在影子树内，点击事件冒泡（composed）到宿主后在这里统一委托处理
-// （图片预览 / mermaid 与代码块按钮）。注意影子树内事件的 e.target 会被重定向到
+// （图片预览 / 图表块与代码块按钮）。注意影子树内事件的 e.target 会被重定向到
 // 宿主元素，真实目标必须取 composedPath 的首位
 const handleContentClick = (e: MouseEvent) => {
   const target = (e.composedPath()[0] as HTMLElement) ?? (e.target as HTMLElement);
@@ -161,13 +143,13 @@ const handleContentClick = (e: MouseEvent) => {
     return;
   }
 
-  // 处理mermaid切换按钮
-  const toggleBtn = target.closest('.mermaid-toggle-btn');
+  // 处理图表块切换按钮（mermaid / svg 共用）
+  const toggleBtn = target.closest('.chart-toggle-btn');
   if (toggleBtn) {
     e.stopPropagation();
-    const block = toggleBtn.closest('.mermaid-block');
+    const block = toggleBtn.closest('.chart-block');
     if (block) {
-      const content = block.querySelector('.mermaid-content');
+      const content = block.querySelector('.chart-content');
       const toggleText = toggleBtn.querySelector('.toggle-text');
       const toggleIcon = toggleBtn.querySelector('.toggle-icon-svg');
       if (content && toggleText && toggleIcon) {
@@ -185,39 +167,36 @@ const handleContentClick = (e: MouseEvent) => {
     return;
   }
 
-  // 处理mermaid复制按钮
-  const copyMermaidBtn = target.closest<HTMLElement>('.copy-mermaid-btn');
-  if (copyMermaidBtn) {
+  // 处理图表块复制按钮（mermaid / svg 共用）
+  const copyChartBtn = target.closest<HTMLElement>('.copy-chart-btn');
+  if (copyChartBtn) {
     e.stopPropagation();
-    const block = copyMermaidBtn.closest('.mermaid-block');
+    const block = copyChartBtn.closest('.chart-block');
     if (block) {
-      const codeElement = block.querySelector('.mermaid-source code');
+      const codeElement = block.querySelector('.chart-source code');
       if (codeElement) {
         const code = codeElement.textContent || '';
-        navigator.clipboard.writeText(code).then(() => showInlineCopyFeedback(copyMermaidBtn));
+        navigator.clipboard.writeText(code).then(() => showInlineCopyFeedback(copyChartBtn));
       }
     }
     return;
   }
 
-  // 处理mermaid全屏按钮
-  const fullscreenMermaidBtn = target.closest('.mermaid-fullscreen-btn');
-  if (fullscreenMermaidBtn) {
+  // 处理图表块“查看”按钮（mermaid / svg 共用）：打开全屏预览（ImagePreview），
+  // 缩放/拖拽在预览里操作；data URL 来自 chart.ts 的渲染缓存
+  const fullscreenChartBtn = target.closest<HTMLElement>('.chart-fullscreen-btn');
+  if (fullscreenChartBtn) {
     e.stopPropagation();
-    const block = fullscreenMermaidBtn.closest('.mermaid-block');
+    const block = fullscreenChartBtn.closest('.chart-block');
     if (block) {
-      const code = block.querySelector('.mermaid-source code')?.textContent || '';
-      if (code) {
-        loadMermaid().then(m => {
-          const dataUrl = m.getSvgDataUrl(code);
-          if (dataUrl) state.previewImageUrl = dataUrl;
-        });
-      }
+      const code = block.querySelector('.chart-source code')?.textContent || '';
+      const dataUrl = getChartSvgDataUrl(chartTypeOf(block), code);
+      if (dataUrl) state.previewImageUrl = dataUrl;
     }
     return;
   }
 
-  // 处理代码块“查看”按钮（html/svg 沙箱预览）：textContent 即还原后的源码，
+  // 处理代码块“查看”按钮（html 沙箱预览）：textContent 即还原后的源码，
   // 预览内容为点击时刻的快照，不随流式输出更新
   const viewBtn = target.closest<HTMLElement>('.view-code-btn');
   if (viewBtn) {
@@ -225,7 +204,6 @@ const handleContentClick = (e: MouseEvent) => {
     const codeElement = viewBtn.closest('.code-block-wrapper')?.querySelector('pre code');
     if (codeElement) {
       state.htmlPreviewCode = codeElement.textContent || '';
-      state.htmlPreviewLang = viewBtn.dataset.lang || 'html';
       state.showHtmlPreview = true;
     }
     return;

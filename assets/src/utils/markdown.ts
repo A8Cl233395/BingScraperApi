@@ -3,6 +3,8 @@ import DOMPurify from 'dompurify';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import hljs from 'highlight.js/lib/common';
+import { getCachedChartSvg, escapeHtml } from './chart';
+import type { ChartType } from './chart';
 
 // Lucide 图标的 SVG 属性与内部元素（用于 marked 渲染器生成的 HTML 字符串，
 // 以及 MarkdownView 中复制反馈的图标交换；v-html 中无法使用 Vue 组件）
@@ -12,27 +14,47 @@ export const arrowLeftRightIconInner = '<path d="M8 3 4 7l4 4"/><path d="M4 7h16
 export const codeIconInner = '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>';
 export const copyIconInner = '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>';
 const eyeIconInner = '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>';
-const maximizeIconInner = '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>';
 export const checkIconInner = '<path d="M20 6 9 17l-5-5"/>';
 
-// mermaid 模块懒加载：marked 渲染器内联缓存图表与组件渲染占位符共用同一实例
-let mermaidModule: any = null;
-let mermaidModulePromise: Promise<any> | null = null;
-
-/** 同步获取已加载的 mermaid 模块（未加载时返回 null） */
-export function getMermaidModule(): any {
-  return mermaidModule;
+// 围栏是否闭合：流式输出中未闭合的代码块不渲染图表/预览按钮，避免预览到半截内容
+function isFenceComplete(raw: string): boolean {
+  const fenceMatch = raw.match(/^(?:```+|~~~+)/);
+  return !!fenceMatch && raw.trimEnd().endsWith(fenceMatch[0]);
 }
 
-/** 懒加载 mermaid 模块（多次调用复用同一个 Promise） */
-export function loadMermaid(): Promise<any> {
-  if (!mermaidModulePromise) {
-    mermaidModulePromise = import('./mermaid').then(m => {
-      mermaidModule = m;
-      return m;
-    });
-  }
-  return mermaidModulePromise;
+// 图表块（mermaid / svg）共用构建器：块结构与按钮完全一致，仅标签/源码语言不同，
+// 渲染管线与缓存在 chart.ts 统一处理。图表块只显示不交互，缩放/拖拽在「查看」进入的
+// 全屏预览（ImagePreview）中操作。已渲染过的图表直接内联缓存 SVG，
+// 保证流式重写时图表高度稳定
+function renderChartBlockHtml(type: ChartType, token: { text: string; raw: string }): string {
+  const escapedCode = escapeHtml(token.text);
+  const cachedSvg = getCachedChartSvg(type, token.text);
+  const completeClass = isFenceComplete(token.raw) ? 'chart-complete' : 'chart-incomplete';
+  const chartContent = cachedSvg || `<div class="chart-placeholder"><svg ${lucideSvgAttrs} width="14" height="14" class="chart-placeholder-icon">${lightbulbIconInner}</svg><span>图表生成中...</span></div>`;
+
+  return `<div class="chart-block ${completeClass} my-4 border-[0.5px] border-border-main overflow-hidden bg-code-bg" data-chart="${type}">
+  <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
+    <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${type}</span>
+    <div class="flex items-center gap-2">
+      <button class="chart-toggle-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="切换显示">
+        <svg ${lucideSvgAttrs} width="10" height="10" class="toggle-icon-svg">${arrowLeftRightIconInner}</svg>
+        <span class="toggle-text text-[10px]">文字</span>
+      </button>
+      <button class="copy-chart-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
+        <svg ${lucideSvgAttrs} width="10" height="10" class="copy-icon-svg">${copyIconInner}</svg>
+        <span class="text-[10px]">复制</span>
+      </button>
+      <button class="chart-fullscreen-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="查看全屏预览">
+        <svg ${lucideSvgAttrs} width="10" height="10">${eyeIconInner}</svg>
+        <span class="text-[10px]">查看</span>
+      </button>
+    </div>
+  </div>
+  <div class="chart-content">
+    <div class="chart-figure">${chartContent}</div>
+    <pre class="chart-source m-0! p-3! bg-code-bg! overflow-x-auto"><code class="hljs language-${type === 'svg' ? 'xml' : 'mermaid'}">${escapedCode}</code></pre>
+  </div>
+</div>`;
 }
 
 marked.use({
@@ -48,44 +70,11 @@ marked.use({
   renderer: {
     code(token) {
       const lang = token.lang || 'text';
+      const baseLang = lang.split(/\s+/)[0].toLowerCase();
 
-      if (lang === 'mermaid') {
-        const fenceMatch = token.raw.match(/^(?:```+|~~~+)/);
-        const isComplete = fenceMatch && token.raw.trimEnd().endsWith(fenceMatch[0]);
-
-        const escapedCode = token.text
-          .replace(/&/g, '&amp;')
-          .replace(/"/g, '&quot;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        // 已渲染过的图表直接内联缓存 HTML，保证流式重写时图表高度稳定
-        const cachedChartHtml = mermaidModule ? (mermaidModule.getCachedMermaidChartHtml(token.text) || mermaidModule.getCachedMermaidSvg(token.text)) : undefined;
-        const completeClass = isComplete ? 'mermaid-complete' : 'mermaid-incomplete';
-        const chartContent = cachedChartHtml || `<div class="mermaid-placeholder"><svg ${lucideSvgAttrs} width="14" height="14" class="mermaid-placeholder-icon">${lightbulbIconInner}</svg><span>图表生成中...</span></div>`;
-
-        return `<div class="mermaid-block ${completeClass} my-4 border-[0.5px] border-border-main overflow-hidden bg-code-bg">
-  <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
-    <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">mermaid</span>
-    <div class="flex items-center gap-2">
-      <button class="mermaid-toggle-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="切换显示">
-        <svg ${lucideSvgAttrs} width="10" height="10" class="toggle-icon-svg">${arrowLeftRightIconInner}</svg>
-        <span class="toggle-text text-[10px]">文字</span>
-      </button>
-      <button class="copy-mermaid-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
-        <svg ${lucideSvgAttrs} width="10" height="10" class="copy-icon-svg">${copyIconInner}</svg>
-        <span class="text-[10px]">复制</span>
-      </button>
-      <button class="mermaid-fullscreen-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="全屏查看">
-        <svg ${lucideSvgAttrs} width="10" height="10">${maximizeIconInner}</svg>
-        <span class="text-[10px]">全屏</span>
-      </button>
-    </div>
-  </div>
-  <div class="mermaid-content">
-    <div class="mermaid-chart">${chartContent}</div>
-    <pre class="mermaid-source m-0! p-3! bg-code-bg! overflow-x-auto"><code class="hljs language-mermaid">${escapedCode}</code></pre>
-  </div>
-</div>`;
+      // 图表块（mermaid / svg）统一走图表渲染方式（图 + 源码切换、查看全屏预览）
+      if (baseLang === 'mermaid' || baseLang === 'svg') {
+        return renderChartBlockHtml(baseLang, token);
       }
 
       let highlightedCode;
@@ -99,13 +88,10 @@ marked.use({
         highlightedCode = token.text;
       }
 
-      // html/svg 代码块支持“查看”沙箱预览：与 mermaid 一致仅在围栏闭合后出现，
+      // html 代码块支持“查看”沙箱预览：与图表块一致仅在围栏闭合后出现，
       // 流式输出中不完整的块不渲染按钮，避免预览到半截 HTML
-      const fenceMatch = token.raw.match(/^(?:```+|~~~+)/);
-      const isComplete = fenceMatch && token.raw.trimEnd().endsWith(fenceMatch[0]);
-      const baseLang = lang.split(/\s+/)[0].toLowerCase();
-      const viewBtn = (baseLang === 'html' || baseLang === 'svg') && isComplete ? `
-      <button class="view-code-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" data-lang="${baseLang}" title="查看渲染结果">
+      const viewBtn = baseLang === 'html' && isFenceComplete(token.raw) ? `
+      <button class="view-code-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="查看渲染结果">
         <svg ${lucideSvgAttrs} width="10" height="10">${eyeIconInner}</svg>
         <span class="text-[10px]">查看</span>
       </button>` : '';
@@ -477,7 +463,9 @@ export function createMessageShadowRoot(host: HTMLElement): HTMLElement {
   return content;
 }
 
-const SANITIZE_OPTS = { USE_PROFILES: { html: true, svg: true }, ADD_TAGS: ['foreignObject'], ADD_ATTR: ['transform', 'style', 'class'] };
+// 与图表块消毒（chart.ts 的 CHART_SANITIZE_OPTS）同配置：svgFilters 保证图表块内联
+// 缓存的滤镜图形在流式重写消毒时不被剥掉
+const SANITIZE_OPTS = { USE_PROFILES: { html: true, svg: true, svgFilters: true }, ADD_TAGS: ['foreignObject'], ADD_ATTR: ['transform', 'style', 'class'] };
 
 /** Markdown → 已消毒的 HTML；解析异常时退回消毒后的原始文本。
  *  输出必须写入 createMessageShadowRoot 返回的影子树容器（MarkdownView 已处理），

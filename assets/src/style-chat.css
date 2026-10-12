@@ -204,7 +204,7 @@ html.dark .prose tr:nth-child(even) {
   opacity: 0;
 }
 
-/* 代码块/mermaid 复制按钮"已复制"文字淡入（与消息操作栏的 fade 过渡一致） */
+/* 代码块/图表块复制按钮"已复制"文字淡入（与消息操作栏的 fade 过渡一致） */
 .copy-feedback-fade {
   animation: copy-feedback-fade-in 0.2s ease;
 }
@@ -214,22 +214,22 @@ html.dark .prose tr:nth-child(even) {
   to { opacity: 1; }
 }
 
-/* Mermaid 图表样式 */
-.mermaid-block {
+/* 图表块（mermaid / svg）样式 */
+.chart-block {
   width: 100%;
 }
 
-.mermaid-content {
+.chart-content {
   position: relative;
 }
 
-.mermaid-chart {
+.chart-figure {
   display: block;
   padding: 1rem;
   overflow: auto;
 }
 
-.mermaid-placeholder {
+.chart-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -239,104 +239,52 @@ html.dark .prose tr:nth-child(even) {
   font-size: 0.8rem;
 }
 
-.mermaid-placeholder-icon {
-  animation: mermaid-pulse 1.5s ease-in-out infinite;
+.chart-placeholder-icon {
+  animation: chart-pulse 1.5s ease-in-out infinite;
 }
 
-@keyframes mermaid-pulse {
+@keyframes chart-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
 }
 
-.mermaid-chart svg {
+.chart-figure svg {
   max-width: 100%;
   height: auto;
 }
 
-.mermaid-source {
+.chart-source {
   display: none;
 }
 
-.mermaid-content.show-source .mermaid-chart {
+.chart-content.show-source .chart-figure {
   display: none;
 }
 
-.mermaid-content.show-source .mermaid-source {
+.chart-content.show-source .chart-source {
   display: block;
 }
 
-.mermaid-error {
+.chart-error {
   width: 100%;
   padding: 0.5rem;
   color: #ef4444;
 }
 
-.mermaid-error pre {
+.chart-error pre {
   margin-top: 0.25rem;
   font-size: 0.75rem;
   white-space: pre-wrap;
   color: #9ca3af;
 }
 
-/* Mermaid 缩放交互 */
-.mermaid-zoom-wrapper {
-  position: relative;
-  overflow: hidden;
-  touch-action: pan-x pan-y;
-  user-select: none;
-}
-
-.mermaid-zoom-inner {
-  transform-origin: 0 0;
-  transition: none;
-  will-change: transform;
-}
-
-.mermaid-zoom-inner svg {
-  display: block;
-}
-
-.mermaid-zoom-reset {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  z-index: 10;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-panel);
-  color: var(--text-muted);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease, background-color 0.15s ease;
-}
-
-.mermaid-zoom-wrapper:hover .mermaid-zoom-reset {
-  opacity: 1;
-}
-
-.mermaid-zoom-reset:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-main);
-}
-
-.mermaid-fullscreen-btn {
+/* 图表块“查看”按钮（打开全屏预览，缩放/拖拽在预览里） */
+.chart-fullscreen-btn {
   cursor: pointer;
 }
 
-.mermaid-fullscreen-btn:hover {
+.chart-fullscreen-btn:hover {
   color: var(--text-main);
-}
-
-/* 移动端始终显示重置按钮（无 hover） */
-@media (pointer: coarse) {
-  .mermaid-zoom-reset {
-    opacity: 0.8;
-  }
 }
 
 /* 流式输出拖尾：新字符按各自出现时刻做负延迟淡入（进度跨重渲染无缝衔接），
