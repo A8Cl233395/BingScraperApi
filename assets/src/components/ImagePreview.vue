@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
 import { state } from '../store';
 
 const scale = ref(1);
@@ -14,6 +14,8 @@ let lastTouchMidX = 0;
 let lastTouchMidY = 0;
 
 const fitScale = ref(1);
+// 打开时的自动适配必须直接落定、不播缩放动画：适配完成前禁用 transform 过渡
+const fitted = ref(false);
 
 // 移动端浏览器/系统返回键关闭预览：打开时压入一条不改变 URL 的历史记录，
 // 返回键触发 popstate 时关闭预览；点击关闭按钮则主动回退该记录，避免历史栈堆积
@@ -28,6 +30,7 @@ const resetView = () => {
 watch(() => state.previewImageUrl, (newUrl) => {
   if (newUrl) {
     fitScale.value = 1;
+    fitted.value = false;
     resetView();
     if (!previewPushed) {
       previewPushed = true;
@@ -42,19 +45,21 @@ const handlePopState = () => {
   state.previewImageUrl = null;
 };
 
-const handleImageLoad = (e: Event) => {
+const handleImageLoad = async (e: Event) => {
   const img = e.target as HTMLImageElement;
   const { naturalWidth, naturalHeight } = img;
-  if (!naturalWidth || !naturalHeight) return;
-  
-  const windowWidth = window.innerWidth;
-  const windowHeight = window.innerHeight;
-  
-  const scaleX = windowWidth / naturalWidth;
-  const scaleY = windowHeight / naturalHeight;
-  
-  fitScale.value = Math.min(scaleX, scaleY, 1);
-  resetView();
+  if (naturalWidth && naturalHeight) {
+    const scaleX = window.innerWidth / naturalWidth;
+    const scaleY = window.innerHeight / naturalHeight;
+
+    fitScale.value = Math.min(scaleX, scaleY, 1);
+    resetView();
+  }
+  // 适配结果先无过渡写入 DOM 并强制重排落定，再开启后续缩放/拖拽的过渡，
+  // 否则打开瞬间的 1 → fitScale 跳变会播放缩放动画
+  await nextTick();
+  void img.offsetWidth;
+  fitted.value = true;
 };
 
 const closePreview = () => {
@@ -244,8 +249,8 @@ onUnmounted(() => {
       <div class="relative w-full h-full flex items-center justify-center overflow-hidden" @click.self="closePreview">
         <img :src="state.previewImageUrl"
              alt="Preview"
-             class="max-w-none max-h-none object-contain transition-transform duration-75 ease-out select-none"
-             :class="isDragging ? 'cursor-grabbing' : 'cursor-grab'"
+             class="max-w-none max-h-none object-contain select-none"
+             :class="[isDragging ? 'cursor-grabbing' : 'cursor-grab', fitted ? 'transition-transform duration-75 ease-out' : '']"
              :style="{ transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`, touchAction: 'none' }"
              @load="handleImageLoad"
              @mousedown="handleMouseDown"
