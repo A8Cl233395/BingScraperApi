@@ -40,8 +40,16 @@ export function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// 与消息级消毒（markdown.ts 的 SANITIZE_OPTS）同配置：svgFilters 保证滤镜图形不被剥掉
-const CHART_SANITIZE_OPTS = { USE_PROFILES: { html: true, svg: true, svgFilters: true }, ADD_TAGS: ['foreignObject'], ADD_ATTR: ['transform', 'style', 'class'] };
+// 与消息级消毒（markdown.ts 的 SANITIZE_OPTS）同配置：svgFilters 保证滤镜图形不被剥掉；
+// HTML_INTEGRATION_POINTS 必须把 foreignobject 算作 HTML 集成点——mermaid 的 htmlLabels
+// 标签（div/span）位于 SVG 命名空间的 foreignObject 下，DOMPurify 默认只认 annotation-xml，
+// 会走 _checkValidNamespace 失败 → _forceRemove 把标签连同文字整体删掉（“图表文字消失”坑）
+const CHART_SANITIZE_OPTS = {
+  USE_PROFILES: { html: true, svg: true, svgFilters: true },
+  ADD_TAGS: ['foreignObject'],
+  ADD_ATTR: ['transform', 'style', 'class'],
+  HTML_INTEGRATION_POINTS: { foreignobject: true, 'annotation-xml': true },
+};
 
 /** 图表源码 → 消毒后的 SVG；不含 <svg> 视为渲染失败 */
 function sanitizeChartSvg(raw: string): string {

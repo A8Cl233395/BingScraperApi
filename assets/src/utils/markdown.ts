@@ -464,8 +464,14 @@ export function createMessageShadowRoot(host: HTMLElement): HTMLElement {
 }
 
 // 与图表块消毒（chart.ts 的 CHART_SANITIZE_OPTS）同配置：svgFilters 保证图表块内联
-// 缓存的滤镜图形在流式重写消毒时不被剥掉
-const SANITIZE_OPTS = { USE_PROFILES: { html: true, svg: true, svgFilters: true }, ADD_TAGS: ['foreignObject'], ADD_ATTR: ['transform', 'style', 'class'] };
+// 缓存的滤镜图形在流式重写消毒时不被剥掉；HTML_INTEGRATION_POINTS 放行 foreignObject 内的
+// HTML 标签（mermaid htmlLabels 文字，详见 chart.ts 注释，缺了会“图表文字消失”）
+const SANITIZE_OPTS = {
+  USE_PROFILES: { html: true, svg: true, svgFilters: true },
+  ADD_TAGS: ['foreignObject'],
+  ADD_ATTR: ['transform', 'style', 'class'],
+  HTML_INTEGRATION_POINTS: { foreignobject: true, 'annotation-xml': true },
+};
 
 /** Markdown → 已消毒的 HTML；解析异常时退回消毒后的原始文本。
  *  输出必须写入 createMessageShadowRoot 返回的影子树容器（MarkdownView 已处理），
