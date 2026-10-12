@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUpdate, onBeforeUnmount, onMounted, onUpdated, ref, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { state } from '../store';
 import {
   renderMarkdown,
   loadMermaid,
   getMermaidModule,
+  createMessageShadowRoot,
   arrowLeftRightIconInner,
   codeIconInner,
   checkIconInner,
@@ -16,12 +17,11 @@ const props = defineProps<{ content: string; streaming?: boolean }>();
 const rootRef = ref<HTMLElement | null>(null);
 
 // === 选择期间冻结渲染 ===
-// 增长段的 v-html 每次更新都会整体重建子树，选区锚点节点被销毁后浏览器会把选区
-// 钳制到存活的祖先节点（表现为选区跳到开头）。实际渲染的 displayedContent 在选择
-// 期间保持旧值：冻结期间 chunk 不解析、不写 DOM，恢复时一次性应用最新内容；已完成
-// 段落因 props 不变被 Vue 整体跳过更新，天然不受影响。状态标志由 Chat.vue 的全局
-// mousedown/touch/selectionchange 监听维护；思考过程等纯插值文本是原地更新
-// text node、不销毁节点，无需同样冻结。
+// 内容更新会整体重建子树，选区锚点节点被销毁后浏览器会把选区钳制到存活的祖先节点
+// （表现为选区跳到开头）。实际渲染的 displayedContent 在选择期间保持旧值：冻结期间
+// chunk 不解析、不写 DOM，恢复时一次性应用最新内容；已完成段落因 props 不变被 Vue
+// 整体跳过更新，天然不受影响。状态标志由 Chat.vue 的全局 mousedown/touch/selectionchange
+// 监听维护；思考过程等纯插值文本是原地更新 text node、不销毁节点，无需同样冻结。
 // 拖尾淡入是时间驱动的（负 animation-delay）：冻结期间已有动画在真实时间自行推进，
 // 恢复后按新年龄重算 delay 无缝衔接；流结束后不再重渲染，最后一批字符自然落定。
 const displayedContent = ref(props.content);
@@ -30,10 +30,55 @@ let tailState: StreamTailState | undefined;
 let frozen = state.isMouseDown || state.isTextSelected; // 挂载时可能已处于选择中
 let resumeTimer: number | null = null;
 
+// === Shadow DOM 渲染 ===
+// 消息 HTML（含模型内联 <style>）写进影子根，样式隔离由浏览器原生保证（详见
+// markdown.ts）。v-html 写不进影子根，内容更新改为手动写 DOM；子树整体重建会丢失
+// pre/表格横向滚动与图表缩放状态，重写前后保存/恢复。mermaid 重渲染是异步的，
+// 且会用缓存 HTML 覆盖图表容器，缩放状态须等它完成后恢复。
+let contentEl: HTMLElement | null = null;
+let savedPreScrolls: number[] = [];
+let savedWrapperScrolls: number[] = [];
+let savedZooms: { transform: string; resetDisplay: string }[] = [];
+
+const restoreZooms = (el: HTMLElement) => {
+  el.querySelectorAll<HTMLElement>('.mermaid-zoom-inner').forEach((inner, i) => {
+    const saved = savedZooms[i];
+    if (!saved) return;
+    inner.style.transform = saved.transform;
+    const resetBtn = inner.parentElement?.querySelector<HTMLElement>('.mermaid-zoom-reset');
+    if (resetBtn) resetBtn.style.display = saved.resetDisplay;
+  });
+};
+
+const applyHtml = () => {
+  const el = contentEl;
+  if (!el) return;
+  savedPreScrolls = Array.from(el.querySelectorAll('pre'), pre => pre.scrollLeft);
+  savedWrapperScrolls = Array.from(el.querySelectorAll<HTMLElement>('.table-wrapper'), wrapper => wrapper.scrollLeft);
+  savedZooms = Array.from(el.querySelectorAll<HTMLElement>('.mermaid-zoom-inner'), inner => ({
+    transform: inner.style.transform,
+    resetDisplay: (inner.parentElement?.querySelector<HTMLElement>('.mermaid-zoom-reset'))?.style.display ?? '',
+  }));
+  el.innerHTML = html.value;
+  el.querySelectorAll('pre').forEach((pre, i) => {
+    if (savedPreScrolls[i] !== undefined) pre.scrollLeft = savedPreScrolls[i];
+  });
+  el.querySelectorAll<HTMLElement>('.table-wrapper').forEach((wrapper, i) => {
+    if (savedWrapperScrolls[i] !== undefined) wrapper.scrollLeft = savedWrapperScrolls[i];
+  });
+  // mermaid 代码块在 marked 解析器完成围栏闭合后才输出，流式期间也可安全渲染
+  if (getMermaidModule() || el.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) {
+    loadMermaid().then(m => m.renderMermaidPlaceholders(el)).then(() => restoreZooms(el));
+  } else {
+    restoreZooms(el);
+  }
+};
+
 const rerender = (tail: boolean) => {
   const res = renderMarkdown(displayedContent.value, { streamTail: tail, tailState, now: performance.now() });
   tailState = res.tailState;
   html.value = res.html;
+  applyHtml();
 };
 
 watch(
@@ -67,65 +112,13 @@ watch(
 
 rerender(props.streaming); // 首次渲染（含挂载时已在流式中的情况）
 
+onMounted(() => {
+  contentEl = createMessageShadowRoot(rootRef.value!);
+  applyHtml();
+});
+
 onBeforeUnmount(() => {
   if (resumeTimer) clearTimeout(resumeTimer);
-});
-
-// === 内容重写时的状态恢复 ===
-// 本组件只在自身 content 变化时更新，此时浏览器会重建整个子树，pre/表格的横向
-// 滚动与图表缩放状态会丢失，这里在更新前后保存/恢复。mermaid 重渲染是异步的，
-// 且会用缓存 HTML 覆盖图表容器，缩放状态须等它完成后恢复。
-let savedPreScrolls: number[] = [];
-let savedWrapperScrolls: number[] = [];
-let savedZooms: { transform: string; resetDisplay: string }[] = [];
-
-onBeforeUpdate(() => {
-  const el = rootRef.value;
-  if (!el) return;
-  savedPreScrolls = Array.from(el.querySelectorAll('pre'), pre => pre.scrollLeft);
-  savedWrapperScrolls = Array.from(el.querySelectorAll<HTMLElement>('.table-wrapper'), wrapper => wrapper.scrollLeft);
-  savedZooms = Array.from(el.querySelectorAll<HTMLElement>('.mermaid-zoom-inner'), inner => ({
-    transform: inner.style.transform,
-    resetDisplay: (inner.parentElement?.querySelector<HTMLElement>('.mermaid-zoom-reset'))?.style.display ?? '',
-  }));
-});
-
-const restoreScrolls = (el: HTMLElement) => {
-  el.querySelectorAll('pre').forEach((pre, i) => {
-    if (savedPreScrolls[i] !== undefined) pre.scrollLeft = savedPreScrolls[i];
-  });
-  el.querySelectorAll<HTMLElement>('.table-wrapper').forEach((wrapper, i) => {
-    if (savedWrapperScrolls[i] !== undefined) wrapper.scrollLeft = savedWrapperScrolls[i];
-  });
-};
-
-const restoreZooms = (el: HTMLElement) => {
-  el.querySelectorAll<HTMLElement>('.mermaid-zoom-inner').forEach((inner, i) => {
-    const saved = savedZooms[i];
-    if (!saved) return;
-    inner.style.transform = saved.transform;
-    const resetBtn = inner.parentElement?.querySelector<HTMLElement>('.mermaid-zoom-reset');
-    if (resetBtn) resetBtn.style.display = saved.resetDisplay;
-  });
-};
-
-onUpdated(() => {
-  const el = rootRef.value;
-  if (!el) return;
-  restoreScrolls(el);
-  // mermaid 代码块在 marked 解析器完成围栏闭合后才输出，流式期间也可安全渲染
-  if (getMermaidModule() || el.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) {
-    loadMermaid().then(m => m.renderMermaidPlaceholders(el)).then(() => restoreZooms(el));
-  } else {
-    restoreZooms(el);
-  }
-});
-
-onMounted(() => {
-  const el = rootRef.value;
-  if (el && el.querySelector('.mermaid-block.mermaid-complete:not(.rendered)')) {
-    loadMermaid().then(m => m.renderMermaidPlaceholders(el));
-  }
 });
 
 // 代码块/mermaid 复制按钮的统一反馈动画（与消息操作栏复制按钮一致：图标换对勾 + 主题成功色 + "已复制"淡入）
@@ -155,9 +148,11 @@ const showInlineCopyFeedback = (btn: HTMLElement) => {
   }, INLINE_COPY_FEEDBACK_MS));
 };
 
-// 内容为 v-html，点击事件在这里统一委托处理（图片预览 / mermaid 与代码块按钮）
+// 内容渲染在影子树内，点击事件冒泡（composed）到宿主后在这里统一委托处理
+// （图片预览 / mermaid 与代码块按钮）。注意影子树内事件的 e.target 会被重定向到
+// 宿主元素，真实目标必须取 composedPath 的首位
 const handleContentClick = (e: MouseEvent) => {
-  const target = e.target as HTMLElement;
+  const target = (e.composedPath()[0] as HTMLElement) ?? (e.target as HTMLElement);
   if (target.tagName === 'IMG') {
     const src = (target as HTMLImageElement).src;
     if (src) {
@@ -249,10 +244,6 @@ const handleContentClick = (e: MouseEvent) => {
 </script>
 
 <template>
-  <div
-    ref="rootRef"
-    class="relative z-10 prose prose-sm max-w-none text-text-main wrap-anywhere"
-    v-html="html"
-    @click="handleContentClick"
-  ></div>
+  <!-- prose 类在影子树内层（createMessageShadowRoot），宿主只负责定位与点击委托 -->
+  <div ref="rootRef" class="relative z-10 max-w-none" @click="handleContentClick"></div>
 </template>

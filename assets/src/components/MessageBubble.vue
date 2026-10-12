@@ -102,7 +102,8 @@ const startLongPress = (e: TouchEvent) => {
     if (props.message.isStreaming) return;
   }
 
-  const target = e.target as HTMLElement;
+  // 助手消息内容在影子树内：e.target 会被重定向到宿主，真实目标取 composedPath 首位
+  const target = (e.composedPath()[0] as HTMLElement) ?? (e.target as HTMLElement);
   if (props.isUser) {
     if (userTextContent.value && target.closest('img')) return;
   } else {
