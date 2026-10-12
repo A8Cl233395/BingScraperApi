@@ -25,10 +25,30 @@ export function getCachedChartSvg(type: ChartType, code: string): string | undef
   return chartSvgCache.get(cacheKey(type, code));
 }
 
-/** 图表 SVG 的 data URL（全屏预览）；未渲染完成返回 null */
+/** 图表 SVG 的 data URL（全屏预览）；未渲染完成返回 null。
+ *  必须转成 XML 方言输出：缓存里的 SVG 是 DOMPurify 的 HTML 序列化（<br> 等 void 元素
+ *  不自闭合），data:image/svg+xml 按 XML 解析会整体失败、预览直接空白（mermaid 多行
+ *  标签的 <br> 就中招）；顺带给根节点补数值宽高——mermaid 输出 width="100%"，
+ *  img 没有固有尺寸无法按比例适配屏幕 */
 export function getChartSvgDataUrl(type: ChartType, code: string): string | null {
   const svg = chartSvgCache.get(cacheKey(type, code));
-  return svg ? `data:image/svg+xml,${encodeURIComponent(svg)}` : null;
+  if (!svg) return null;
+  return `data:image/svg+xml,${encodeURIComponent(toXmlSvg(svg))}`;
+}
+
+/** HTML 序列化的 SVG 字符串 → XML 方言（void 元素自闭合、补 xmlns），并给根节点补数值宽高 */
+function toXmlSvg(svgHtml: string): string {
+  const doc = new DOMParser().parseFromString(svgHtml, 'text/html');
+  const el = doc.querySelector('svg');
+  if (!el) return svgHtml;
+  const viewBox = (el.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+  if (viewBox.length === 4 && viewBox.every(n => Number.isFinite(n))) {
+    const width = el.getAttribute('width');
+    const height = el.getAttribute('height');
+    if (!width || width.endsWith('%')) el.setAttribute('width', String(viewBox[2]));
+    if (!height || height.endsWith('%')) el.setAttribute('height', String(viewBox[3]));
+  }
+  return new XMLSerializer().serializeToString(el);
 }
 
 /** 图表块元素对应的图表类型（data-chart 缺省视为 mermaid） */
