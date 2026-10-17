@@ -543,8 +543,8 @@ if is_webchat_enabled:
         return StreamingResponse(generator, media_type="text/event-stream")
 
     @app.get("/api/reconnect", response_class=StreamingResponse)
-    async def api_reconnect(request: Request, id: Annotated[int, Query()], node_id: Annotated[str, Query()]):
-        generator = webchat.reconnect(int(request.headers["uid"]), id, node_id)
+    async def api_reconnect(request: Request, id: Annotated[int, Query()], node_id: Annotated[str, Query()], after: Annotated[int, Query(ge=0)] = 0):
+        generator = webchat.reconnect(int(request.headers["uid"]), id, node_id, after)
         return StreamingResponse(generator, media_type="text/event-stream")
 
     @app.get("/api/cancel", response_class=PlainTextResponse)

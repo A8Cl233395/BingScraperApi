@@ -229,7 +229,7 @@ invite ─> Cloudflare Turnstile
 | `/api/login` | POST | 验证令牌 | - |
 | `/api/home` | GET | 首页数据（对话列表 + 用户设置） | - |
 | `/api/chat` | POST | 发送消息（SSE 流式响应） | 10 QPM |
-| `/api/reconnect` | GET | 重连进行中的生成（参数：`id`, `node_id`） | - |
+| `/api/reconnect` | GET | 重连进行中的生成（参数：`id`, `node_id`, `after`） | - |
 | `/api/cancel` | GET | 取消进行中的生成（参数：`id`, `node_id`） | 30 QPM |
 | `/api/history` | GET | 对话历史（分页，参数：`before`） | - |
 | `/api/message` | GET | 获取单个对话详情（参数：`id`） | - |

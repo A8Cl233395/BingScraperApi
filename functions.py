@@ -1481,8 +1481,10 @@ class Webchat:
             self.conn.commit()
         return title
         
-    async def _pusher(self, streaming_cache: StreamingCache):
-        current_index = 0
+    async def _pusher(self, streaming_cache: StreamingCache, start_index: int = 0):
+        # 每条缓存项恰好对应一条 SSE 事件（Future 也只转成一个 data 块），
+        # 因此客户端按事件计数得到的下标可直接作为重放起点
+        current_index = start_index
         while True:
             async with streaming_cache.condition:
                 while current_index == len(streaming_cache.data):
@@ -1589,11 +1591,15 @@ class Webchat:
             streaming_cache.current_task = asyncio.create_task(self._generate(streaming_cache, request, chat_instance, node_id, False, user, chat_id))
         return self._pusher(streaming_cache)
 
-    def reconnect(self, user_id: int, id: int, node_id: str):
+    def reconnect(self, user_id: int, id: int, node_id: str, after: int = 0):
         user = usermanager.get_user(user_id)
-        if (id, node_id) not in user.streaming_cache:
+        streaming_cache = user.streaming_cache.get((id, node_id))
+        if streaming_cache is None:
             raise HTTPException(status_code=404, detail="bad reconnect id")
-        return self._pusher(user.streaming_cache[(id, node_id)])
+        # after 是客户端已收到的 SSE 事件数，等价于缓存数组下标；越界说明客户端状态异常
+        if after > len(streaming_cache.data):
+            raise HTTPException(status_code=400, detail="bad reconnect offset")
+        return self._pusher(streaming_cache, after)
     
     def _save_chat(self, user: User, chat_id: int):
         logger.debug(f"正在为用户 {user.user_id} 保存聊天 {chat_id}")

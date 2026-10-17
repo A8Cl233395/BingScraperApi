@@ -28,6 +28,28 @@ interface ChatNode {
   streamConnected?: boolean;
 }
 
+interface SSEState {
+  signal: string;
+  toolCallId: string;
+  toolEntry: AssistantMessage | null;
+  assistantEntry: AssistantMessage | null;
+}
+
+const createSSEState = (): SSEState => ({
+  signal: 'answering',
+  toolCallId: '',
+  toolEntry: null,
+  assistantEntry: null
+});
+
+/** 按当前流信号同步全局动画状态 */
+const applyAiSignal = (signal: string) => {
+  if (signal === 'thinking') state.aiSignal = 'thinking';
+  else if (signal === 'answering') state.aiSignal = 'answering';
+  else if (signal === 'tool_call') state.aiSignal = 'tool_calling';
+  else state.aiSignal = 'idle';
+};
+
 // Use shallowRef so that triggerRef() correctly forces re-render
 // when we mutate the array contents or nested object properties.
 const messages = shallowRef<ChatNode[]>([]);
@@ -169,7 +191,7 @@ const removeFailedNode = (targetMsg: ChatNode, fallbackParentId?: string | null)
 const processSSEEvent = (
   ev: { event: string; data: string },
   targetMsg: ChatNode,
-  sseState: { signal: string; toolCallId: string; toolEntry: AssistantMessage | null; assistantEntry: AssistantMessage | null },
+  sseState: SSEState,
   parentId?: string | null
 ) => {
   const eventType = ev.event;
@@ -275,85 +297,112 @@ const processSSEEvent = (
   }
 };
 
-/** Reconnect to a node's SSE stream (full replay). Handles both initial-load and mid-stream disconnect. */
-const handleReconnect = async (chatId: number, nodeId: string) => {
+/** Reconnect to a node's SSE stream. `after` is the number of SSE events already applied locally. */
+const handleReconnect = async (
+  chatId: number,
+  nodeId: string,
+  options: { after?: number; sseState?: SSEState } = {}
+) => {
   const targetMsg = messages.value.find(m => m.id === nodeId);
   if (!targetMsg) return;
 
+  const after = Math.max(0, options.after ?? 0);
   const parentId = messageTree.value[nodeId]?.parent || null;
 
-  // Reset assistant content — reconnect returns full payload, not incremental
-  targetMsg.assistant.splice(0, targetMsg.assistant.length);
+  if (after === 0) {
+    // 本地没有任何该流的增量，从头重放：清空后重建
+    targetMsg.assistant.splice(0, targetMsg.assistant.length);
+  }
   targetMsg.isStreaming = true;
   targetMsg.streamConnected = false;
   // Trigger reactivity for shallowRef
   messages.value = [...messages.value];
 
-  const sseState = { signal: 'answering', toolCallId: '', toolEntry: null as AssistantMessage | null, assistantEntry: null as AssistantMessage | null };
+  // after > 0 时必须沿用原 sseState：断点可能落在 tool_call / tool_response 中间，
+  // 后续片段要接回原来的 assistantEntry / toolEntry
+  const sseState: SSEState = (after > 0 && options.sseState)
+    ? options.sseState
+    : createSSEState();
 
   if (abortController.value) abortController.value.abort();
   const currentController = new AbortController();
   abortController.value = currentController;
   state.isStreaming = true;
-  state.aiSignal = 'thinking';
+  if (after > 0) applyAiSignal(sseState.signal);
+  else state.aiSignal = 'thinking';
   activeStreamingNodeId.value = nodeId;
 
   if (messageTree.value[nodeId]) {
     messageTree.value[nodeId].isStreaming = true;
   }
 
-  let reconnectRetries = 0;
+  // received 是当前节点累计已应用的事件数（即后端缓存下标），重试时从这里继续
+  let received = after;
+  let retries = 0;
+  let fatal = false; // 4xx 等不可重试的错误
   const MAX_RECONNECT_RETRIES = 5;
 
   try {
-    await fetchEventSource(
-      `${import.meta.env.VITE_API_BASE}/api/reconnect?id=${chatId}&node_id=${nodeId}`,
-      {
-        method: 'GET',
-        headers: getAuthHeaders(),
-        signal: currentController.signal,
-        openWhenHidden: true,
-        async onopen(response) {
-          if (response.status === 404) {
-            await fetchChatDetails(chatId);
-            throw new Error('404_NOT_FOUND');
+    while (true) {
+      try {
+        // after 为 0（完整回放）时不带该参数，保持接口对旧客户端的兼容
+        const afterQuery = received > 0 ? `&after=${received}` : '';
+        await fetchEventSource(
+          `${import.meta.env.VITE_API_BASE}/api/reconnect?id=${chatId}&node_id=${nodeId}${afterQuery}`,
+          {
+            method: 'GET',
+            headers: getAuthHeaders(),
+            signal: currentController.signal,
+            openWhenHidden: true,
+            async onopen(response) {
+              if (response.status === 404) {
+                await fetchChatDetails(chatId);
+                throw new Error('404_NOT_FOUND');
+              }
+              if (!response.ok) {
+                fatal = response.status >= 400 && response.status < 500;
+                throw new Error(`HTTP ${response.status}`);
+              }
+              // HTTP 流已建立：立即由连接动画（盲文点阵）切换为输出动画（光标），不等文字
+              targetMsg.streamConnected = true;
+            },
+            onclose() {
+              // Prevent auto-retry on clean close (since this is a GET request, fetchEventSource auto-retries by default)
+              if (!currentController.signal.aborted) {
+                currentController.abort();
+              }
+            },
+            onmessage(ev) {
+              processSSEEvent(ev, targetMsg, sseState, parentId);
+              // 处理完再计数：万一处理抛错，该事件会被重新投递而不是漏掉
+              received++;
+            },
+            onerror(err) {
+              // 交给外层循环：需要用最新的 received 重新构造请求
+              throw err;
+            }
           }
-          // HTTP 流已建立：立即由连接动画（盲文点阵）切换为输出动画（光标），不等文字
-          targetMsg.streamConnected = true;
-        },
-        onclose() {
-          // Prevent auto-retry on clean close (since this is a GET request, fetchEventSource auto-retries by default)
-          if (!currentController.signal.aborted) {
-            currentController.abort();
-          }
-        },
-        onmessage(ev) {
-          processSSEEvent(ev, targetMsg, sseState, parentId);
-        },
-        onerror(err) {
-          if (currentController.signal.aborted || err.message === '404_NOT_FOUND') {
-            throw err;
-          }
-          reconnectRetries++;
-          if (reconnectRetries > MAX_RECONNECT_RETRIES) {
-            throw err;
-          }
-          // 重置状态，因为重试时后端会从头重放所有数据
-          targetMsg.assistant.splice(0, targetMsg.assistant.length);
-          targetMsg.streamConnected = false;
-          sseState.signal = 'answering';
-          sseState.toolCallId = '';
-          sseState.toolEntry = null;
-          sseState.assistantEntry = null;
-          messages.value = [...messages.value];
-          showToast(`正在重连（${reconnectRetries}/${MAX_RECONNECT_RETRIES}）`, 'info');
-          return reconnectRetries * 1000;
+        );
+        break; // 生成正常结束
+      } catch (e: any) {
+        if (currentController.signal.aborted) return; // 用户取消
+        if (e.message === '404_NOT_FOUND') return;
+        if (fatal) {
+          showToast('重连失败', 'error');
+          return;
         }
+        retries++;
+        if (retries > MAX_RECONNECT_RETRIES) {
+          showToast('重连失败', 'error');
+          return;
+        }
+        // 只切换连接动画，保留已收到的内容，下一轮从 received 继续
+        targetMsg.streamConnected = false;
+        messages.value = [...messages.value];
+        showToast(`正在重连（${retries}/${MAX_RECONNECT_RETRIES}）`, 'info');
+        await new Promise(r => setTimeout(r, retries * 1000));
+        if (currentController.signal.aborted) return;
       }
-    );
-  } catch (e: any) {
-    if (e.name !== 'AbortError' && !currentController.signal.aborted && e.message !== '404_NOT_FOUND') {
-      showToast('重连失败', 'error');
     }
   } finally {
     if (abortController.value === currentController) {
@@ -457,7 +506,7 @@ const handleSend = async (content: any, parent?: string) => {
   if (state.isThinking !== state.defaultSettings.thinking) body.thinking = state.isThinking;
   if (state.isEnableFunction !== state.defaultSettings.enable_function) body.enable_function = state.isEnableFunction;
 
-  const sseState = { signal: 'answering', toolCallId: '', toolEntry: null as AssistantMessage | null, assistantEntry: null as AssistantMessage | null };
+  const sseState = createSSEState();
 
   if (abortController.value) {
     abortController.value.abort();
@@ -472,6 +521,8 @@ const handleSend = async (content: any, parent?: string) => {
   const originalChatId = state.currentChatId;
   let receivedChatId: number | null = originalChatId;
   let disconnectedDuringStream = false;
+  // 已处理的 SSE 事件数，重连时作为 after 传给后端，只补发缺失的部分
+  let receivedEventCount = 0;
 
   try {
     await fetchEventSource(`${import.meta.env.VITE_API_BASE}/api/chat`, {
@@ -496,6 +547,7 @@ const handleSend = async (content: any, parent?: string) => {
         if (ev.event === 'node_id') {
           try { receivedNodeId = JSON.parse(ev.data); } catch (_) { receivedNodeId = ev.data; }
         }
+        receivedEventCount++;
       },
       onerror(err) {
         if (currentController.signal.aborted) return;
@@ -553,7 +605,11 @@ const handleSend = async (content: any, parent?: string) => {
 
   // If the SSE stream disconnected mid-generation, attempt reconnect
   if (disconnectedDuringStream && receivedNodeId && receivedChatId) {
-    handleReconnect(receivedChatId, receivedNodeId);
+    // 携带已处理事件数与当前段落/工具状态，后端只补发缺失的事件
+    handleReconnect(receivedChatId, receivedNodeId, {
+      after: receivedEventCount,
+      sseState,
+    });
   }
 };
 
