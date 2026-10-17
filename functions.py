@@ -3,9 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import re
 import sqlite3
-from typing import AsyncGenerator
-from urllib.parse import quote_plus, urlparse
-from playwright.async_api import BrowserContext, Playwright, async_playwright, Browser, TimeoutError as PwTimeoutError
+from typing import AsyncGenerator, Any
 from collections import OrderedDict
 from fastapi import HTTPException
 from openai import AsyncOpenAI
@@ -41,363 +39,8 @@ from markitdown.converters import (
     PptxConverter,
 )
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
-import trafilatura
 import bcrypt
 from functools import wraps 
-
-class AsyncCrawler:
-    def __init__(self, timeout=8000, strict_anti_crawl_model=False, use_exa_first=False):
-        self.timeout = timeout
-        self._browser: None | Browser = None
-        self._context: None | BrowserContext = None
-        self._pw: None | Playwright = None
-        self._page_semaphore: None | asyncio.Semaphore = None
-        self._loop: None | asyncio.AbstractEventLoop = None
-        self._thread: None | threading.Thread = None
-        self.strict_anti_crawl_model = strict_anti_crawl_model
-        if not strict_anti_crawl_model:
-            self._warmed_up = False
-        self.use_exa_first = use_exa_first
-    
-    def start(self):
-        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="BrowserThread") # 启动事件循环线程并初始化浏览器
-        self._thread.start()
-        logger.info("浏览器已启动")
-    
-    def stop(self):
-        """关闭浏览器和事件循环（同步方法）"""
-        if self._loop is not None and self._browser is not None:
-            future = asyncio.run_coroutine_threadsafe(self._shutdown(), self._loop)
-            try:
-                future.result(timeout=10)
-            except Exception:
-                pass
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._loop.stop)
-        logger.info("浏览器已关闭")
-    
-    def _run_loop(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        self._loop.run_until_complete(self._init_browser())
-        self._loop.run_forever()
-    
-    async def _init_browser(self):
-        self._pw = await async_playwright().start()
-        await self._launch_browser()
-
-    async def _launch_browser(self):
-        self._browser = await self._pw.firefox.launch(  # type: ignore
-            headless=True,
-            firefox_user_prefs={
-                "intl.accept_languages": "zh-CN,zh,en-US,en"
-            }
-        )
-        self._context = await self._browser.new_context( # 气笑了
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
-        )
-        
-        # 修复 navigator.webdriver
-        await self._context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined,
-                configurable: true,
-                enumerable: true
-            });
-        """)
-        self._page_semaphore = asyncio.Semaphore(20)  # 限制并发 tab 数
-
-    async def _ensure_browser(self):
-        if self._browser is not None and self._browser.is_connected():
-            return
-        logger.warning("Firefox 已断开，正在重启...")
-        try:
-            if self._context:
-                await self._context.close()
-        except Exception:
-            pass
-        try:
-            if self._browser:
-                await self._browser.close()
-        except Exception:
-            pass
-        self._context = None
-        self._browser = None
-        if not self.strict_anti_crawl_model:
-            self._warmed_up = False
-        await self._launch_browser()
-        logger.info("Firefox 重启成功")
-
-    async def _shutdown(self):
-        if self._context:
-            await self._context.close()
-        if self._browser:
-            await self._browser.close()
-        if self._pw:
-            await self._pw.stop()
-
-    def _run_coro(self, coro, timeout=60):
-        """将协程投递到事件循环，阻塞等待结果"""
-        if self._loop is None:
-            raise RuntimeError("Crawler not started")
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=timeout)
-
-    def search(self, query: str, limit: int | None = None) -> str:
-        """同步搜索（多线程安全）"""
-        if self.use_exa_first:
-            try:
-                return exa.web_search(query, limit)
-            except ExaFallbackError:
-                pass
-            except Exception:
-                logger.exception("Exa 搜索失败，未知错误")
-        return self._run_coro(self._search(query, limit))
-
-    def read(self, url: str) -> str:
-        """同步读取网页文本（多线程安全）"""
-        if self.use_exa_first:
-            try:
-                return exa.read_url(url)
-            except ExaFallbackError:
-                pass
-            except Exception:
-                logger.exception("Exa 读取失败，未知错误")
-        return self._run_coro(self._read(url))
-
-    async def _get_page(self):
-        """获取一个 page，受信号量限制；浏览器挂了会原地重启"""
-        await self._ensure_browser()
-        await self._page_semaphore.acquire()  # type: ignore
-        page = await self._context.new_page()  # type: ignore
-        page.set_default_timeout(self.timeout)
-        return page
-
-    async def _release_page(self, page):
-        try:
-            await page.close()
-        except Exception:
-            pass
-        self._page_semaphore.release()  # type: ignore
-
-    async def _search(self, query: str, limit: int | None = None) -> str:
-        if not query:
-            return "require query"
-
-        page = await self._get_page()
-        try:
-            results = []
-
-            if not self.strict_anti_crawl_model and not self._warmed_up:
-                for _ in range(3):
-                    try:
-                        logger.info("预热必应搜索")
-                        await page.goto(
-                            "https://www.bing.com/search?pc=MOZI&form=MOZLBR&q=bing",
-                            wait_until="networkidle",
-                            timeout=self.timeout,
-                        )
-                        await self._press_inputbox_enter(page)
-                        self._warmed_up = True
-                        break
-                    except PwTimeoutError:
-                        pass
-                else:
-                    raise RuntimeError("预热失败！")
-
-            while True:
-                for _ in range(2):
-                    first = len(results) + 1 if results else ""
-                    url = (
-                        f"https://www.bing.com/search?q={quote_plus(query)}"
-                        + (f"&first={first}" if first else "")
-                    )
-                    try:
-                        await page.goto(url, wait_until="networkidle", timeout=self.timeout)
-                        if self.strict_anti_crawl_model:
-                            await self._press_inputbox_enter(page)
-                    except PwTimeoutError:
-                        continue
-                    except Exception:
-                        logger.exception("搜索失败")
-                        continue
-                    break
-                else:
-                    raise RuntimeError("无法搜索！网络正常吗？")
-
-                page_results = await page.evaluate("""
-                    () => {
-                        return [...document.querySelectorAll('li.b_algo')].map(item => {
-                            const a = item.querySelector('h2 a');
-                            return a ? {title: a.innerText.trim(), url: a.href} : null;
-                        }).filter(Boolean);
-                    }
-                """)
-
-                if not page_results:
-                    break
-                results.extend(page_results)
-                if limit is None or len(results) >= limit:
-                    break
-
-            return "\n".join([
-                f"{item['title']}: {item['url']}"
-                for item in results[:limit]
-            ])
-        except Exception:
-            logger.exception("搜索失败")
-            return "Internal Server Error, this is not your fault ヽ(*。>Д<)o゜"
-        finally:
-            await self._release_page(page)
-
-    async def _press_inputbox_enter(self, page):
-        """用 Playwright 的 click + press('Enter')"""
-        search_box = page.locator('#sb_form_q')
-        await search_box.wait_for(state="visible", timeout=self.timeout)
-        await asyncio.sleep(0.1)
-        await search_box.click()
-        await asyncio.sleep(0.1)
-        await search_box.press('Enter')
-        try:
-            await page.wait_for_load_state('networkidle', timeout=self.timeout)
-        except Exception:
-            pass
-
-    async def _read(self, url: str) -> str:
-        if not url:
-            return "require url"
-        parsed = urlparse(url)
-        if parsed.scheme not in ["http", "https"]:
-            return "Invalid protocol"
-        if parsed.hostname and parsed.hostname.split(".")[0] in [
-            "localhost", "127", "192", "172", "10",
-        ]:
-            return "Invalid host"
-
-        page = await self._get_page()
-        try:
-            try:
-                await page.goto(url, wait_until="networkidle", timeout=self.timeout)
-            except PwTimeoutError:
-                ready = await page.evaluate("document.readyState")
-                if ready == "loading":
-                    return "Page Timeout!"
-            except Exception:
-                return "Internal Server Error, this is not your fault ヽ(*。>Д<)o゜"
-
-            web_source = await page.content()
-            if not web_source:
-                return "Timeout! But this is not your fault ヽ(*。>Д<)o゜"
-
-            try:
-                text = await asyncio.to_thread(trafilatura.extract, web_source, url=url)
-                if text:
-                    return text
-                # Fallback: get body innerText
-                body_text = await page.text_content('body')
-                return re.sub(r"\n{2,}", "\n", body_text) if body_text else "(empty)"
-            except Exception as e:
-                logger.exception(f"读取网页内容失败: {url}")
-                return f"Internal Server Error: {e}! But this is not your fault ヽ(*。>Д<)o゜"
-        except Exception:
-            logger.exception(f"访问网页失败: {url}")
-            return "Internal Server Error, this is not your fault ヽ(*。>Д<)o゜"
-        finally:
-            await self._release_page(page)
-
-    @staticmethod
-    def get_final_url(short_url):
-        try:
-            # 发送HEAD请求（有些服务器可能不支持HEAD方法）
-            try:
-                response = requests.head(short_url, allow_redirects=True, timeout=10)
-                return response.url
-            except Exception:
-                # 如果HEAD失败，使用GET但只读取头部
-                response = requests.get(short_url, allow_redirects=False, timeout=10)
-                
-                # 如果有重定向
-                if response.status_code in (301, 302, 303, 307, 308):
-                    redirect_url = response.headers.get('Location')
-                    if redirect_url:
-                        # 可能需要递归处理多次重定向
-                        return AsyncCrawler.get_final_url(redirect_url)
-                return response.url
-        except requests.exceptions.RequestException as e:
-            logger.error(f"请求失败: {e}")
-            return None
-
-class ExaFallbackError(RuntimeError):
-    pass
-
-class ExaMCP:
-    '''
-    通过Exa MCP API调用，使用MCP免费额度
-    需要捕获ExaFallbackError
-    '''
-    api_url = "https://mcp.exa.ai/mcp"
-
-    def __init__(self, api_key: None | str = None):
-        self.api_key: None | str = api_key
-        self.cooldown_until: float = 0
-    
-    def _call_mcp(self, method: str, params: dict) -> dict:
-        if self.cooldown_until > time.time():
-            raise ExaFallbackError("Exa搜索冷却中")
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": params,
-        }
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        }
-        if self.api_key:
-            headers["x-api-key"] = self.api_key
-        try:
-            resp = requests.post(self.api_url, json=payload, headers=headers, timeout=60)
-            resp.raise_for_status()
-        except requests.HTTPError as e:
-            if resp.status_code == 429: # type: ignore
-                logger.error("Exa搜索达到额度限制")
-                self.cooldown_until = time.time() + 600
-                raise ExaFallbackError("Exa搜索冷却中")
-            else:
-                logger.exception(f"请求Exa MCP失败: {e}")
-                raise ExaFallbackError("Exa搜索请求失败")
-        except requests.RequestException as e:
-            logger.exception(f"请求Exa MCP失败: {e}")
-            raise ExaFallbackError("Exa搜索请求失败")
-        # 解析 SSE 格式响应（不用 splitlines，避免 Unicode 换行符截断 JSON）
-        for line in resp.content.decode("utf-8").split("\n"):
-            line = line.rstrip("\r")
-            if line.startswith("data: "):
-                return json.loads(line[6:])
-        return json.loads(resp.content.decode("utf-8"))
-    
-    def web_search(self, query: str, num_results: int | None = None) -> str: # exa默认返回10个结果
-        result = self._call_mcp("tools/call", {
-            "name": "web_search_exa",
-            "arguments": {"query": query, "numResults": num_results} if num_results else {"query": query},
-        })
-        try:
-            return result["result"]["content"][0]["text"]
-        except (KeyError, IndexError, TypeError) as e:
-            logger.exception(f"Exa搜索响应格式异常: {e}")
-            raise ExaFallbackError(f"Exa搜索响应格式异常: {e}") from e
-
-    def read_url(self, url: str, max_characters: int | None = 1000000) -> str: # exa默认字符为3000，覆盖默认值
-        result = self._call_mcp("tools/call", {
-            "name": "web_fetch_exa",
-            "arguments": {"urls": [url], "maxCharacters": max_characters} if max_characters else {"urls": [url]},
-        })
-        try:
-            return result["result"]["content"][0]["text"]
-        except (KeyError, IndexError, TypeError) as e:
-            logger.exception(f"Exa读取响应格式异常: {e}")
-            raise ExaFallbackError(f"Exa读取响应格式异常: {e}") from e
 
 class Ncm:
     def __init__(self):
@@ -466,7 +109,7 @@ class Bilibili:
             return match.group(0) if match else None
         
         if "b23.tv" in url:
-            final_url = AsyncCrawler.get_final_url(url)
+            final_url = searcher.get_final_url(url)
             if final_url and "bilibili.com" in final_url:
                 match = re.search(r'BV[a-zA-Z0-9]+', final_url)
                 return match.group(0) if match else None
@@ -1524,7 +1167,7 @@ class ChatInstance:
                 case "readURL":
                     content = self.customize_reader(arguments_json["url"])
                 case "searchWeb":
-                    content = browser.search(arguments_json["query"])
+                    content = searcher.search(arguments_json["query"])
                 case "manageMemory":
                     if arguments_json["operation"] == "add":
                         if len(arguments_json["memory"]) > 500:
@@ -1711,7 +1354,7 @@ class ChatInstance:
                     song_id = re.search(r"id=(\d+)", url).group(1) # type: ignore
                     return ncm.get_details_text(song_id)
                 case "163cn.tv":
-                    final_url = AsyncCrawler.get_final_url(url)
+                    final_url = searcher.get_final_url(url)
                     if final_url and "music.163.com" in final_url:
                         match = re.search(r"id=(\d+)", final_url)
                         if match:
@@ -1724,9 +1367,9 @@ class ChatInstance:
                 case "b23.tv" | "bilibili.com" | "www.bilibili.com":
                     return bili.get_bili_text(url=url)
                 case _:
-                    return browser.read(url)
+                    return searcher.fetch(url)
         except Exception:
-            return browser.read(url)
+            return searcher.fetch(url)
 
 class ChatPost(BaseModel):
     id: int | None = Field(None)
@@ -2091,14 +1734,14 @@ if __name__ != "__main__":
     del file
 
     logger = logging.getLogger(__name__)
-    logger.setLevel(config["server"].get("log_level", "DEBUG"))
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(logging.Formatter("[%(levelname).1s][%(asctime)s] %(message)s", datefmt="%H:%M:%S"))
+    logger.setLevel(config["server"].get("log_level", "DEBUG"))
     logger.addHandler(console_handler)
 
     is_download_service_required = False
 
-    is_bing_crawler_enabled = "bing_crawler" in config
+    is_search_enabled = "search" in config
     is_ncm_enabled = "ncm" in config
     is_bilibili_enabled = "bilibili" in config
     is_vr_enabled = "VoiceRecognition" in config
@@ -2123,10 +1766,19 @@ if __name__ != "__main__":
             logger.critical("Web 功能需要 Turnstile 密钥，但未配置")
             exit(1)
 
-    if is_bing_crawler_enabled:
-        if config["bing_crawler"].get("use_reversed_exa_mcp_first", False):
-            exa = ExaMCP(config["bing_crawler"].get("exa_api_key"))
-        browser = AsyncCrawler(config["bing_crawler"].get("timeout", 10000), config["bing_crawler"].get("strict_anti_crawl_model", False), use_exa_first=config["bing_crawler"].get("use_reversed_exa_mcp_first", False))
+    if is_search_enabled:
+        from search_funcs import logger as search_logger, ExaSearch, BingCrawler, DeepseekSearch, WebSearch
+        search_logger.setLevel(config["server"].get("log_level", "DEBUG"))
+        search_logger.addHandler(console_handler)
+        search_config: dict[str, dict[str, Any]] = config["search"]
+        search_methods = []
+        if "exa" in search_config:
+            search_methods.append(ExaSearch(api_key=search_config["exa"].get("api_key")))
+        if "deepseek" in search_config:
+            search_methods.append(DeepseekSearch(api_key=search_config["deepseek"].get("api_key")))
+        if "bing_crawler" in search_config:
+            search_methods.append(BingCrawler(timeout=search_config["bing_crawler"].get("timeout", 10000), strict_anti_crawl_mode=search_config["bing_crawler"].get("strict_anti_crawl_mode", False)))
+        searcher = WebSearch(search_methods)
 
     if is_ncm_enabled:
         ncm = Ncm()
@@ -2145,7 +1797,7 @@ if __name__ != "__main__":
                 break
 
     if is_custom_reader_enabled:
-        if not is_bing_crawler_enabled:
+        if not is_search_enabled:
             logger.critical("自定义阅读器需要 Bing 爬虫，但该功能未启用")
             exit(1)
         if not is_bilibili_enabled:
@@ -2159,7 +1811,7 @@ if __name__ != "__main__":
         ocr_service = OCR()
     
     if is_webchat_enabled:
-        if not is_bing_crawler_enabled:
+        if not is_search_enabled:
             logger.critical("聊天功能需要 Bing 爬虫，但该功能未启用")
             exit(1)
         if not is_link_enabled:

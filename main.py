@@ -55,9 +55,7 @@ def user_rate_limit(qpm: int):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     set_event_loop(asyncio.get_event_loop())
-    if is_bing_crawler_enabled:
-        browser.start()
-    yield
+    yield 
     if is_usermanager_required:
         logger.info("正在保存用户数据...")
         usermanager.save()
@@ -67,9 +65,9 @@ async def lifespan(app: FastAPI):
         webchat.save_all()
         logger.info("聊天数据保存完成")
         webchat.close()
-    if is_bing_crawler_enabled:
+    if is_search_enabled:
         logger.info("正在停止浏览器...")
-        browser.stop()
+        searcher.stop()
 
 # 禁用 docs 和 redoc
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
@@ -187,7 +185,7 @@ def ping():
 @app.get("/status")
 def status():
     return {
-        "browser": is_bing_crawler_enabled,
+        "browser": is_search_enabled,
         "custom_reader": is_custom_reader_enabled,
         "download": is_download_service_required,
         "ocr": is_ocr_enabled,
@@ -212,7 +210,7 @@ if is_download_service_required:
             return Response(data, media_type="application/octet-stream")
         raise HTTPException(status_code=403, detail="forbidden")
 
-if is_bing_crawler_enabled:
+if is_search_enabled:
     @app.get("/search", response_class=PlainTextResponse)
     def search(q: str, limit: Annotated[int | None, Query()] = None):
         if limit is not None:
@@ -220,13 +218,17 @@ if is_bing_crawler_enabled:
                 limit = int(limit)
             except ValueError:
                 raise HTTPException(status_code=400, detail="bad arguments")
-        results = browser.search(q, limit)  # type: ignore
+        results = searcher.search(q, limit)
+        if results is None:
+            raise HTTPException(status_code=502, detail="search failed")
         return results
 
-if is_bing_crawler_enabled:
+if is_search_enabled:
     @app.get("/read/{url:path}", response_class=PlainTextResponse)
     def read(url: str):
-        results = browser.read(url)
+        results = searcher.fetch(url)
+        if results is None:
+            raise HTTPException(status_code=502, detail="fetch failed")
         return results
 
 if is_custom_reader_enabled:
@@ -248,7 +250,7 @@ if is_ncm_enabled:
                         else:
                             raise HTTPException(status_code=400, detail="Invalid url")
                     else:
-                        final_url = browser.get_final_url(url)
+                        final_url = searcher.get_final_url(url)
                         if final_url and "music.163.com" in final_url:
                             match = re.search(r"id=(\d+)", final_url)
                             if match:

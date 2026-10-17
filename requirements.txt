@@ -12,3 +12,4 @@ bcrypt
 markitdown[pdf, docx, xlsx, pptx]
 pydub
 audioop-lts
+httpx[http2]
