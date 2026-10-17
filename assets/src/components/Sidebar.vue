@@ -527,7 +527,7 @@ const confirmDelete = () => {
           <component :is="state.isMobile ? 'X' : 'AlignLeft'" />
         </button>
       </div>
-      <!-- 搜索入口竖条移到行首（与「AI Chat」标题左对齐），搜索抽屉改为从左侧滑入 -->
+      <!-- 搜索抽屉：蓝条为把手，搜索框从竖条处向右推出，「新对话 + 模型选择器」同步向右推出侧栏 -->
       <div
         class="mx-4 mb-4 flex items-center gap-2"
         @touchstart="handleRowTouchStart"
@@ -551,23 +551,22 @@ const confirmDelete = () => {
           <!-- 扩大点击热区（视觉仍是 5px 竖条） -->
           <span class="absolute -inset-y-1 -left-2 -right-2"></span>
         </button>
-        <!-- 抽屉容器：新对话 + 模型选择器 ⇄ 搜索框 -->
-        <div class="relative flex-1 min-w-0 h-8">
-          <div class="absolute inset-0 flex items-center gap-2" :inert="isSearchOpen">
-            <a
-              href="#/"
-              @click.prevent="state.currentChatId = null"
-              class="shrink-0 w-8 h-8 flex items-center justify-center border border-border-input text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors no-underline"
-              title="新对话"
+        <!-- 抽屉轨道窗口：搜索框与两个控件在同一条横向轨道上等速平移，像一个整体推拉
+             z-30 必须保留：平移产生的层叠上下文会把模型下拉框压到聊天列表之下 -->
+        <div class="relative z-30 flex-1 min-w-0 h-8">
+          <!-- 搜索框裁切窗口：左缘贴住竖条（从竖条边缘推出），只裁搜索框本身
+               （模型下拉需向左下溢出整个侧栏，不能被这层裁切） -->
+          <div class="absolute inset-y-0 -left-2 right-0 overflow-hidden">
+            <div
+              class="drawer-track absolute inset-y-0 left-2 right-0 bg-bg-panel"
+              :style="{ transform: isSearchOpen ? 'translateX(0)' : 'translateX(calc(-100% - 20px))' }"
+              :inert="!isSearchOpen"
             >
-              <Plus />
-            </a>
-            <ModelSelector merged class="flex-1 min-w-0" />
-          </div>
-          <!-- 搜索抽屉：从左侧滑入，覆盖整行 -->
-          <Transition name="drawer">
-            <div v-if="isSearchOpen" class="absolute inset-0 z-10 bg-bg-panel">
-              <Search class="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
+              <!-- 图标区（pl-8=32px）内水平居中：left-2 + text-sm(16px 图标) = 两侧各留 ~8px；
+                   垂直用 flex 居中而非 translate，规避 translate 属性兼容性问题 -->
+              <span class="absolute left-2 inset-y-0 flex items-center text-sm text-text-placeholder pointer-events-none">
+                <Search />
+              </span>
               <input
                 ref="searchInputRef"
                 :value="searchQuery"
@@ -580,17 +579,35 @@ const confirmDelete = () => {
                 @keydown.esc="closeSearch"
               />
               <!-- 搜索中：右侧显示转圈（输入过程中列表保持上一次的结果，用这里的转圈表示正在搜） -->
-              <Loader2 v-if="isSearching" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-text-placeholder animate-spin pointer-events-none" />
+              <span v-if="isSearching" class="absolute right-2 inset-y-0 flex items-center text-xs text-text-placeholder pointer-events-none">
+                <Loader2 class="animate-spin" />
+              </span>
               <button
                 v-else-if="searchQuery"
                 @click="handleClearSearch"
-                class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center text-text-placeholder hover:text-text-main transition-colors"
+                class="absolute right-2 inset-y-0 flex items-center justify-center text-text-placeholder hover:text-text-main transition-colors"
                 title="清空"
               >
                 <X class="text-xs" />
               </button>
             </div>
-          </Transition>
+          </div>
+          <!-- 新对话 + 模型选择器：开搜索时与搜索框等速向右平移，整体推出侧栏（溢出由侧栏 overflow: clip 裁掉） -->
+          <div
+            class="drawer-track absolute inset-0 flex items-center gap-2"
+            :style="{ transform: isSearchOpen ? 'translateX(calc(100% + 20px))' : 'translateX(0)' }"
+            :inert="isSearchOpen"
+          >
+            <a
+              href="#/"
+              @click.prevent="state.currentChatId = null"
+              class="shrink-0 w-8 h-8 flex items-center justify-center border border-border-input text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors no-underline"
+              title="新对话"
+            >
+              <Plus />
+            </a>
+            <ModelSelector merged class="flex-1 min-w-0" />
+          </div>
         </div>
       </div>
       
@@ -746,21 +763,10 @@ const confirmDelete = () => {
   overflow: clip;
 }
 
-/* 搜索抽屉：从搜索竖条一侧向右展开覆盖「新对话 + 模型选择器」，收起时向竖条方向收回
-   （clip-path 裁切展开而非位移：内容不随动画变形，也不会再越过侧栏左边缘） */
-.drawer-enter-active,
-.drawer-leave-active {
-  transition: clip-path 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.drawer-enter-from,
-.drawer-leave-to {
-  clip-path: inset(0 100% 0 0);
-}
-
-.drawer-enter-to,
-.drawer-leave-from {
-  clip-path: inset(0 0 0 0);
+/* 搜索抽屉轨道：搜索框与「新对话 + 模型选择器」挂在同一横向轨道上等速平移，
+   开合时像一个整体从蓝条处推出/推回；20px 偏移 = 轨道间隙 12px + 推离侧栏裁切线的余量 */
+.drawer-track {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .fade-enter-active,
