@@ -45,14 +45,14 @@ const emit = defineEmits(['confirm', 'cancel']);
         <div class="flex border-t border-border-main">
           <button 
             @click="emit('cancel')"
-            class="flex-1 px-4 py-4 text-sm font-medium text-text-muted hover:bg-bg-hover transition-colors border-r border-border-main"
+            class="flex-1 px-4 py-4 text-sm font-medium text-text-muted transition-colors border-r border-border-main"
           >
             {{ cancelText || '取消' }}
           </button>
           <button 
             @click="emit('confirm')"
             class="flex-1 px-4 py-4 text-sm font-semibold transition-colors"
-            :class="isDanger ? 'text-danger-main hover:bg-danger-main/10' : 'text-primary-main hover:bg-primary-main/10'"
+            :class="isDanger ? 'text-danger-main' : 'text-primary-main'"
           >
             {{ confirmText || '确认' }}
           </button>

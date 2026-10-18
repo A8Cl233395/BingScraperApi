@@ -37,15 +37,15 @@ function renderChartBlockHtml(type: ChartType, token: { text: string; raw: strin
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
     <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${type}</span>
     <div class="flex items-center gap-2">
-      <button class="chart-toggle-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="切换显示">
+      <button class="chart-toggle-btn text-text-placeholder hover:text-text-main px-1 transition-colors flex items-center gap-1" title="切换显示">
         <svg ${lucideSvgAttrs} width="10" height="10" class="toggle-icon-svg">${arrowLeftRightIconInner}</svg>
         <span class="toggle-text text-[10px]">文字</span>
       </button>
-      <button class="copy-chart-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="复制代码">
+      <button class="copy-chart-btn text-text-placeholder hover:text-text-main px-1 transition-colors flex items-center gap-1" title="复制代码">
         <svg ${lucideSvgAttrs} width="10" height="10" class="copy-icon-svg">${copyIconInner}</svg>
         <span class="text-[10px]">复制</span>
       </button>
-      <button class="chart-fullscreen-btn text-text-placeholder hover:text-text-main transition-colors flex items-center gap-1" title="查看全屏预览">
+      <button class="chart-fullscreen-btn text-text-placeholder hover:text-text-main px-1 transition-colors flex items-center gap-1" title="查看全屏预览">
         <svg ${lucideSvgAttrs} width="10" height="10">${eyeIconInner}</svg>
         <span class="text-[10px]">查看</span>
       </button>

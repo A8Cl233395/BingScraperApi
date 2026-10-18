@@ -521,7 +521,7 @@ const confirmDelete = () => {
         <span class="font-bold text-lg text-text-main">AI Chat</span>
         <button
           @click="state.isSidebarOpen = !state.isSidebarOpen"
-          class="-my-0.5 w-8 h-8 flex items-center justify-center text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors"
+          class="-my-0.5 w-8 h-8 flex items-center justify-center text-text-muted hover:text-text-main transition-colors"
           :title="state.isMobile ? '关闭侧栏' : '收起侧栏'"
         >
           <component :is="state.isMobile ? 'X' : 'AlignLeft'" />
@@ -572,7 +572,7 @@ const confirmDelete = () => {
                 :value="searchQuery"
                 type="text"
                 placeholder="搜索对话标题"
-                class="w-full h-8 bg-bg-main border border-border-input pl-8 pr-8 text-sm text-text-main outline-none transition-colors focus:border-primary-main placeholder:text-text-placeholder"
+                class="edge-control w-full h-8 bg-bg-main border border-border-input pl-8 pr-8 text-sm text-text-main transition-colors placeholder:text-text-placeholder"
                 @input="handleSearchInput"
                 @compositionstart="handleSearchCompositionStart"
                 @compositionend="handleSearchCompositionEnd"
@@ -585,7 +585,7 @@ const confirmDelete = () => {
               <button
                 v-else-if="searchQuery"
                 @click="handleClearSearch"
-                class="absolute right-2 inset-y-0 flex items-center justify-center text-text-placeholder hover:text-text-main transition-colors"
+                class="absolute right-2 inset-y-0 my-1 w-6 flex items-center justify-center text-text-placeholder hover:text-text-main transition-colors"
                 title="清空"
               >
                 <X class="text-xs" />
@@ -601,7 +601,7 @@ const confirmDelete = () => {
             <a
               href="#/"
               @click.prevent="state.currentChatId = null"
-              class="shrink-0 w-8 h-8 flex items-center justify-center border border-border-input text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors no-underline"
+              class="shrink-0 w-8 h-8 flex items-center justify-center border border-border-input text-text-muted hover:text-text-main transition-colors no-underline"
               title="新对话"
             >
               <Plus />
@@ -676,7 +676,7 @@ const confirmDelete = () => {
             @touchmove="handleTouchEnd"
             @touchcancel="handleTouchEnd"
             @contextmenu="state.isMobile ? $event.preventDefault() : null"
-            class="chat-item relative flex items-center justify-between p-2.5 cursor-pointer text-text-main no-underline"
+            class="chat-item relative flex items-center justify-between p-2.5 cursor-pointer no-hover-outline text-text-main no-underline"
             :class="[
               state.currentChatId === chat[0] ? 'is-active' : '',
               justClickedId === chat[0] ? 'is-anim' : '',
@@ -726,7 +726,7 @@ const confirmDelete = () => {
       <div class="p-3 border-t border-border-main">
         <a 
           href="/profile"
-          class="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors"
+          class="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-text-main transition-colors"
         >
           <UserCog />
           <span>个人资料</span>

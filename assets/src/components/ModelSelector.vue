@@ -80,7 +80,7 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
       v-if="merged"
       @click="toggleDropdown()"
       class="w-full h-8 flex items-center justify-between gap-1.5 border border-border-input px-3 transition-colors disabled:opacity-50 disabled:cursor-wait"
-      :class="isLoading ? 'bg-bg-hover' : 'hover:bg-bg-hover bg-bg-main'"
+      :class="isLoading ? 'bg-bg-hover' : ' bg-bg-main'"
       :disabled="isLoading"
       title="选择模型"
     >
@@ -92,7 +92,7 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
       v-else
       @click="toggleDropdown()"
       class="flex items-center gap-2 min-w-0 max-w-full border border-border-input px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait"
-      :class="isLoading ? 'bg-bg-hover' : 'hover:bg-bg-hover bg-bg-main'"
+      :class="isLoading ? 'bg-bg-hover' : ' bg-bg-main'"
       :disabled="isLoading"
     >
       <span class="text-sm flex items-center gap-1 min-w-0">
@@ -121,7 +121,7 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
         <div class="bg-bg-main border border-border-main">
           <template v-for="(info, name) in state.models" :key="name">
           <div
-            class="px-4 py-2 hover:bg-bg-hover cursor-pointer flex flex-col transition-colors border-b last:border-b-0 border-border-main"
+            class="px-4 py-2 cursor-pointer flex flex-col transition-colors border-b last:border-b-0 border-border-main"
             :class="(state.isVisionMode ? state.currentVModel === name : state.currentModel === name) ? 'bg-bg-active' : ''"
             @click="toggleModelDetails(name as string)"
           >
@@ -157,19 +157,19 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
                 <div class="mt-2 pt-2 border-t border-border-main">
                   <p class="text-xs text-text-muted mb-2">{{ info.desc }}</p>
                   <div class="grid grid-cols-2 gap-1 text-[11px]">
-                    <button @click.stop="setSessionModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为当前会话模型">
+                    <button @click.stop="setSessionModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为当前会话模型">
                       <Zap class="text-[10px] text-text-muted group-hover/btn:text-primary-main transition-colors" />
                       <span>会话</span>
                     </button>
-                    <button @click.stop="setDefaultModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input hover:bg-bg-hover text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为默认模型">
+                    <button @click.stop="setDefaultModel(name as string, false)" class="group/btn relative px-2 py-1.5 bg-btn-secondary-bg border border-border-input text-btn-secondary-text transition-colors flex items-center justify-center gap-1.5" title="设为默认模型">
                       <Pin class="text-[10px] text-text-muted group-hover/btn:text-primary-main transition-colors" />
                       <span>默认</span>
                     </button>
-                    <button v-if="info.vision" @click.stop="setSessionModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为当前视觉模型">
+                    <button v-if="info.vision" @click.stop="setSessionModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为当前视觉模型">
                       <Eye class="text-[10px]" />
                       <span>视觉</span>
                     </button>
-                    <button v-if="info.vision" @click.stop="setDefaultModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 hover:bg-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为默认视觉模型">
+                    <button v-if="info.vision" @click.stop="setDefaultModel(name as string, true)" class="group/btn relative px-2 py-1.5 bg-primary-main/10 text-primary-main border border-primary-main/20 transition-colors flex items-center justify-center gap-1.5" title="设为默认视觉模型">
                       <Pin class="text-[10px]" />
                       <span>默认视觉</span>
                     </button>

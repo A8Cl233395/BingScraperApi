@@ -255,8 +255,8 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
     </div>
 
     <div 
-      class="relative border border-border-input p-3 flex flex-col focus-within:border-text-muted transition-colors bg-bg-main shadow-[0_2px_10px_rgba(0,0,0,0.05)]"
-      :class="{ 'border-text-muted': showVoiceInput }"
+      class="edge-shell relative border border-border-input p-3 flex flex-col transition-colors bg-bg-main shadow-[0_2px_10px_rgba(0,0,0,0.05)]"
+      :class="{ 'border-primary-main': showVoiceInput }"
       @paste="handlePaste"
       @drop="handleDrop"
       @dragover.prevent
@@ -302,8 +302,8 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         <button 
           @click="state.isThinking = !state.isThinking"
           @mousedown.prevent
-          class="flex items-center gap-1.5 px-3 h-8 border border-border-input text-xs hover:bg-bg-hover transition-colors"
-          :class="state.isThinking ? 'bg-primary-main text-primary-text hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
+          class="flex items-center gap-1.5 px-3 h-8 border border-border-input text-xs transition-colors"
+          :class="state.isThinking ? 'bg-primary-main text-primary-text' : 'bg-bg-main text-text-muted'"
         >
           <Brain :class="state.isThinking ? 'text-primary-text' : 'text-text-placeholder'" />
           深度思考
@@ -311,8 +311,8 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
         <button 
           @click="state.isEnableFunction = !state.isEnableFunction"
           @mousedown.prevent
-          class="flex items-center gap-1.5 px-3 h-8 border border-border-input text-xs hover:bg-bg-hover transition-colors"
-          :class="state.isEnableFunction ? 'bg-primary-main text-primary-text hover:bg-primary-hover' : 'bg-bg-main text-text-muted'"
+          class="flex items-center gap-1.5 px-3 h-8 border border-border-input text-xs transition-colors"
+          :class="state.isEnableFunction ? 'bg-primary-main text-primary-text' : 'bg-bg-main text-text-muted'"
         >
           <Wrench :class="state.isEnableFunction ? 'text-primary-text' : 'text-text-placeholder'" />
           使用工具
@@ -321,7 +321,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           <button 
             @click.stop="showOptions = !showOptions"
             @mousedown.prevent
-            class="w-8 h-8 flex items-center justify-center border border-border-input text-text-placeholder hover:bg-bg-hover transition-colors" 
+            class="w-8 h-8 flex items-center justify-center border border-border-input text-text-placeholder transition-colors" 
             title="默认选项"
           >
             <component
@@ -350,7 +350,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
                 <div 
                   @click="setDefaultOption('thinking', !state.defaultSettings.thinking)"
                   @mousedown.prevent
-                  class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
+                  class="px-3 py-2 text-xs cursor-pointer flex items-center justify-between"
                 >
                   <span>深度思考</span>
                   <Check v-if="state.defaultSettings.thinking" class="text-text-main" />
@@ -358,7 +358,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
                 <div 
                   @click="setDefaultOption('enable_function', !state.defaultSettings.enable_function)"
                   @mousedown.prevent
-                  class="px-3 py-2 text-xs hover:bg-bg-hover cursor-pointer flex items-center justify-between"
+                  class="px-3 py-2 text-xs cursor-pointer flex items-center justify-between"
                 >
                   <span>使用工具</span>
                   <Check v-if="state.defaultSettings.enable_function" class="text-text-main" />
@@ -428,7 +428,7 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
           @click="handleSend"
           @mousedown.prevent
           class="w-8 h-8 flex items-center justify-center transition-colors"
-          :class="(hasUnconvertedFiles || isRecording || isRecognizing || showVoiceInput) ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'bg-primary-main text-primary-text hover:bg-primary-hover'"
+          :class="(hasUnconvertedFiles || isRecording || isRecognizing || showVoiceInput) ? 'bg-text-placeholder text-primary-text cursor-not-allowed' : 'bg-primary-main text-primary-text'"
           :disabled="hasUnconvertedFiles || isRecording || isRecognizing || showVoiceInput"
         >
           <Send class="text-sm" />

@@ -99,10 +99,6 @@ const toggle = () => {
 }
 
 @media (hover: hover) {
-  .toggle-switch:not(:disabled):hover {
-    border-color: var(--primary);
-  }
-
   .toggle-switch:not(:disabled):hover::before {
     opacity: 1;
   }
@@ -114,11 +110,6 @@ const toggle = () => {
 
 .toggle-switch.active:not(:disabled):active .toggle-knob {
   transform: translateX(20px) scaleX(0.86);
-}
-
-.toggle-switch:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
 }
 
 .toggle-switch:disabled {

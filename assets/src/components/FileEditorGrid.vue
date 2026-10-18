@@ -247,12 +247,12 @@ const handleMenuFileDelete = () => {
         :style="imageMenuStyle"
         @click.stop
       >
-        <button @click="handleMenuImageOcr" :disabled="isOcrProcessing" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm disabled:opacity-50">
+        <button @click="handleMenuImageOcr" :disabled="isOcrProcessing" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm disabled:opacity-50">
           <Loader2 v-if="isOcrProcessing" class="animate-spin min-w-4 text-center text-text-muted" />
           <FileText v-else class="min-w-4 text-center text-text-muted" />
           <span>{{ isOcrProcessing ? '识别中...' : '识别文字' }}</span>
         </button>
-        <button @click="handleMenuImageDelete" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+        <button @click="handleMenuImageDelete" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
           <X class="min-w-4 text-center text-text-muted" />
           <span>删除</span>
         </button>
@@ -269,12 +269,12 @@ const handleMenuFileDelete = () => {
         :style="audioMenuStyle"
         @click.stop
       >
-        <button @click="handleMenuAudioConvert" :disabled="isConverting" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm disabled:opacity-50">
+        <button @click="handleMenuAudioConvert" :disabled="isConverting" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm disabled:opacity-50">
           <Loader2 v-if="isConverting" class="animate-spin min-w-4 text-center text-text-muted" />
           <FileText v-else class="min-w-4 text-center text-text-muted" />
           <span>{{ isConverting ? '转换中...' : '转文字' }}</span>
         </button>
-        <button @click="handleMenuAudioDelete" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+        <button @click="handleMenuAudioDelete" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
           <X class="min-w-4 text-center text-text-muted" />
           <span>删除</span>
         </button>
@@ -291,12 +291,12 @@ const handleMenuFileDelete = () => {
         :style="fileMenuStyle"
         @click.stop
       >
-        <button @click="handleMenuFileConvert" :disabled="isConverting" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm disabled:opacity-50">
+        <button @click="handleMenuFileConvert" :disabled="isConverting" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm disabled:opacity-50">
           <Loader2 v-if="isConverting" class="animate-spin min-w-4 text-center text-text-muted" />
           <FileText v-else class="min-w-4 text-center text-text-muted" />
           <span>{{ isConverting ? '转换中...' : '转文字' }}</span>
         </button>
-        <button @click="handleMenuFileDelete" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+        <button @click="handleMenuFileDelete" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
           <X class="min-w-4 text-center text-text-muted" />
           <span>删除</span>
         </button>

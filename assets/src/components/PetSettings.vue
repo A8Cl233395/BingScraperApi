@@ -315,11 +315,7 @@ const handleToggle = async (value: boolean) => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: border-color 0.15s ease;
-}
-
-.pet-preview-box:hover {
-  border-color: var(--primary);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .pet-preview-img {
@@ -350,10 +346,6 @@ const handleToggle = async (value: boolean) => {
   align-items: center;
   justify-content: center;
   transition: all 0.15s ease;
-}
-
-.pet-remove-btn:hover {
-  background: var(--danger);
 }
 
 .pet-import-section {
@@ -389,10 +381,6 @@ const handleToggle = async (value: boolean) => {
   transition: all 0.15s ease;
 }
 
-.pet-import-btn:hover:not(:disabled) {
-  background: var(--primary-hover);
-}
-
 .pet-import-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -422,11 +410,6 @@ const handleToggle = async (value: boolean) => {
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.15s ease;
-}
-
-.pet-clear-btn:hover {
-  background: var(--danger);
-  color: white;
 }
 
 .hidden {

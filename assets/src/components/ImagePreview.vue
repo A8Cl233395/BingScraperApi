@@ -263,22 +263,22 @@ onUnmounted(() => {
 
       <!-- Controls Bottom -->
     <div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 px-1.5 py-1.5 bg-bg-panel border border-border-main shadow-xl select-none">
-      <button @click="zoomOut" class="w-8 h-8 flex items-center justify-center hover:bg-bg-hover active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="缩小">
+      <button @click="zoomOut" class="w-8 h-8 flex items-center justify-center active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="缩小">
         <ZoomOut class="text-xs" />
       </button>
       <span class="text-xs font-mono tabular-nums min-w-[2.5rem] text-center select-none text-text-placeholder">{{ Math.round(scale * 100) }}%</span>
-      <button @click="zoomIn" class="w-8 h-8 flex items-center justify-center hover:bg-bg-hover active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="放大">
+      <button @click="zoomIn" class="w-8 h-8 flex items-center justify-center active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="放大">
         <ZoomIn class="text-xs" />
       </button>
       <div class="w-px h-4 bg-border-main mx-0.5"></div>
-      <button @click="resetView" class="w-8 h-8 flex items-center justify-center hover:bg-bg-hover active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="适应屏幕">
+      <button @click="resetView" class="w-8 h-8 flex items-center justify-center active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="适应屏幕">
         <Expand class="text-xs" />
       </button>
-      <button @click="downloadImage" class="w-8 h-8 flex items-center justify-center hover:bg-bg-hover active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="下载">
+      <button @click="downloadImage" class="w-8 h-8 flex items-center justify-center active:bg-bg-active transition-colors text-text-muted hover:text-text-main" title="下载">
         <Download class="text-xs" />
       </button>
       <div class="w-px h-4 bg-border-main mx-0.5"></div>
-      <button @click="closePreview" class="w-8 h-8 flex items-center justify-center hover:bg-bg-hover active:bg-bg-active transition-colors text-text-placeholder hover:text-text-main" title="关闭 (Esc)">
+      <button @click="closePreview" class="w-8 h-8 flex items-center justify-center active:bg-bg-active transition-colors text-text-placeholder hover:text-text-main" title="关闭 (Esc)">
         <X class="text-xs" />
       </button>
     </div>

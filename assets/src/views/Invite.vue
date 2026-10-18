@@ -269,11 +269,6 @@ const copyToClipboard = async () => {
   white-space: nowrap;
 }
 
-.copy-btn:hover {
-  background-color: var(--bg-hover);
-  border-color: var(--primary);
-}
-
 .copy-btn.copied {
   background-color: var(--success-bg);
   border-color: var(--success-border);

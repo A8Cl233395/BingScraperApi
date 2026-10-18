@@ -29,6 +29,8 @@
   --danger-bg: rgba(248, 81, 73, 0.1);
   --info: #005FB8;
   --info-border: #005FB8;
+  /* 统一交互描边的淡入起始色（白 → 主色） */
+  --edge-ring-from: #FFFFFF;
 
   /* hljs vs-code light style */
   --hljs-bg: #ffffff;
@@ -156,6 +158,70 @@ html.dark {
   }
 }
 
+/*
+ * 统一交互描边（按钮 / 输入框 / 可点击项共用同一套特效）：
+ * - 唯一的描边特效 = 1px 主色 outline + 1px offset，不参与布局，状态切换时元素不跳动
+ * - 保留「白 → 蓝」的闪色：从 --edge-ring-from 淡入到 --edge-ring，统一 150ms
+ * - 用统一动画而不是各组件自己的 transition：后者时长不一致，且会从 currentColor
+ *   插值出不可控的杂色
+ * - hover 不换背景、不改边框色；输入框聚焦同样只加这一条描边，不再叠加 box-shadow
+ * - 输入框用 :focus（鼠标点入也要有反馈），其余控件用 :focus-visible（避免点击后残留）
+ * - .edge-control 用于原生 input/textarea/select，.edge-shell 用于包裹输入框的容器
+ * - 触屏不触发 hover，避免悬停态残留；消息正文（.prose）里的链接不套用
+ */
+button:not(:disabled),
+[role="switch"]:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+a[href]:not(.chat-item),
+.cursor-pointer:not(.no-hover-outline),
+.theme-option,
+.memory-item,
+.session-item,
+.pet-preview-box,
+.form-input,
+.edge-control,
+.edge-shell {
+  --edge-ring: var(--primary);
+  outline: 1px solid transparent;
+  outline-offset: 1px;
+}
+
+@keyframes edge-ring-in {
+  from { outline-color: var(--edge-ring-from); }
+  to { outline-color: var(--edge-ring); }
+}
+
+@media (hover: hover) {
+  button:not(:disabled):hover,
+  [role="switch"]:not(:disabled):hover,
+  [role="button"]:not([aria-disabled="true"]):hover,
+  a[href]:not(.chat-item):hover,
+  .cursor-pointer:not(.no-hover-outline):hover,
+  .theme-option:hover,
+  .memory-item:hover,
+  .session-item:hover,
+  .pet-preview-box:hover,
+  .form-input:hover,
+  .edge-control:hover,
+  .edge-shell:hover {
+    animation: edge-ring-in 0.15s ease forwards;
+  }
+
+  .prose a[href]:hover {
+    outline: none;
+  }
+}
+
+.form-input:focus,
+.edge-control:focus,
+.edge-shell:focus-within,
+button:not(:disabled):focus-visible,
+[role="switch"]:not(:disabled):focus-visible,
+[role="button"]:not([aria-disabled="true"]):focus-visible,
+a[href]:not(.chat-item):focus-visible {
+  animation: edge-ring-in 0.15s ease forwards;
+}
+
 body {
   @apply bg-bg-main text-text-main transition-colors duration-300;
   touch-action: manipulation;
@@ -211,13 +277,8 @@ body {
   border-radius: 0;
   color: var(--text-main);
   font-size: 0.95rem;
-  transition: all 0.15s ease;
-  outline: none;
-}
-
-.form-input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary);
+  /* 描边统一交给「统一交互描边」区块；这里只过渡会实际变化的边框色（错误态） */
+  transition: border-color 0.15s ease;
 }
 
 .form-input::placeholder {
@@ -226,7 +287,7 @@ body {
 
 .form-input.error {
   border-color: var(--danger);
-  box-shadow: 0 0 0 1px var(--danger);
+  --edge-ring: var(--danger);
 }
 
 .error-message {
@@ -261,11 +322,6 @@ body {
   cursor: pointer;
   transition: all 0.15s ease;
   margin-top: 8px;
-}
-
-.submit-btn:hover:not(:disabled) {
-  background-color: var(--primary-hover);
-  box-shadow: 0 0 20px rgba(0, 120, 212, 0.2);
 }
 
 .submit-btn:disabled {

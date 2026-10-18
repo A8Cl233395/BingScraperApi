@@ -337,7 +337,7 @@ watch(editText, () => {
                 @convert-audio="handleEditAudioConvert"
                 @convert-file="handleEditFileConvert"
               />
-              <textarea ref="editTextareaRef" v-model="editText" maxlength="1000000" class="w-full bg-bg-main border border-border-input p-2 text-sm focus:outline-none focus:border-text-muted resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
+              <textarea ref="editTextareaRef" v-model="editText" maxlength="1000000" class="edge-control w-full bg-bg-main border border-border-input p-2 text-sm resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
               <input type="file" ref="editFileInput" class="hidden" multiple accept="*/*" @change="handleEditFileUpload" />
             </div>
           </div>
@@ -349,16 +349,16 @@ watch(editText, () => {
                 <button @click="emit('navigate', nodeId, 1)" :disabled="siblingIndex === siblingCount! - 1" class="hover:text-text-main disabled:opacity-30 p-1"><ChevronRight /></button>
             </div>
             <template v-if="!isEditing && !state.isMobile">
-              <button @click="handleEdit" class="text-text-placeholder hover:text-text-main transition-colors text-xs flex items-center gap-1" title="编辑"><SquarePen /></button>
-              <button @click="handleCopy" class="transition-colors text-xs flex items-center gap-1 h-[18px]" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
+              <button @click="handleEdit" class="text-text-placeholder hover:text-text-main px-1 transition-colors text-xs flex items-center gap-1" title="编辑"><SquarePen /></button>
+              <button @click="handleCopy" class="transition-colors text-xs flex items-center gap-1 h-[18px] px-1" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
                 <component :is="copied ? 'Check' : 'Copy'" class="text-[11px] min-w-3 text-center" />
                 <Transition name="fade"><span v-if="copied" class="text-[10px]">已复制</span></Transition>
               </button>
             </template>
             <template v-else-if="isEditing">
-              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center hover:bg-bg-hover" title="上传文件"><Folder class="text-base" /></button>
-              <button @click="isEditing = false" class="text-xs text-text-muted hover:text-text-main">取消</button>
-              <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1 hover:bg-primary-hover">确认</button>
+              <button @click="editFileInput?.click()" class="text-text-placeholder hover:text-text-main transition-colors mr-auto h-8 w-8 flex items-center justify-center" title="上传文件"><Folder class="text-base" /></button>
+              <button @click="isEditing = false" class="text-xs text-text-muted hover:text-text-main px-1">取消</button>
+              <button @click="submitEdit" class="text-xs bg-primary-main text-primary-text px-2 py-1">确认</button>
             </template>
           </div>
         </div>
@@ -447,7 +447,7 @@ watch(editText, () => {
 
           <!-- Assistant Actions -->
           <div class="mt-2 flex items-center gap-3 transition-opacity" :class="state.isMobile ? 'opacity-0 h-0 overflow-hidden' : 'opacity-0 group-hover:opacity-100'">
-            <button @click="handleCopyAssistant" class="transition-colors text-xs flex items-center gap-1 h-[18px]" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
+            <button @click="handleCopyAssistant" class="transition-colors text-xs flex items-center gap-1 h-[18px] px-1" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
               <component :is="copied ? 'Check' : 'Copy'" class="text-[11px] min-w-3 text-center" />
               <Transition name="fade"><span v-if="copied" class="text-[10px]">已复制</span></Transition>
             </button>
@@ -466,19 +466,19 @@ watch(editText, () => {
           :style="menuStyle"
           @click.stop
         >
-          <button @click="handleCopyAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+          <button @click="handleCopyAction" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
             <Copy class="min-w-4 text-center text-text-muted" />
             <span>复制</span>
           </button>
-          <button @click="handleSelectTextAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+          <button @click="handleSelectTextAction" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
             <TextCursor class="min-w-4 text-center text-text-muted" />
             <span>选择文本</span>
           </button>
-          <button v-if="isUser" @click="handleEditAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+          <button v-if="isUser" @click="handleEditAction" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
             <SquarePen class="min-w-4 text-center text-text-muted" />
             <span>修改</span>
           </button>
-          <button v-else @click="handleRegenerateAction" class="w-full flex items-center gap-3 px-3 py-2 hover:bg-bg-hover transition-colors text-text-main text-sm">
+          <button v-else @click="handleRegenerateAction" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
             <RotateCw class="min-w-4 text-center text-text-muted" />
             <span>重新生成</span>
           </button>

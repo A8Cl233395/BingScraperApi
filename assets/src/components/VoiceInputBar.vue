@@ -119,7 +119,7 @@ const handlePointerCancel = () => {
           ? 'bg-bg-active text-danger-main'
           : isRecording
             ? 'bg-danger-main text-primary-text'
-            : 'bg-transparent text-text-placeholder hover:bg-bg-hover'
+            : 'bg-transparent text-text-placeholder'
     ]"
   >
     <template v-if="isRecording">

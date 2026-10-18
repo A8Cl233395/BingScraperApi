@@ -204,7 +204,7 @@ onUnmounted(() => {
       </div>
       <div
         class="absolute -left-1 top-0 bottom-0 w-2 cursor-col-resize z-10"
-        :class="dragging ? 'bg-bg-hover' : 'hover:bg-bg-hover'"
+        :class="dragging ? 'bg-bg-hover' : ''"
         title="拖拽调整宽度，双击复位"
         @pointerdown="onHandleDown"
         @dblclick="resetWidth"

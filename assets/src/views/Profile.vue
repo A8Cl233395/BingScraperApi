@@ -391,7 +391,7 @@ watch(activeTab, (newTab) => {
           <!-- Header -->
           <div class="p-4 flex justify-between items-center">
             <span class="font-bold text-lg text-text-main">个人资料</span>
-            <button @click="isSidebarOpen = false" v-if="state.isMobile" class="text-text-muted hover:text-text-main">
+            <button @click="isSidebarOpen = false" v-if="state.isMobile" class="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-main transition-colors">
               <X />
             </button>
           </div>
@@ -400,7 +400,7 @@ watch(activeTab, (newTab) => {
           <div class="px-4 mb-4">
             <button 
               @click="goBack"
-              class="w-full px-4 py-2 border border-dashed border-border-input text-sm hover:bg-bg-hover flex items-center justify-center cursor-pointer text-text-muted transition-colors"
+              class="w-full px-4 py-2 border border-dashed border-border-input text-sm flex items-center justify-center cursor-pointer text-text-muted transition-colors"
             >
               <ChevronLeft class="mr-2" />
               <span>返回聊天</span>
@@ -411,7 +411,7 @@ watch(activeTab, (newTab) => {
           <div class="flex-1 min-h-0 px-2 space-y-1">
             <button
               class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
-              :class="activeTab === 'account' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
+              :class="activeTab === 'account' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main'"
               @click="switchTab('account')"
             >
               <Gauge />
@@ -419,7 +419,7 @@ watch(activeTab, (newTab) => {
             </button>
             <button
               class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
-              :class="activeTab === 'memory' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
+              :class="activeTab === 'memory' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main'"
               @click="switchTab('memory')"
             >
               <Brain />
@@ -427,7 +427,7 @@ watch(activeTab, (newTab) => {
             </button>
             <button
               class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
-              :class="activeTab === 'custom' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
+              :class="activeTab === 'custom' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main'"
               @click="switchTab('custom')"
             >
               <Settings />
@@ -435,7 +435,7 @@ watch(activeTab, (newTab) => {
             </button>
             <button
               class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
-              :class="activeTab === 'pet' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
+              :class="activeTab === 'pet' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main'"
               @click="switchTab('pet')"
             >
               <PawPrint />
@@ -443,7 +443,7 @@ watch(activeTab, (newTab) => {
             </button>
             <button
               class="w-full flex items-center gap-2 p-2.5 cursor-pointer text-sm transition-colors"
-              :class="activeTab === 'sessions' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main hover:bg-bg-hover'"
+              :class="activeTab === 'sessions' ? 'bg-bg-active text-text-main' : 'text-text-muted hover:text-text-main'"
               @click="switchTab('sessions')"
             >
               <Laptop />
@@ -456,7 +456,7 @@ watch(activeTab, (newTab) => {
       <!-- Mobile Toggle Button -->
       <button 
         v-if="state.isMobile && !isSidebarOpen" 
-        class="fixed top-4 left-4 z-50 p-2 bg-bg-panel border border-border-main text-text-muted hover:text-text-main hover:bg-bg-hover transition-colors shadow-sm"
+        class="fixed top-4 left-4 z-50 p-2 bg-bg-panel border border-border-main text-text-muted hover:text-text-main transition-colors shadow-sm"
         @click="isSidebarOpen = true"
       >
         <Menu />
@@ -1098,11 +1098,6 @@ watch(activeTab, (newTab) => {
   color: var(--text-muted);
 }
 
-.theme-option:hover {
-  border-color: var(--text-placeholder);
-  background: var(--bg-hover);
-}
-
 .theme-option.active {
   border-color: var(--primary);
   color: var(--primary);
@@ -1181,7 +1176,7 @@ watch(activeTab, (newTab) => {
   margin-top: 2px;
 }
 
-/* 本页用 scoped 样式覆盖全局 .card / .form-input 的 box-shadow 与 transition；
+/* 本页用 scoped 样式覆盖全局 .card 的 box-shadow 与 transition；
    修改全局基础样式时要同步检查这里的覆盖是否仍符合预期。 */
 .profile-container .card {
   box-shadow: none;
@@ -1223,10 +1218,6 @@ watch(activeTab, (newTab) => {
   padding: 10px 14px;
   font-size: 0.9rem;
   box-sizing: border-box;
-}
-
-.profile-container .form-input:focus {
-  box-shadow: 0 0 0 2px var(--primary-bg);
 }
 
 .profile-container .error-message,
@@ -1279,11 +1270,6 @@ watch(activeTab, (newTab) => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-}
-
-.logout-btn:hover {
-  background-color: var(--danger);
-  color: white;
 }
 
 .memory-section {
@@ -1356,10 +1342,6 @@ watch(activeTab, (newTab) => {
   gap: 6px;
 }
 
-.add-btn:hover:not(:disabled) {
-  background-color: var(--primary-hover);
-}
-
 .add-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -1413,11 +1395,6 @@ watch(activeTab, (newTab) => {
   transition: all 0.15s ease;
 }
 
-.memory-item:hover {
-  border-color: var(--primary);
-  background-color: var(--bg-hover);
-}
-
 .memory-text {
   flex: 1;
   font-size: 0.85rem;
@@ -1442,7 +1419,6 @@ watch(activeTab, (newTab) => {
 }
 
 .remove-btn:hover {
-  background-color: var(--danger-bg);
   color: var(--danger);
 }
 
@@ -1564,11 +1540,6 @@ watch(activeTab, (newTab) => {
   transition: all 0.15s ease;
 }
 
-.session-item:hover {
-  border-color: var(--primary);
-  background-color: var(--bg-hover);
-}
-
 .session-info {
   flex: 1;
   min-width: 0;
@@ -1621,11 +1592,6 @@ watch(activeTab, (newTab) => {
   cursor: pointer;
   transition: all 0.15s ease;
   flex-shrink: 0;
-}
-
-.kick-btn:hover {
-  background-color: var(--danger);
-  color: white;
 }
 
 /* 踢出会话弹窗 */
@@ -1697,7 +1663,6 @@ watch(activeTab, (newTab) => {
 }
 
 .cancel-btn:hover {
-  background-color: var(--bg-hover);
   color: var(--text-main);
 }
 
@@ -1714,10 +1679,6 @@ watch(activeTab, (newTab) => {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.confirm-kick-btn:hover:not(:disabled) {
-  opacity: 0.9;
 }
 
 .confirm-kick-btn:disabled {

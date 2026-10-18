@@ -38,7 +38,7 @@ onUnmounted(() => window.removeEventListener('popstate', handlePopState));
     <div v-if="state.showSelectionOverlay" class="fixed inset-0 z-1000 bg-bg-main flex flex-col">
       <header class="h-14 flex items-center px-4 justify-between border-b border-border-main shrink-0">
         <span class="font-medium text-text-main">选择文本</span>
-        <button @click="close" class="w-10 h-10 flex items-center justify-center text-text-muted hover:text-text-main">
+        <button @click="close" class="w-10 h-10 flex items-center justify-center text-text-muted hover:text-text-main transition-colors">
           <X class="text-lg" />
         </button>
       </header>

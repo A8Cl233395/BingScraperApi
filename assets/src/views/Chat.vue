@@ -135,14 +135,14 @@ watch(
     <main class="flex-1 flex flex-col h-full relative min-w-0 bg-bg-main w-full overflow-hidden">
       <header
         @dblclick="handleHeaderDblClick"
-        class="flex items-center px-4 justify-between shrink-0 z-30 w-full h-14 bg-bg-main border-b border-border-main cursor-pointer select-none transition-[translate,margin-bottom] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]"
+        class="flex items-center px-4 justify-between shrink-0 z-30 w-full h-14 bg-bg-main border-b border-border-main cursor-pointer no-hover-outline select-none transition-[translate,margin-bottom] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]"
         :class="!state.isMobile && state.isSidebarOpen ? 'translate-x-full -mb-14 pointer-events-none' : 'translate-x-0 mb-0'"
       >
         <div class="flex items-center gap-3 min-w-0">
           <button 
             @click="state.isSidebarOpen = !state.isSidebarOpen" 
             @dblclick.stop
-            class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center hover:bg-bg-hover transition-colors"
+            class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center transition-colors"
           >
             <component :is="state.isSidebarOpen ? 'AlignLeft' : 'Menu'" />
           </button>
@@ -150,7 +150,7 @@ watch(
             href="#/"
             @click.prevent="startNewChat" 
             @dblclick.stop
-            class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center hover:bg-bg-hover transition-colors no-underline" 
+            class="text-text-muted hover:text-text-main w-8 h-8 flex items-center justify-center transition-colors no-underline" 
             title="新对话"
           >
             <SquarePen />
