@@ -5,6 +5,7 @@ import { PET_STATES } from '../utils/pet-db';
 import type { PetState } from '../utils/pet-db';
 import { state } from '../store';
 import ConfirmModal from './ConfirmModal.vue';
+import ToggleSwitch from './ToggleSwitch.vue';
 import { useToast } from '../composables/useToast';
 
 const { showToast } = useToast();
@@ -127,9 +128,8 @@ const handleClearAll = async () => {
   }
 };
 
-const handleToggle = async (e: Event) => {
-  const checked = (e.target as HTMLInputElement).checked;
-  await setEnabled(checked);
+const handleToggle = async (value: boolean) => {
+  await setEnabled(value);
 };
 </script>
 
@@ -149,10 +149,11 @@ const handleToggle = async (e: Event) => {
     <template v-else>
       <div class="pet-toggle-row">
         <span class="pet-toggle-label">宠物显示</span>
-        <label class="toggle-switch">
-          <input type="checkbox" :checked="state.petEnabled" @change="handleToggle">
-          <span class="toggle-slider"></span>
-        </label>
+        <ToggleSwitch
+          :model-value="state.petEnabled"
+          aria-label="宠物显示"
+          @update:model-value="handleToggle"
+        />
       </div>
 
       <div class="pet-preview-grid">
@@ -277,50 +278,6 @@ const handleToggle = async (e: Event) => {
   font-size: 0.9rem;
   color: var(--text-main);
   font-weight: 500;
-}
-
-.toggle-switch {
-  position: relative;
-  width: 44px;
-  height: 24px;
-  cursor: pointer;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  inset: 0;
-  background-color: var(--bg-hover);
-  border: 1px solid var(--border-input);
-  border-radius: 0;
-  transition: all 0.2s ease;
-}
-
-.toggle-slider::before {
-  content: '';
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  left: 2px;
-  bottom: 2px;
-  background-color: var(--text-muted);
-  border-radius: 0;
-  transition: all 0.2s ease;
-}
-
-.toggle-switch input:checked + .toggle-slider {
-  background-color: var(--primary);
-  border-color: var(--primary);
-}
-
-.toggle-switch input:checked + .toggle-slider::before {
-  transform: translateX(20px);
-  background-color: white;
 }
 
 .pet-preview-grid {

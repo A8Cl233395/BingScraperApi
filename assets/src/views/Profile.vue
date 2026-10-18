@@ -5,6 +5,7 @@ import api from '../utils/api';
 import { clearAuth, redirectToLogin } from '../utils/auth';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import PetSettings from '../components/PetSettings.vue';
+import ToggleSwitch from '../components/ToggleSwitch.vue';
 import { type ThemeMode, applyTheme, storeTheme, getCurrentTheme } from '../utils/theme';
 import { useToast } from '../composables/useToast';
 
@@ -334,14 +335,14 @@ const handleHashChange = () => {
   }
 };
 
-const toggleExpandThinking = () => {
-  state.defaultExpandThinking = !state.defaultExpandThinking;
-  localStorage.setItem('expand_thinking', String(state.defaultExpandThinking));
+const toggleExpandThinking = (value: boolean) => {
+  state.defaultExpandThinking = value;
+  localStorage.setItem('expand_thinking', String(value));
 };
 
-const toggleExpandTools = () => {
-  state.defaultExpandTools = !state.defaultExpandTools;
-  localStorage.setItem('expand_tools', String(state.defaultExpandTools));
+const toggleExpandTools = (value: boolean) => {
+  state.defaultExpandTools = value;
+  localStorage.setItem('expand_tools', String(value));
 };
 
 onMounted(() => {
@@ -706,13 +707,11 @@ watch(activeTab, (newTab) => {
                   <span class="setting-desc">新消息的思考过程默认展开显示</span>
                 </div>
               </div>
-              <button
-                class="toggle-btn"
-                :class="{ active: state.defaultExpandThinking }"
-                @click="toggleExpandThinking"
-              >
-                <span class="toggle-knob"></span>
-              </button>
+              <ToggleSwitch
+                :model-value="state.defaultExpandThinking"
+                aria-label="默认展开思考过程"
+                @update:model-value="toggleExpandThinking"
+              />
             </div>
             <div class="setting-item">
               <div class="setting-info">
@@ -722,13 +721,11 @@ watch(activeTab, (newTab) => {
                   <span class="setting-desc">新消息的工具调用默认展开显示</span>
                 </div>
               </div>
-              <button
-                class="toggle-btn"
-                :class="{ active: state.defaultExpandTools }"
-                @click="toggleExpandTools"
-              >
-                <span class="toggle-knob"></span>
-              </button>
+              <ToggleSwitch
+                :model-value="state.defaultExpandTools"
+                aria-label="默认展开工具调用"
+                @update:model-value="toggleExpandTools"
+              />
             </div>
           </div>
         </div>
@@ -1184,42 +1181,8 @@ watch(activeTab, (newTab) => {
   margin-top: 2px;
 }
 
-/* 开关按钮 */
-.toggle-btn {
-  position: relative;
-  width: 44px;
-  height: 24px;
-  border-radius: 0;
-  background: var(--bg-hover);
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-  padding: 0;
-}
-
-.toggle-btn.active {
-  background: var(--primary);
-  border-color: var(--primary);
-}
-
-.toggle-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: white;
-  transition: transform 0.2s ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.toggle-btn.active .toggle-knob {
-  transform: translateX(20px);
-}
-
-/* 通用卡片 - 覆盖全局样式中的 box-shadow 和 transition */
+/* 本页用 scoped 样式覆盖全局 .card / .form-input 的 box-shadow 与 transition；
+   修改全局基础样式时要同步检查这里的覆盖是否仍符合预期。 */
 .profile-container .card {
   box-shadow: none;
   transition: none;
