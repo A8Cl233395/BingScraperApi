@@ -25,7 +25,8 @@ function isFenceComplete(raw: string): boolean {
 // 图表块（mermaid / svg）共用构建器：块结构与按钮完全一致，仅标签/源码语言不同，
 // 渲染管线与缓存在 chart.ts 统一处理。图表块只显示不交互，缩放/拖拽在「查看」进入的
 // 全屏预览（ImagePreview）中操作。已渲染过的图表直接内联缓存 SVG，
-// 保证流式重写时图表高度稳定
+// 保证流式重写时图表高度稳定（否则会从已渲染图退回占位符，DOM 高度骤降导致
+// 浏览器强行调整 scrollTop，表现为莫名滚回底部）。
 function renderChartBlockHtml(type: ChartType, token: { text: string; raw: string }): string {
   const escapedCode = escapeHtml(token.text);
   const cachedSvg = getCachedChartSvg(type, token.text);

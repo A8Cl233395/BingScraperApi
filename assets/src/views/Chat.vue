@@ -108,6 +108,7 @@ onUnmounted(() => {
   window.removeEventListener('selectionchange', handleSelectionChange);
 });
 
+// 无 Vue Router：对话切换靠 hashchange + pushState，页面间跳转用 location.href
 watch(() => state.currentChatId, (newId) => {
   const newHash = newId ? `#/${newId}` : '#/';
   if (window.location.hash !== newHash) {
@@ -129,6 +130,8 @@ watch(
   <div class="h-screen w-screen overflow-hidden" :class="state.isMobile ? '' : 'flex'">
     <Sidebar />
 
+    <!-- overflow-hidden 是必需的：桌面端侧栏展开时顶栏以 translate-x-full 滑出，
+         不裁剪会盖在 HtmlPreview 分屏面板上（顶栏 pointer-events-none，看得见点不着）。 -->
     <main class="flex-1 flex flex-col h-full relative min-w-0 bg-bg-main w-full overflow-hidden">
       <header
         @dblclick="handleHeaderDblClick"

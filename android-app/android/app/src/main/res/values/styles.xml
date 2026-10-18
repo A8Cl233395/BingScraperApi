@@ -19,6 +19,10 @@
     </style>
 
 
+    <!-- 启动图：三个属性必须齐全——windowSplashScreenBackground /
+         windowSplashScreenAnimatedIcon / postSplashScreenTheme（缺 postSplashScreenTheme 会崩，
+         缺其余项 Android 12+ 会回退为系统默认图标动画）。
+         背景与状态栏图标亮度随 values-night 自动切换。 -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <!-- 品牌启动图：浅色/深色背景由 values-night 资源自动切换 -->
         <item name="windowSplashScreenBackground">@color/splash_background</item>

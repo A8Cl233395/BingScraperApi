@@ -36,6 +36,8 @@ const initTurnstile = () => {
 };
 
 onMounted(() => {
+  // Turnstile 脚本按需动态加载；站点密钥来自 VITE_TURNSTILE_SITEKEY（assets/.env）。
+  // 本页不注册 Lucide 图标组件（Login 页同理）。
   if (!document.querySelector('script[src="https://challenges.cloudflare.com/turnstile/v0/api.js"]')) {
     const script = document.createElement('script');
     script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';

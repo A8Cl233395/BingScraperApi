@@ -15,6 +15,9 @@ if (!serverUrl) {
 }
 
 // 直接加载线上地址，允许的跳转域名由该地址推导
+// 远程 URL 模式下 Capacitor 通过 addDocumentStartJavaScript 注入 bridge（要求 WebView 89+），
+// 不经过 WebViewLocalServer，因此原生 HTML 缓存不会影响插件注入；
+// 旧版 WebView 在远程模式下本身就不支持插件。
 const config: CapacitorConfig = {
   appId: 'com.ai.chat',
   appName: 'AI Chat',

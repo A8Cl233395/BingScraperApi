@@ -1,3 +1,5 @@
+// 宠物精灵图存于浏览器 IndexedDB（pet_db），不是 localStorage：
+// 容量更大且可存 Blob，但清除浏览器数据/站点存储后不可恢复。
 export type PetState = 'idle' | 'thinking' | 'answering' | 'tool_calling';
 
 export const PET_STATES: PetState[] = ['idle', 'thinking', 'answering', 'tool_calling'];

@@ -821,6 +821,9 @@ class ChatInstance:
         self.last_active: float = 0
 
     async def _stream_events(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
+        # 协议由模型条目的 api_type 选择：chat-completions（默认）/ responses / anthropic。
+        # 新增协议只需实现 _ai_xxx 并在此分发，上游统一消费 StreamEvent，勿把协议差异泄漏到业务层。
+        # anthropic 协议必填 max_tokens（config.schema.json 校验），客户端按 base_url 缓存于 get_aclient。
         api_type = MODELS[model].get("api_type", "chat-completions")
         if api_type == "responses":
             async for event in self._ai_responses(model, messages, thinking, enable_function):

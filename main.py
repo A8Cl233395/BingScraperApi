@@ -71,6 +71,9 @@ async def lifespan(app: FastAPI):
 
 # 禁用 docs 和 redoc
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
+# 认证约定：webchat 启用时 /api/* 走用户会话（uid + session + token 请求头）；
+# 其余非 SAFE_PATHS 接口要求 key 请求头等于 server.auth_key。
+# 新增用户态接口必须放在 /api/ 下，否则会落到 key 校验分支。
 KEY = config["server"]["auth_key"]
 REVERSE_PROXY: bool = config["server"].get("nginx_ready", False)
 SERVER_PORT: int = config["server"].get("port", 5212)
@@ -123,6 +126,9 @@ if is_web_function_enabled:
     )
 
     if not REVERSE_PROXY:
+        # 预压缩静态资源：vite-plugin-compression2 生成与源文件同名的 .br/.gz。
+        # 只有存在 .br 的文件才被视为“有预压缩版本”（并假定 .gz 同步存在），
+        # 因此调整 vite.config.ts 的压缩算法时必须同步检查这里。
         class CachedStaticFiles(StaticFiles):
             ASSETS_DIR = "assets/dist/assets"
             COMPRESSED_FILES = [i[:-3] for i in os.listdir(ASSETS_DIR) if i.endswith('.br')] # 假设所有.br压缩的文件都有.gz压缩的版本，DANGEROUS！
@@ -210,6 +216,9 @@ if is_download_service_required:
             return Response(data, media_type="application/octet-stream")
         raise HTTPException(status_code=403, detail="forbidden")
 
+# 路由按模块开关条件注册：新增模块须在 functions.py 定义 is_X_enabled，
+# 并用 if is_X_enabled: 包裹该模块的全部路由；否则配置缺失时仍会注册，
+# 运行时访问未初始化的全局单例会直接抛 NameError。
 if is_search_enabled:
     @app.get("/search", response_class=PlainTextResponse)
     def search(q: str, limit: Annotated[int | None, Query()] = None):

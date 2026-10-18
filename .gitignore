@@ -13,3 +13,4 @@ assets/.env
 assets/.env.development
 test.py
 AGENTS.md
+.playwright-cli/

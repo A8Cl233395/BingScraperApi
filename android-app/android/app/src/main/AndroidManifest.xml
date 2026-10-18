@@ -10,6 +10,8 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- adjustResize 配合 Capacitor 8 SystemBars（默认 insetsHandling=css）
+             自动处理键盘避让与系统栏 padding，无需前端额外适配；不要改成 adjustPan。 -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
