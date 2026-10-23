@@ -6,6 +6,8 @@ defineProps<{
   merged?: boolean;
 }>();
 
+const isDualModel = computed(() => Boolean(state.currentModel && state.currentVModel && state.currentModel !== state.currentVModel));
+
 const activeModelName = computed(() => (state.isVisionMode ? state.currentVModel : state.currentModel) || '选择模型');
 
 const activeModelClass = computed(() => {
@@ -96,10 +98,15 @@ onUnmounted(() => { document.removeEventListener('click', handleOutsideClick); }
       :disabled="isLoading"
     >
       <span class="text-sm flex items-center gap-1 min-w-0">
-        <span class="truncate" :class="state.isVisionMode ? 'text-text-placeholder' : 'text-text-main'">{{ state.currentModel || '选择模型' }}</span>
-        <template v-if="state.currentVModel">
+        <template v-if="isDualModel">
+          <span class="truncate" :class="state.isVisionMode ? 'text-text-placeholder' : 'text-text-main'">{{ state.currentModel }}</span>
           <span class="text-text-placeholder shrink-0">/</span>
           <span class="truncate" :class="state.isVisionMode ? 'text-text-main' : 'text-text-placeholder'">{{ state.currentVModel }}</span>
+        </template>
+        <template v-else>
+          <span class="truncate" :class="(state.currentModel || state.currentVModel) ? 'text-text-main' : 'text-text-placeholder'">
+            {{ state.currentModel || state.currentVModel || '选择模型' }}
+          </span>
         </template>
       </span>
       <Loader2 v-if="isLoading" class="text-[10px] text-text-placeholder animate-spin" />
