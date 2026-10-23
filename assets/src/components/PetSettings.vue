@@ -345,7 +345,7 @@ const handleToggle = async (value: boolean) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .pet-import-section {
@@ -357,7 +357,7 @@ const handleToggle = async (value: boolean) => {
   background: var(--bg-panel);
   border: 2px dashed var(--border-color);
   border-radius: 0;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 
 .pet-import-dragging {
@@ -378,7 +378,7 @@ const handleToggle = async (value: boolean) => {
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 
 .pet-import-btn:disabled {
@@ -409,7 +409,7 @@ const handleToggle = async (value: boolean) => {
   color: var(--danger);
   font-size: 0.85rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .hidden {
