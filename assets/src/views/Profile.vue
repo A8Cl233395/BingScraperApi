@@ -6,6 +6,7 @@ import { clearAuth, redirectToLogin } from '../utils/auth';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import PetSettings from '../components/PetSettings.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
+import GlitchTitle from '../components/GlitchTitle.vue';
 import { type ThemeMode, applyTheme, storeTheme, getCurrentTheme } from '../utils/theme';
 import { useToast } from '../composables/useToast';
 
@@ -46,10 +47,22 @@ const showLogoutConfirm = ref(false);
 
 const currentTheme = ref<ThemeMode>(getCurrentTheme());
 
+// 主题切换 = 显示器「重同步」：只让被点中的那张卡播一次描边脉冲，
+// 容器不播（否则会围出一个包住三张卡的大矩形，语义也变成「整组心跳」）。
+// burst 类必须先移除再挂才能重播，播完主动移除，保持元素干净
+const themeBurst = ref<ThemeMode | null>(null);
+let themeBurstTimer: number | undefined;
+
 const setTheme = (theme: ThemeMode) => {
   currentTheme.value = theme;
   applyTheme(theme);
   storeTheme(theme);
+  themeBurst.value = null;
+  requestAnimationFrame(() => {
+    themeBurst.value = theme;
+    clearTimeout(themeBurstTimer);
+    themeBurstTimer = window.setTimeout(() => (themeBurst.value = null), 600);
+  });
 };
 
 const adjustMemoryHeight = () => {
@@ -390,7 +403,8 @@ watch(activeTab, (newTab) => {
         <div :class="state.isMobile ? 'w-72' : 'w-64'" class="h-full flex flex-col shrink-0">
           <!-- Header -->
           <div class="p-4 flex justify-between items-center">
-            <span class="font-bold text-lg text-text-main">个人资料</span>
+            <!-- 信号源字标：应用内保持静态，登录/邀请页周期性 burst -->
+            <GlitchTitle class="font-bold text-lg text-text-main" text="个人资料" />
             <button @click="isSidebarOpen = false" v-if="state.isMobile" class="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-main transition-colors">
               <X />
             </button>
@@ -669,7 +683,7 @@ watch(activeTab, (newTab) => {
             <div class="theme-options">
               <button
                 class="theme-option"
-                :class="{ active: currentTheme === 'light' }"
+                :class="{ active: currentTheme === 'light', 'theme-burst': themeBurst === 'light' }"
                 @click="setTheme('light')"
               >
                 <Sun class="theme-icon" />
@@ -678,7 +692,7 @@ watch(activeTab, (newTab) => {
               </button>
               <button
                 class="theme-option"
-                :class="{ active: currentTheme === 'dark' }"
+                :class="{ active: currentTheme === 'dark', 'theme-burst': themeBurst === 'dark' }"
                 @click="setTheme('dark')"
               >
                 <Moon class="theme-icon" />
@@ -687,7 +701,7 @@ watch(activeTab, (newTab) => {
               </button>
               <button
                 class="theme-option"
-                :class="{ active: currentTheme === 'system' }"
+                :class="{ active: currentTheme === 'system', 'theme-burst': themeBurst === 'system' }"
                 @click="setTheme('system')"
               >
                 <Monitor class="theme-icon" />
@@ -1094,7 +1108,7 @@ watch(activeTab, (newTab) => {
   border: 2px solid var(--border-color);
   border-radius: 0;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   color: var(--text-muted);
 }
 
@@ -1335,7 +1349,7 @@ watch(activeTab, (newTab) => {
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
   white-space: nowrap;
   display: flex;
   align-items: center;
@@ -1392,7 +1406,7 @@ watch(activeTab, (newTab) => {
   background-color: var(--bg-main);
   border: 1px solid var(--border-input);
   border-radius: 0;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .memory-text {
@@ -1414,7 +1428,7 @@ watch(activeTab, (newTab) => {
   border-radius: 0;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
   flex-shrink: 0;
 }
 
@@ -1537,7 +1551,7 @@ watch(activeTab, (newTab) => {
   background-color: var(--bg-main);
   border: 1px solid var(--border-input);
   border-radius: 0;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .session-info {
@@ -1590,7 +1604,7 @@ watch(activeTab, (newTab) => {
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
   flex-shrink: 0;
 }
 
@@ -1659,7 +1673,7 @@ watch(activeTab, (newTab) => {
   border-radius: 0;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .cancel-btn:hover {
@@ -1675,7 +1689,7 @@ watch(activeTab, (newTab) => {
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
   display: flex;
   align-items: center;
   gap: 6px;

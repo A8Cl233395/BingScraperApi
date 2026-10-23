@@ -32,11 +32,12 @@ export function useToast() {
 
     const toast = document.createElement('div');
     toast.className = 'toast-item';
-
-    const bar = document.createElement('div');
-    bar.className = 'bar';
-    bar.style.background = typeVarMap[type] || typeVarMap.success;
-    toast.appendChild(bar);
+    // 状态回执：类型由 CSS 的 ::before 标签（OK / ERR / INFO）和 ::after 底部信号线表达。
+    // --toast-color 同时驱动标签与底线；正文保持干净，不做文字特效。
+    const color = typeVarMap[type] || typeVarMap.success;
+    toast.dataset.signal = type;
+    toast.style.setProperty('--toast-color', color);
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
 
     const body = document.createElement('div');
     body.className = 'body';

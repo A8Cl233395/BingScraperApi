@@ -3,6 +3,7 @@ import { state } from '../store';
 import { ref, computed, nextTick } from 'vue';
 import ConfirmModal from './ConfirmModal.vue';
 import ModelSelector from './ModelSelector.vue';
+import GlitchTitle from './GlitchTitle.vue';
 import { useLongPress } from '../composables/useLongPress';
 
 const chatListRef = ref<HTMLElement | null>(null);
@@ -518,7 +519,8 @@ const confirmDelete = () => {
   >
     <div :class="state.isMobile ? 'w-72' : 'w-64'" class="h-full flex flex-col shrink-0">
       <div class="p-4 flex justify-between items-center">
-        <span class="font-bold text-lg text-text-main">AI Chat</span>
+        <!-- 信号源字标：应用内保持静态，登录/邀请页周期性 burst -->
+        <GlitchTitle class="font-bold text-lg text-text-main" text="AI Chat" />
         <button
           @click="state.isSidebarOpen = !state.isSidebarOpen"
           class="-my-0.5 w-8 h-8 flex items-center justify-center text-text-muted hover:text-text-main transition-colors"

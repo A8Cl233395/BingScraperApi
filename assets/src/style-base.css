@@ -29,8 +29,16 @@
   --danger-bg: rgba(248, 81, 73, 0.1);
   --info: #005FB8;
   --info-border: #005FB8;
-  /* 统一交互描边的淡入起始色（白 → 主色） */
-  --edge-ring-from: #FFFFFF;
+  /* glitch 特效的 RGB 分离色（仅用于焦点/状态确认，常规界面配色保持单一） */
+  --glitch-cyan: #00A6C8;
+  --glitch-magenta: #D6006E;
+  /* 文字用的半透明色差：日常可见，但不盖过字形 */
+  --glitch-text-cyan: rgba(0, 132, 165, 0.6);
+  --glitch-text-magenta: rgba(180, 0, 82, 0.55);
+  /* VHS/CRT 输入态：聚焦时滚过一次的扫描带 */
+  --vhs-roll: rgba(0, 0, 0, 0.045);
+  /* 浮层阴影（Toast 等）：低对比，只用于脱离页面的层 */
+  --toast-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
 
   /* hljs vs-code light style */
   --hljs-bg: #ffffff;
@@ -69,6 +77,16 @@ html.dark {
   --danger-bg: rgba(248, 81, 73, 0.1);
   --info: #4daafc;
   --info-border: #4daafc;
+
+  /* glitch 特效的 RGB 分离色：暗色下提高亮度 */
+  --glitch-cyan: #38E8FF;
+  --glitch-magenta: #FF4D9D;
+  --glitch-text-cyan: rgba(56, 232, 255, 0.55);
+  --glitch-text-magenta: rgba(255, 77, 157, 0.5);
+  /* VHS/CRT 输入态：暗色主题用浅色扫描带 */
+  --vhs-roll: rgba(255, 255, 255, 0.09);
+  /* 浮层阴影：暗色下加深，避免 Toast 与面板糊在一起 */
+  --toast-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 
   /* hljs vs-code dark style */
   --hljs-bg: transparent;
@@ -110,6 +128,10 @@ html.dark {
   --color-danger-bg: var(--danger-bg);
   --color-info-main: var(--info);
   --color-info-border: var(--info-border);
+  --color-glitch-cyan: var(--glitch-cyan);
+  --color-glitch-magenta: var(--glitch-magenta);
+  --color-glitch-text-cyan: var(--glitch-text-cyan);
+  --color-glitch-text-magenta: var(--glitch-text-magenta);
 }
 
 @utility no-scrollbar {
@@ -159,15 +181,14 @@ html.dark {
 }
 
 /*
- * 统一交互描边（按钮 / 输入框 / 可点击项共用同一套特效）：
- * - 唯一的描边特效 = 1px 主色 outline + 1px offset，不参与布局，状态切换时元素不跳动
- * - 保留「白 → 蓝」的闪色：从 --edge-ring-from 淡入到 --edge-ring，统一 150ms
- * - 用统一动画而不是各组件自己的 transition：后者时长不一致，且会从 currentColor
- *   插值出不可控的杂色
- * - hover 不换背景、不改边框色；输入框聚焦同样只加这一条描边，不再叠加 box-shadow
- * - 输入框用 :focus（鼠标点入也要有反馈），其余控件用 :focus-visible（避免点击后残留）
+ * 统一交互描边（控件层 L1：按钮 / 可点击项）：
+ * - 描边 = 1px outline + 1px offset，独立于布局，状态切换时元素位置保持稳定
+ * - hover 只把描边切到主色并保持静止，悬停稳定后是一条干净的静态描边
+ * - outline-color 保持瞬时切换，移出即回透明；属性列表只保留实际会过渡的属性
+ * - hover 只换描边，背景保持原样；输入框见下方 L3 VHS/CRT 段落
+ * - 输入框用 :focus 反馈鼠标点入，其余控件用 :focus-visible 区分键盘焦点与鼠标点击
  * - .edge-control 用于原生 input/textarea/select，.edge-shell 用于包裹输入框的容器
- * - 触屏不触发 hover，避免悬停态残留；消息正文（.prose）里的链接不套用
+ * - hover 仅在指针设备生效，触屏保持原状；消息正文（.prose）里的链接沿用正文样式
  */
 button:not(:disabled),
 [role="switch"]:not(:disabled),
@@ -184,11 +205,35 @@ a[href]:not(.chat-item),
   --edge-ring: var(--primary);
   outline: 1px solid transparent;
   outline-offset: 1px;
+  /*
+   * 过渡属性列表只覆盖实际会过渡的属性：outline-color / text-shadow / filter
+   * 保持瞬时切换，移出即回透明（时长/缓动仍沿用组件自己的设置）。
+   */
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke,
+    opacity, box-shadow, transform, translate, scale, rotate, backdrop-filter;
 }
 
-@keyframes edge-ring-in {
-  from { outline-color: var(--edge-ring-from); }
-  to { outline-color: var(--edge-ring); }
+/* 进入时的 glitch：关键帧不均匀排布，爆发挤在前段、末段缓出收敛；只做色相摆动 */
+@keyframes edge-ring-glitch {
+  0% { outline-color: var(--glitch-cyan); outline-offset: 2px; }
+  9% { outline-color: var(--edge-ring); outline-offset: 1px; }
+  20% { outline-color: var(--glitch-magenta); outline-offset: 2px; }
+  30% { outline-color: var(--glitch-cyan); outline-offset: 1px; }
+  44% { outline-color: var(--edge-ring); outline-offset: 2px; animation-timing-function: ease-out; }
+  100% { outline-color: var(--edge-ring); outline-offset: 1px; }
+}
+
+/*
+ * 控件整体只有 2 次离散 kick，其余时间静止；末段 ease-out 回位。
+ * 结束用 none，避免残留 containing block。
+ */
+@keyframes edge-jitter {
+  0% { transform: none; }
+  8% { transform: translateX(-1.5px); }
+  18% { transform: translateX(1px); }
+  24% { transform: translateX(1px); animation-timing-function: ease-out; }
+  38% { transform: none; }
+  100% { transform: none; }
 }
 
 @media (hover: hover) {
@@ -200,11 +245,8 @@ a[href]:not(.chat-item),
   .theme-option:hover,
   .memory-item:hover,
   .session-item:hover,
-  .pet-preview-box:hover,
-  .form-input:hover,
-  .edge-control:hover,
-  .edge-shell:hover {
-    animation: edge-ring-in 0.15s ease forwards;
+  .pet-preview-box:hover {
+    outline-color: var(--edge-ring);
   }
 
   .prose a[href]:hover {
@@ -212,14 +254,204 @@ a[href]:not(.chat-item),
   }
 }
 
-.form-input:focus,
-.edge-control:focus,
-.edge-shell:focus-within,
 button:not(:disabled):focus-visible,
 [role="switch"]:not(:disabled):focus-visible,
 [role="button"]:not([aria-disabled="true"]):focus-visible,
 a[href]:not(.chat-item):focus-visible {
-  animation: edge-ring-in 0.15s ease forwards;
+  animation: edge-ring-glitch 260ms steps(1, end) forwards;
+}
+
+/*
+ * ── 输入语义（L3）：VHS / CRT 监视器 ─────────────────────────────────────
+ * - hover：只切主色边框，背景保持纯色；
+ *   focus：先播放与控件层同款的 2 次离散 kick（≤1.5px），再叠加边框色相硬闪、
+ *   一道带 1px 横向微抖的扫描带和文字短暂色差
+ * - 原生 input/textarea/select 不能挂伪元素：扫描带用 background-image，
+ *   只动画 background-position，独立于布局；容器 .edge-shell 用 ::after
+ * - 输入框本体跟随普通选中抖动；扫描带在框内再横向微抖，两层都独立于布局
+ * - 扫描带滚完停在可视区外，聚焦期间不残留背景纹理，也不持续闪烁
+ * - 反馈集中在边框本身；错误态沿用 --edge-ring
+ * - 颜色走 --vhs-roll token：亮色主题用深色带，暗色主题用浅色带，
+ *   避免亮带在白底上不可见；不在组件里硬编码颜色
+ * - 触屏没有 hover，直接由 focus 进入完整效果
+ */
+@keyframes vhs-input-roll {
+  0% { background-position: 0 -150%; }
+  12% { background-position: 1px -70%; }
+  36% { background-position: -1px 70%; }
+  62% { background-position: 1px 190%; }
+  84% { background-position: 0 280%; }
+  100% { background-position: 0 360%; }
+}
+
+@keyframes vhs-shell-roll {
+  0% { opacity: 0; transform: translate(0, -120%); }
+  12% { opacity: 0.55; transform: translate(1px, -60%); }
+  36% { opacity: 0.5; transform: translate(-1px, 60%); }
+  62% { opacity: 0.35; transform: translate(1px, 180%); }
+  84% { opacity: 0.18; transform: translate(0, 280%); }
+  100% { opacity: 0; transform: translate(0, 340%); }
+}
+
+/* 边框色相硬闪：复用 glitch 色 token，输入框与文字保持原位 */
+@keyframes vhs-border-snap {
+  0% { border-color: var(--glitch-cyan); }
+  22% { border-color: var(--edge-ring); }
+  48% { border-color: var(--glitch-magenta); }
+  70% { border-color: var(--edge-ring); }
+  100% { border-color: var(--edge-ring); }
+}
+
+/* 文字只做 1px 内的色差收敛并保持原位，输入时命中区稳定 */
+@keyframes vhs-text-split {
+  0% { text-shadow: 1px 0 var(--glitch-text-cyan), -1px 0 var(--glitch-text-magenta); }
+  22% { text-shadow: -1px 0 var(--glitch-text-cyan), 1px 0 var(--glitch-text-magenta); }
+  48% { text-shadow: 0.5px 0 var(--glitch-text-cyan), -0.5px 0 var(--glitch-text-magenta); }
+  100% { text-shadow: none; }
+}
+
+@media (hover: hover) {
+  .form-input:hover,
+  .edge-control:hover {
+    border-color: var(--edge-ring);
+  }
+
+  /*
+   * 悬停文本框本身也触发外壳反馈；悬停内部按钮时不跟着亮，
+   * 避免内外两层同时响应。
+   */
+  .edge-shell:hover:not(:has(button:hover, input:hover)) {
+    border-color: var(--primary);
+  }
+}
+
+.form-input:focus,
+.edge-control:focus {
+  border-color: var(--edge-ring);
+  background-image: linear-gradient(to bottom, transparent, var(--vhs-roll), transparent);
+  background-size: 100% 38%;
+  background-repeat: repeat-x;
+  background-position: 0 -150%;
+  animation:
+    vhs-input-roll 560ms steps(1, end) forwards,
+    vhs-text-split 300ms steps(1, end) forwards,
+    vhs-border-snap 200ms steps(1, end),
+    edge-jitter 300ms steps(1, end) 20ms forwards;
+}
+
+.edge-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.edge-shell:focus-within {
+  border-color: var(--primary);
+  animation:
+    vhs-border-snap 200ms steps(1, end),
+    edge-jitter 300ms steps(1, end) 20ms forwards;
+}
+
+/* 扫描带：聚焦时自上而下滚过一次，结束停在可视区外 */
+.edge-shell::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -1px;
+  right: -1px;
+  height: 38%;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(0, -120%);
+  background: linear-gradient(to bottom, transparent, var(--vhs-roll), transparent);
+}
+
+.edge-shell:focus-within::after {
+  animation: vhs-shell-roll 520ms steps(1, end) forwards;
+}
+
+.edge-shell textarea:focus {
+  animation: vhs-text-split 300ms steps(1, end) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled):focus-visible,
+  [role="switch"]:not(:disabled):focus-visible,
+  [role="button"]:not([aria-disabled="true"]):focus-visible,
+  a[href]:not(.chat-item):focus-visible {
+    animation: none;
+    outline-color: var(--edge-ring);
+    text-shadow: none;
+  }
+
+  /* 输入：扫描带、边框硬闪与文字色差保持静止，只保留主色边框 */
+  .form-input:focus,
+  .edge-control:focus {
+    animation: none;
+    border-color: var(--edge-ring);
+    background-position: 0 -150%;
+  }
+
+  .edge-shell:focus-within {
+    animation: none;
+    border-color: var(--primary);
+  }
+
+  .edge-shell:focus-within::after {
+    animation: none;
+    opacity: 0;
+    transform: translate(0, -120%);
+  }
+
+  .edge-shell textarea:focus {
+    animation: none;
+    text-shadow: none;
+  }
+}
+
+/*
+ * ── 状态 glitch（一次性确认）──────────────────────────────────────────────
+ * 语义：状态变化 = 信号重同步，播一次、播完即散。
+ * - 不再提供通用的 `.glitch-burst`：容器上的整圈 outline 会像页面级脏边，
+ *   而 text-shadow 是继承属性，会把容器内所有文字一起拉出彩边。
+ * - 小控件（主题选项）用 `.theme-burst` 伪元素描边脉冲；
+ *   大容器用各自的 signal 动作（ConfirmModal 扫描线、Toast 色条充能、提示条扫描）
+ * - 所有变体共用同一套 glitch 色 token 与设计原则：
+ *   关键帧不均匀、只做色相摆动、末段收敛、steps(1, end) 硬切
+ */
+/*
+ * 主题选项是「单点选择」：只让被点中的那张卡确认一次。
+ * 用伪元素画描边脉冲而不是给卡片本体挂动画：卡片本体的 outline 要留给
+ * hover / 选中态，两个 animation 短属性也会互相顶掉。
+ * 伪元素与 hover 并存，播完即散，不影响文字与布局。
+ */
+.theme-option.theme-burst {
+  position: relative;
+}
+
+.theme-option.theme-burst::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  pointer-events: none;
+  animation: theme-burst-edge 380ms steps(1, end) forwards;
+}
+
+@keyframes theme-burst-edge {
+  0% { inset: -1px; border-color: var(--glitch-cyan); }
+  16% { inset: -1px; border-color: var(--primary); }
+  34% { inset: 0; border-color: var(--glitch-magenta); }
+  52% { inset: 0; border-color: var(--glitch-cyan); }
+  70% { inset: -1px; border-color: var(--primary); }
+  100% { inset: 0; border-color: transparent; }
+}
+
+/* 减弱动态效果：状态确认一律不播（Toast 的覆盖见下方 Toast 段） */
+@media (prefers-reduced-motion: reduce) {
+  .theme-option.theme-burst::after {
+    animation: none;
+  }
 }
 
 body {
@@ -247,7 +479,7 @@ body {
   width: 100%;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   border: 1px solid var(--border-color);
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
 }
 
 .card-title {
@@ -290,24 +522,63 @@ body {
   --edge-ring: var(--danger);
 }
 
-.error-message {
+/*
+ * 错误 / 成功提示属于「状态变化」，但不适合整块描边：
+ * 左侧加一条静态信号条（inset box-shadow，独立于布局），出现时一条 1px
+ * 扫描线从左到右扫过（220ms）后消失；文字保持本色。
+ */
+@keyframes signal-message-scan {
+  0% { left: 0; opacity: 0.55; }
+  30% { left: 34%; opacity: 0.5; }
+  65% { left: 68%; opacity: 0.36; }
+  100% { left: 100%; opacity: 0; }
+}
+
+.error-message,
+.success-message {
+  position: relative;
+  overflow: hidden;
   margin-top: 8px;
   padding: 12px;
-  background-color: var(--danger-bg);
-  border: 1px solid var(--danger);
   border-radius: 0;
-  color: var(--danger);
   font-size: 0.9rem;
 }
 
+.error-message {
+  --signal-color: var(--danger);
+  background-color: var(--danger-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  box-shadow: inset 3px 0 0 0 var(--signal-color);
+}
+
 .success-message {
-  margin-top: 8px;
-  padding: 12px;
+  --signal-color: var(--success);
   background-color: var(--success-bg);
   border: 1px solid var(--success-border);
-  border-radius: 0;
   color: var(--success);
-  font-size: 0.9rem;
+  box-shadow: inset 3px 0 0 0 var(--signal-color);
+}
+
+.error-message::after,
+.success-message::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: var(--signal-color);
+  opacity: 0;
+  pointer-events: none;
+  animation: signal-message-scan 220ms steps(1, end) 40ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .error-message::after,
+  .success-message::after {
+    animation: none;
+  }
 }
 
 .submit-btn {
@@ -320,7 +591,7 @@ body {
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
   margin-top: 8px;
 }
 
@@ -353,66 +624,153 @@ body {
   to { transform: rotate(360deg); }
 }
 
-/* Toast 容器 */
+/* Toast：状态回执（1px 面板 + 类型标签 + 底部信号线） */
 .toast-container {
   position: fixed;
-  top: 24px;
-  right: 0;
+  top: 20px;
+  right: 16px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
+  max-width: min(380px, calc(100vw - 32px));
   pointer-events: none;
   z-index: 9999;
 }
 
-/* 单个 Toast */
 .toast-item {
+  /*
+   * 状态回执：类型只通过「标签 + 底部信号线」表达。
+   * --toast-color 由 useToast 按类型注入；::before 是 OK / ERR / INFO 标签，
+   * ::after 是从左展开的 2px 信号线，兼作面板底边。
+   */
+  --toast-color: var(--success);
+  position: relative;
   display: flex;
-  align-items: stretch;
-  max-width: 360px;
-  min-height: 48px;
+  align-items: baseline;
+  gap: 10px;
+  width: fit-content;
+  max-width: min(380px, 100%);
+  min-height: 40px;
+  padding: 10px 14px 11px 12px;
   background: var(--bg-panel);
-  border: 2px solid var(--border-color);
-  border-right: none;
+  border: 1px solid var(--border-color);
+  border-bottom: none;
   border-radius: 0;
+  box-shadow: var(--toast-shadow);
   overflow: hidden;
   pointer-events: auto;
   cursor: pointer;
-  animation: toastSlideIn 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: toast-receipt-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  transition: background-color 150ms ease;
 }
 
-/* 入场滑入 */
-@keyframes toastSlideIn {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+.toast-item::before {
+  content: "OK";
+  flex: 0 0 auto;
+  min-width: 38px;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  color: var(--toast-color);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.6;
+  letter-spacing: 0.08em;
+  text-align: center;
 }
 
-/* 退出滑出 */
-.toast-item.exit {
-  transform: translateX(100%) !important;
+.toast-item[data-signal="error"]::before { content: "ERR"; }
+.toast-item[data-signal="info"]::before { content: "INFO"; }
+
+.toast-item::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--toast-color);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: toast-receipt-line 220ms cubic-bezier(0.2, 0, 0, 1) 30ms forwards;
+  pointer-events: none;
 }
 
-/* 左侧颜色条 */
-.toast-item .bar {
-  flex-shrink: 0;
-  width: 4px;
-  background: var(--success);
-}
-
-/* 文字区 */
 .toast-item .body {
   flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 12px 18px;
+  min-width: 0;
   color: var(--text-main);
-  font-size: 16px;
-  font-weight: 450;
-  line-height: 1.5;
-  word-break: break-word;
-  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@keyframes toast-receipt-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes toast-receipt-line {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (hover: hover) {
+  .toast-item:hover {
+    background: var(--bg-hover);
+  }
+}
+
+/* 退出：只做短距离滑出与淡出，信号线同步收回 */
+.toast-item.exit {
+  animation: none;
+  opacity: 0;
+  transform: translateX(14px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.toast-item.exit::after {
+  animation: none;
+  transform: scaleX(0);
+  transition: transform 120ms ease;
+}
+
+/* 减弱动态效果：Toast 直接显示与隐藏，信号线保持静态 */
+@media (prefers-reduced-motion: reduce) {
+  .toast-item {
+    animation: none;
+    transition: none;
+  }
+
+  .toast-item::after {
+    animation: none;
+    transform: scaleX(1);
+  }
+
+  .toast-item.exit {
+    transition: none;
+  }
+
+  .toast-item.exit::after {
+    transition: none;
+    transform: scaleX(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .toast-container {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    align-items: stretch;
+  }
+
+  .toast-item {
+    width: 100%;
+    max-width: none;
+  }
 }
 
 /* Lucide 图标跟随字体大小（稍大于字号，补偿描边图标的视觉留白） */

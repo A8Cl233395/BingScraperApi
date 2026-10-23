@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useToast } from '../composables/useToast';
+import GlitchTitle from '../components/GlitchTitle.vue';
 
 const { showToast } = useToast();
 
@@ -139,7 +140,8 @@ onUnmounted(() => {
 <template>
   <div class="page-container">
     <div class="card">
-      <h1 class="card-title">登录</h1>
+      <!-- 信号源字标：登录类独立页每 6–8s 随机自动 burst -->
+      <h1 class="card-title"><GlitchTitle text="登录" auto /></h1>
       
       <form @submit.prevent="handleSubmit">
         <div class="form-group">

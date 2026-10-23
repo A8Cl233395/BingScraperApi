@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useToast } from '../composables/useToast';
+import GlitchTitle from '../components/GlitchTitle.vue';
 
 const { showToast } = useToast();
 
@@ -141,7 +142,8 @@ const copyToClipboard = async () => {
 <template>
   <div class="page-container">
     <div class="card">
-      <h1 class="card-title">验证码获取</h1>
+      <!-- 信号源字标：登录类独立页每 6–8s 随机自动 burst -->
+      <h1 class="card-title"><GlitchTitle text="验证码获取" auto /></h1>
       
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
@@ -265,7 +267,7 @@ const copyToClipboard = async () => {
   color: var(--text-main);
   font-size: 0.85rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   white-space: nowrap;
 }
 
