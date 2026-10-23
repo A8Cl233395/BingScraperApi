@@ -3,16 +3,23 @@ import hljs from 'highlight.js/lib/common';
 
 // === 图表块（mermaid / svg）共用渲染管线 ===
 // 两种图表代码块共用一套块结构（构建器在 markdown.ts 的 renderChartBlockHtml）与
-// 渲染流程：解析器只输出占位符或缓存 SVG，DOM 写入后由 renderChartPlaceholders
+// 渲染流程：解析器只输出占位符或缓存内容，DOM 写入后由 renderChartPlaceholders
 // 统一完成渲染与源码高亮。图表块只显示不交互，缩放/拖拽在「查看」进入的全屏预览
-// （ImagePreview）中操作。渲染结果按“类型 + 归一化源码”缓存，流式重写时由构建器
-// 直接内联缓存 SVG，保证图表高度稳定。
+// （ImagePreview）中操作。渲染结果（成功 SVG 与失败占位）按“类型 + 归一化源码”缓存，
+// 流式重写时由构建器直接内联，保证图表高度稳定。
 // mermaid 语法渲染在 mermaid.ts（懒加载），svg 源码消毒后即最终图形。
 
 export type ChartType = 'mermaid' | 'svg';
 
 // 渲染结果缓存：key 为“类型 + 归一化源码”
 const chartSvgCache = new Map<string, string>(); // 消毒后的 SVG（挂载与全屏数据源）
+// 失败缓存：同一份源码的失败是确定的。失败占位必须和成功 SVG 一样由解析器内联——
+// 否则流式每重写一次 DOM，图表块都会从「图表生成中...」重新渲染、失败后换成更高的
+// 错误块，块高度反复变化把视口推来推去（表现为一直滚回底部/位置来回跳）。
+const chartErrorCache = new Map<string, string>(); // 失败占位 HTML（含原始源码）
+// 同一份源码只跑一次渲染：上一帧的渲染可能还没结束，新帧已经重写 DOM 并再次触发，
+// 失败结果尚未落入缓存时会并发重试很多次
+const chartRenderTasks = new Map<string, Promise<string>>();
 
 export function normalizeChartCode(code: string): string {
   return (code || '').replace(/\r\n/g, '\n').trim();
@@ -20,9 +27,15 @@ export function normalizeChartCode(code: string): string {
 
 const cacheKey = (type: ChartType, code: string) => `${type}\u0000${normalizeChartCode(code)}`;
 
-/** 已渲染的消毒后 SVG，供 marked 渲染器内联以稳定流式高度 */
-export function getCachedChartSvg(type: ChartType, code: string): string | undefined {
-  return chartSvgCache.get(cacheKey(type, code));
+/** 已渲染的图表内容（成功 SVG 或失败占位），供 marked 渲染器内联以稳定流式高度 */
+export function getCachedChartContent(type: ChartType, code: string): string | undefined {
+  const key = cacheKey(type, code);
+  return chartSvgCache.get(key) ?? chartErrorCache.get(key);
+}
+
+/** 该图表是否已渲染失败：失败块没有可用的 SVG，全屏预览按钮应禁用 */
+export function isChartFailed(type: ChartType, code: string): boolean {
+  return chartErrorCache.has(cacheKey(type, code));
 }
 
 /** 图表 SVG 的 data URL（全屏预览）；未渲染完成返回 null。
@@ -84,6 +97,21 @@ async function renderChartSvg(type: ChartType, code: string): Promise<string> {
   return sanitizeChartSvg(raw);
 }
 
+/** 同一图表复用同一个在途渲染任务；成功后直接写入 SVG 缓存，失败由调用方写失败缓存 */
+function renderChartOnce(type: ChartType, code: string, key: string): Promise<string> {
+  let task = chartRenderTasks.get(key);
+  if (!task) {
+    task = renderChartSvg(type, code)
+      .then(svg => {
+        chartSvgCache.set(key, svg);
+        return svg;
+      })
+      .finally(() => chartRenderTasks.delete(key));
+    chartRenderTasks.set(key, task);
+  }
+  return task;
+}
+
 /** 源码高亮：优先图表语言，不支持时自动检测，兜底纯文本 */
 function highlightChartSource(code: string, lang: string): string {
   try {
@@ -100,6 +128,14 @@ function highlightChartSource(code: string, lang: string): string {
 /** 图表渲染失败的占位 */
 function chartErrorHtml(rawCode: string): string {
   return `<div class="chart-error"><strong>图表渲染失败</strong><pre>${escapeHtml(rawCode)}</pre></div>`;
+}
+
+/** 失败图表没有可用的 SVG data URL：禁用「查看」按钮，避免点击无反应 */
+function disableChartPreview(block: Element): void {
+  const btn = block.querySelector<HTMLButtonElement>('.chart-fullscreen-btn');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  btn.title = '图表渲染失败，无法预览';
 }
 
 /**
@@ -143,26 +179,37 @@ export async function renderChartPlaceholders(root: Element | Document = documen
       blockTopRelativeToContainer = bRect.top - cRect.top;
     }
 
-    const cached = chartSvgCache.get(cacheKey(type, code));
+    const key = cacheKey(type, code);
+    const cached = getCachedChartContent(type, code);
     if (cached) {
       chartEl.innerHTML = cached;
+      if (!chartSvgCache.has(key)) disableChartPreview(block);
       continue;
     }
 
     try {
-      const svgHtml = await renderChartSvg(type, code);
-      chartSvgCache.set(cacheKey(type, code), svgHtml);
-      chartEl.innerHTML = svgHtml;
-
-      // 若用户主动向上阅读，锚定滚动位置
-      if (scrollContainer && isUserScrolledUp) {
-        const heightDiff = scrollContainer.scrollHeight - preScrollHeight;
-        if (heightDiff > 0 && blockTopRelativeToContainer <= scrollContainer.clientHeight) {
-          scrollContainer.scrollTop = preScrollTop + heightDiff;
-        }
-      }
+      const svgHtml = await renderChartOnce(type, code, key);
+      // 等待期间流式重写可能已替换整棵子树：旧块只把结果留在缓存里，不再写 DOM
+      if (block.isConnected) chartEl.innerHTML = svgHtml;
     } catch {
-      chartEl.innerHTML = chartErrorHtml(rawCode);
+      // 失败结果同样缓存：流式重写后构建器直接内联错误块，不再反复「占位符 → 失败」抖动
+      const errorHtml = chartErrorHtml(rawCode);
+      chartErrorCache.set(key, errorHtml);
+      if (block.isConnected) {
+        chartEl.innerHTML = errorHtml;
+        disableChartPreview(block);
+      }
+    }
+
+    // 旧子树已脱离文档：上面的滚动快照对应的是被替换的布局，继续补偿只会让视口乱跳
+    if (!block.isConnected) continue;
+
+    // 若用户主动向上阅读，锚定滚动位置（成功与失败都会改变块高度）
+    if (scrollContainer && isUserScrolledUp) {
+      const heightDiff = scrollContainer.scrollHeight - preScrollHeight;
+      if (heightDiff > 0 && blockTopRelativeToContainer <= scrollContainer.clientHeight) {
+        scrollContainer.scrollTop = preScrollTop + heightDiff;
+      }
     }
   }
 }

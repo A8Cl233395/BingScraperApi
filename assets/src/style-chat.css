@@ -283,24 +283,104 @@ html.dark .prose tr:nth-child(even) {
   cursor: pointer;
 }
 
-.chart-fullscreen-btn:hover {
+.chart-fullscreen-btn:hover:not(:disabled) {
   color: var(--text-main);
 }
 
-/* 流式输出拖尾：新字符按各自出现时刻做负延迟淡入（进度跨重渲染无缝衔接），
-   淡入在真实时间里完成，chunk 停顿期间字符照常落定，不会停在半透明状态。
-   动画时长需与 markdown.ts 的 STREAM_TAIL_FADE 保持一致 */
-@keyframes stream-tail-in {
-  from { opacity: 0.1; }
-  to { opacity: 1; }
+/* 渲染失败的图表没有 SVG 预览：按钮禁用并压暗（覆盖 hover 工具类与上面的 hover 颜色） */
+.chart-fullscreen-btn:disabled,
+.chart-fullscreen-btn:disabled:hover {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--text-placeholder);
 }
 
+/* 流式输出拖尾：新单元「乱码 → 真文字」解码落定（替代旧的透明度淡入）。
+   - 乱码层是 ::before/::after 两份装饰副本（data-g1 / data-g2，见 markdown.ts 的
+     garbleRun，同 Unicode 范围随机、每帧重渲染重新随机），绝对定位覆盖在真文字
+     位置，steps 交替三帧后一起收起，像信号解码
+   - 乱码层不做单色切换，直接用 hover 按钮文字的效果：文字本色 + 青/品红双向
+     RGB 分离（text-shadow），每帧分离方向/幅度不均匀跳变，A/B 两层反相交替；
+     真文字揭示瞬间带同款色差分离、ease-out 收敛
+   - 真文字在乱码收起的同一帧显形（visibility 切换）；visibility:hidden 期间
+     伪元素显式 visibility:visible 继续显示乱码
+   - 负 delay 从单元出现时刻续播、跨重渲染无缝衔接；延迟经 --tail-delay 自定义
+     属性传递（animation-delay 不被伪元素继承，不能直接内联在 span 上）
+   - 包裹窗口由 markdown.ts 的 STREAM_TAIL_FADE（500ms）控制，动画 400ms 早于窗口结束 */
 .prose .stream-tail-unit {
-  animation: stream-tail-in 0.5s both;
+  position: relative;
+  visibility: hidden;
+  animation: tail-reveal 0.4s steps(1, end) var(--tail-delay, 0s) both;
+}
+
+.prose .stream-tail-unit::before,
+.prose .stream-tail-unit::after {
+  position: absolute;
+  left: 0;
+  /* 基线严格对齐真文字：不能用 top: 0——inline 内容盒高 = 字体 ascent+descent、
+     真文字基准线在盒顶 + ascent 处，而伪元素行盒内文字自带半 leading
+     （(line-height − 内容盒高)/2），top: 0 会让乱码整体沉下去一截。
+     行盒居中于内容盒（top: 50% + translateY(-50%)）后半 leading 相消，
+     基准线精确重合，对任意 line-height / 字体成立 */
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: pre;
+  pointer-events: none;
+  visibility: visible;
+  opacity: 0;
+  animation-duration: 0.4s;
+  animation-timing-function: steps(1, end);
+  animation-delay: var(--tail-delay, 0s);
+  animation-fill-mode: both;
+}
+
+.prose .stream-tail-unit::before {
+  content: attr(data-g1);
+  animation-name: tail-garble-a;
+}
+
+.prose .stream-tail-unit::after {
+  content: attr(data-g2);
+  animation-name: tail-garble-b;
+}
+
+/* 真文字揭示：同帧显形 + RGB 色差分离，末段 ease-out 收敛到干净文字 */
+@keyframes tail-reveal {
+  0%, 69% { visibility: hidden; }
+  70% { visibility: visible; text-shadow: 1.5px 0 var(--glitch-text-cyan), -1.5px 0 var(--glitch-text-magenta); }
+  82% { text-shadow: -0.75px 0 var(--glitch-text-cyan), 0.75px 0 var(--glitch-text-magenta); animation-timing-function: ease-out; }
+  100% { visibility: visible; text-shadow: none; }
+}
+
+/* 乱码层 = hover 按钮文字同款 RGB 分离：文字本色，青/品红双向 text-shadow，
+   分离方向/幅度逐帧跳变（A/B 反相，交替时色差跟着翻面） */
+@keyframes tail-garble-a {
+  0% { opacity: 1; text-shadow: 1.5px 0 var(--glitch-text-cyan), -1px 0 var(--glitch-text-magenta); }
+  9% { text-shadow: -1.25px 0 var(--glitch-text-cyan), 1px 0 var(--glitch-text-magenta); }
+  18% { text-shadow: 0.75px 0 var(--glitch-text-cyan), -0.75px 0 var(--glitch-text-magenta); }
+  26% { opacity: 0; text-shadow: none; }
+  52% { opacity: 1; text-shadow: -1px 0 var(--glitch-text-cyan), 1.25px 0 var(--glitch-text-magenta); }
+  62% { text-shadow: 1px 0 var(--glitch-text-cyan), -1px 0 var(--glitch-text-magenta); }
+  70%, 100% { opacity: 0; text-shadow: none; }
+}
+
+@keyframes tail-garble-b {
+  0% { opacity: 0; text-shadow: none; }
+  26% { opacity: 1; text-shadow: -1.5px 0 var(--glitch-text-cyan), 1px 0 var(--glitch-text-magenta); }
+  35% { text-shadow: 1.25px 0 var(--glitch-text-cyan), -1px 0 var(--glitch-text-magenta); }
+  44% { text-shadow: -0.5px 0 var(--glitch-text-cyan), 0.5px 0 var(--glitch-text-magenta); }
+  52%, 100% { opacity: 0; text-shadow: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .prose .stream-tail-unit {
     animation: none;
+    visibility: visible;
+  }
+
+  .prose .stream-tail-unit::before,
+  .prose .stream-tail-unit::after {
+    animation: none;
+    opacity: 0;
   }
 }

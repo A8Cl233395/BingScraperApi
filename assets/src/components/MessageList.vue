@@ -25,7 +25,7 @@ interface ChatNode {
   thinking?: string;
   parent?: string;
   isStreaming?: boolean;
-  streamConnected?: boolean;
+  streamConnected?: boolean; // HTTP(SSE) 响应头已到：CONNECTING → WAITING
 }
 
 interface SSEState {
@@ -256,7 +256,9 @@ const processSSEEvent = (
       parent: parentId || 'root',
       child: existingNode?.child || [],
       current: existingNode?.current,
-      isStreaming: true
+      isStreaming: true,
+      // 保留连接态，切走再切回时 CONNECTING/WAITING 不会误判
+      streamConnected: targetMsg.streamConnected ?? existingNode?.streamConnected ?? false
     };
     const pId = parentId || 'root';
     const parentNode = pId === 'root' ? messageTree.value.root : messageTree.value[pId];
@@ -334,6 +336,7 @@ const handleReconnect = async (
 
   if (messageTree.value[nodeId]) {
     messageTree.value[nodeId].isStreaming = true;
+    messageTree.value[nodeId].streamConnected = false;
   }
 
   // received 是当前节点累计已应用的事件数（即后端缓存下标），重试时从这里继续
@@ -363,8 +366,9 @@ const handleReconnect = async (
                 fatal = response.status >= 400 && response.status < 500;
                 throw new Error(`HTTP ${response.status}`);
               }
-              // HTTP 流已建立：立即由连接动画（盲文点阵）切换为输出动画（光标），不等文字
+              // HTTP 流已建立：连接指示器（CONNECTING）切换为等待首 token 的终端转轮（WAITING）
               targetMsg.streamConnected = true;
+              if (messageTree.value[nodeId]) messageTree.value[nodeId].streamConnected = true;
             },
             onclose() {
               // Prevent auto-retry on clean close (since this is a GET request, fetchEventSource auto-retries by default)
@@ -396,8 +400,9 @@ const handleReconnect = async (
           showToast('重连失败', 'error');
           return;
         }
-        // 只切换连接动画，保留已收到的内容，下一轮从 received 继续
+        // 只切换连接指示器，保留已收到的内容，下一轮从 received 继续
         targetMsg.streamConnected = false;
+        if (messageTree.value[nodeId]) messageTree.value[nodeId].streamConnected = false;
         messages.value = [...messages.value];
         showToast(`正在重连（${retries}/${MAX_RECONNECT_RETRIES}）`, 'info');
         await new Promise(r => setTimeout(r, retries * 1000));
@@ -474,7 +479,8 @@ const handleSend = async (content: any, parent?: string) => {
     assistant: [],
     id: tempId,
     clientId: tempId,
-    isStreaming: true
+    isStreaming: true,
+    streamConnected: false
   });
   // Push into a new array (shallowRef needs a new reference to auto-trigger,
   // but we also call triggerRef explicitly for in-place mutations)
@@ -489,7 +495,8 @@ const handleSend = async (content: any, parent?: string) => {
     parent: parentId || 'root',
     child: [],
     current: null,
-    isStreaming: true
+    isStreaming: true,
+    streamConnected: false
   };
   
   nextTick(() => {
@@ -532,12 +539,13 @@ const handleSend = async (content: any, parent?: string) => {
       signal: currentController.signal,
       openWhenHidden: true,
       async onopen(response) {
-        // HTTP 流已建立：立即由连接动画（盲文点阵）切换为输出动画（光标），不等文字
+        // HTTP 流已建立：连接指示器（CONNECTING）切换为等待首 token 的终端转轮（WAITING）
         const contentType = response.headers.get('content-type');
         if (!contentType?.startsWith('text/event-stream')) {
           throw new Error(`Expected content-type to be text/event-stream, Actual: ${contentType}`);
         }
         userMsg.streamConnected = true;
+        if (messageTree.value[userMsg.id]) messageTree.value[userMsg.id].streamConnected = true;
       },
       onmessage(ev) {
         processSSEEvent(ev, userMsg, sseState, parentId);
@@ -552,6 +560,10 @@ const handleSend = async (content: any, parent?: string) => {
       onerror(err) {
         if (currentController.signal.aborted) return;
         console.error('SSE Error', err);
+        // 连接已断：回到 CONNECTING 阶段；有 node_id 时随后走 /api/reconnect
+        userMsg.streamConnected = false;
+        const treeId = receivedNodeId || userMsg.id;
+        if (messageTree.value[treeId]) messageTree.value[treeId].streamConnected = false;
         // Mark for reconnect instead of giving up
         if (receivedNodeId && receivedChatId) {
           disconnectedDuringStream = true;

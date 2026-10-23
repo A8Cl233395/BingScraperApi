@@ -178,6 +178,29 @@ const tailSegmentIdx = computed(() => {
   return -1;
 });
 
+// 首个可见输出（思考 / 正文 / 工具）出现前：连接指示器与等待转轮的窗口
+const waitingForOutput = computed(() =>
+  !props.isUser &&
+  !!props.message?.isStreaming &&
+  (!props.message.assistant || props.message.assistant.length === 0) &&
+  !thinkingContent.value
+);
+
+// 最新一段仍在输出的思考：折叠时用 THINKING 点阵补上「还在动」的反馈。
+// 首个正文 token 到达（last.content）或工具调用开始（tool_calls）后立即让位，
+// 但思考结束、正文未到的空档仍保持动画，避免看起来卡死。
+const liveThinkingIdx = computed(() => {
+  // HTTP 未连通（握手 / 重连）时不显示，避免把断线等待误当成仍在输出
+  if (props.isUser || !props.message?.isStreaming || props.message.streamConnected === false) return -1;
+  const arr = props.message.assistant;
+  if (!Array.isArray(arr) || arr.length === 0) return -1;
+
+  const last = arr[arr.length - 1];
+  if (last?.role !== 'assistant') return -1;
+  if (!last.reasoning_content || last.content || last.tool_calls?.length) return -1;
+  return arr.length - 1;
+});
+
 const images = computed(() => {
   if (!props.isUser || !Array.isArray(props.message)) return [];
   return props.message.filter((c: any) => c.type === 'image_url').map((c: any) => c.image_url.url);
@@ -396,16 +419,33 @@ watch(editText, () => {
               ></div>
             </Transition>
 
-            <!-- Waiting for stream (Animation 1: 盲文点阵) -->
-            <div v-if="message.isStreaming && !message.streamConnected && (!message.assistant || message.assistant.length === 0) && !thinkingContent" class="relative z-10 w-full flex items-center min-h-[32px] px-1">
-              <div class="stream-braille">
-                <span class="braille-dot"></span>
-                <span class="braille-dot"></span>
-                <span class="braille-dot"></span>
-                <span class="braille-dot"></span>
-                <span class="braille-dot"></span>
-                <span class="braille-dot"></span>
-              </div>
+            <!-- 等待指示分两段：HTTP 握手（CONNECTING，方括号逐格）→ SSE 已开、首 token 未到（WAITING，终端转轮）。
+                 首个可见输出（思考 / 正文 / 工具）出现即让位；CONNECTING 延迟 220ms 出现，避免快连接闪一下 -->
+            <div v-if="waitingForOutput" class="stream-status" role="status" aria-live="polite">
+              <span v-if="!message.streamConnected" class="status-branch link-wait" title="正在建立连接">
+                <span class="status-icon" aria-hidden="true">
+                  <span class="link-meter">
+                    <span class="meter-frame">[&nbsp;&nbsp;&nbsp;]</span>
+                    <span class="meter-frame">[·&nbsp;&nbsp;]</span>
+                    <span class="meter-frame">[··&nbsp;]</span>
+                    <span class="meter-frame">[···]</span>
+                  </span>
+                </span>
+                <span class="status-label" data-text="CONNECTING" aria-hidden="true">CONNECTING</span>
+                <span class="sr-only">正在建立连接</span>
+              </span>
+              <span v-else class="status-branch wait-wait" title="已连接，等待模型响应">
+                <span class="status-icon" aria-hidden="true">
+                  <span class="stream-spin">
+                    <span class="spin-frame">|</span>
+                    <span class="spin-frame">/</span>
+                    <span class="spin-frame">-</span>
+                    <span class="spin-frame">\</span>
+                  </span>
+                </span>
+                <span class="status-label" data-text="WAITING" aria-hidden="true">WAITING</span>
+                <span class="sr-only">已连接，等待模型响应</span>
+              </span>
             </div>
             <template v-for="(item, idx) in message.assistant" :key="idx">
               <!-- Reasoning content (per-segment)。思考过程经插值原地更新 text node、不重建节点，流式期间不会摧毁选区，无需冻结 -->
@@ -413,6 +453,17 @@ watch(editText, () => {
                 <div @click="toggleThinkingSegment(idx)" class="flex items-center gap-2 text-xs text-text-placeholder cursor-pointer hover:text-text-muted transition-colors py-1">
                   <Brain class="text-[10px] min-w-3 text-center" /><span>思考过程</span>
                   <ChevronRight class="text-[10px] transition-transform duration-200" :class="isThinkingSegmentExpanded(idx) ? 'rotate-90' : ''" />
+                  <!-- 折叠时的输出活性：只挂最新一段仍在输出的思考，正文/工具一出现立即让位 -->
+                  <span v-if="liveThinkingIdx === idx && !isThinkingSegmentExpanded(idx)" class="think-live" title="正在输出">
+                    <span class="think-live-label" data-text="THINKING" aria-hidden="true">THINKING</span>
+                    <span class="think-dots" aria-hidden="true">
+                      <span class="think-frame">·&nbsp;&nbsp;</span>
+                      <span class="think-frame">··&nbsp;</span>
+                      <span class="think-frame">···</span>
+                      <span class="think-frame"></span>
+                    </span>
+                    <span class="sr-only">正在输出</span>
+                  </span>
                 </div>
                 <div v-if="isThinkingSegmentExpanded(idx)" @dblclick="thinkingOverrides[idx] = false" class="mt-2 px-3 py-2 pl-4 rounded-none text-xs text-text-muted border-l-[3px] border-text-placeholder leading-relaxed whitespace-pre-wrap" style="background-color: var(--bg-hover);">{{ item.reasoning_content }}</div>
               </div>
@@ -438,11 +489,6 @@ watch(editText, () => {
                 </div>
               </template>
             </template>
-
-            <!-- Streaming active cursor (Animation 2): HTTP 流一连上即显示，不等文字 -->
-            <div v-if="message.isStreaming && (message.streamConnected || message.assistant?.length > 0 || thinkingContent)" class="relative z-10 flex items-center mt-2 mb-1 px-1 opacity-80 h-4">
-              <span class="stream-cursor"></span>
-            </div>
           </div>
 
           <!-- Assistant Actions -->
@@ -497,45 +543,281 @@ watch(editText, () => {
   user-select: none !important;
 }
 
-/* 连接动画：盲文点阵（2×3 方格，3 个亮块绕环旋转，等价经典 ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ 序列） */
-.stream-braille {
-  display: grid;
-  grid-template-columns: repeat(2, 4px);
-  grid-template-rows: repeat(3, 4px);
-  gap: 3px 6px;
-  padding: 7px 4px;
-}
-.stream-braille .braille-dot {
-  width: 4px;
-  height: 4px;
-  background-color: var(--primary);
-  opacity: 0.15;
-  animation: braille-spin 0.9s step-end infinite;
-}
-/* 亮块窗口沿环 [左上,左中,左下,右下,右中,右上] 每 0.15s 前移一格 */
-.stream-braille .braille-dot:nth-child(1) { animation-delay: -0.6s; }
-.stream-braille .braille-dot:nth-child(2) { animation-delay: -0.45s; }
-.stream-braille .braille-dot:nth-child(3) { animation-delay: -0.75s; }
-.stream-braille .braille-dot:nth-child(4) { animation-delay: -0.3s; }
-.stream-braille .braille-dot:nth-child(5) { animation-delay: 0s; }
-.stream-braille .braille-dot:nth-child(6) { animation-delay: -0.15s; }
-
-@keyframes braille-spin {
-  0% { opacity: 1; }
-  50%, 100% { opacity: 0.15; }
+/* 等待指示：HTTP 握手阶段用方括号逐格填充，SSE 已开后换成终端转轮 | / - \。
+   CONNECTING 分支延迟 220ms 出现，快连接时不会闪一下 */
+.stream-status {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-.stream-cursor {
+.status-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 1.2em;
+  flex: none;
+}
+
+.status-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 5ch;
+  height: 1.2em;
+  flex: none;
+}
+
+.status-label {
+  min-width: 4ch;
+  font-size: 0.75rem;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  color: var(--text-placeholder);
+}
+
+.link-wait {
+  animation: status-in 1ms steps(1, end) 0.22s both;
+}
+
+@keyframes status-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 方括号链路表：四帧硬切，[   ] → [·  ] → [·· ] → [···] 后清空重启 */
+.link-meter {
+  position: relative;
   display: inline-block;
-  width: 6px;
-  height: 14px;
-  background-color: var(--primary);
-  border-radius: 0;
-  animation: blink 1s step-end infinite;
+  width: 5ch;
+  height: 1.2em;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  color: var(--primary);
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+.link-meter .meter-frame {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: pre;
+  opacity: 0;
+  animation: meter-step 0.8s steps(1, end) infinite;
 }
+
+.link-meter .meter-frame:nth-child(1) { animation-delay: 0s; color: var(--text-placeholder); }
+.link-meter .meter-frame:nth-child(2) { animation-delay: 0.2s; }
+.link-meter .meter-frame:nth-child(3) { animation-delay: 0.4s; }
+.link-meter .meter-frame:nth-child(4) { animation-delay: 0.6s; }
+
+@keyframes meter-step {
+  0% { opacity: 1; }
+  25%, 100% { opacity: 0; }
+}
+
+/* 等待首 token：终端转轮 | / - \（经典 CLI spinner，比盲文点阵更贴合方正工具感）。
+   四帧每 0.15s 前移一格、一圈 0.6s；整组偶尔做一次 1px RGB 分离 */
+.stream-spin {
+  position: relative;
+  width: 1ch;
+  height: 1.2em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: inherit; /* 跟正文同字号（曾写死 14px，比 .prose 正文小一号，转轮和正文切换时会跳字号） */
+  line-height: 1.2;
+  color: var(--primary);
+}
+
+.stream-spin .spin-frame {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  animation: spin-step 0.6s steps(1, end) infinite;
+}
+
+.stream-spin .spin-frame:nth-child(1) { animation-delay: 0s; }
+.stream-spin .spin-frame:nth-child(2) { animation-delay: 0.15s; }
+.stream-spin .spin-frame:nth-child(3) { animation-delay: 0.3s; }
+.stream-spin .spin-frame:nth-child(4) { animation-delay: 0.45s; }
+
+@keyframes spin-step {
+  0% { opacity: 1; }
+  25%, 100% { opacity: 0; }
+}
+
+/* 折叠思考的 THINKING 活性点阵：跟在展开箭头后面，展开/收起只增减后缀，不推动标题。
+   四帧硬切，· → ·· → ··· → 空，1.2s 一圈 */
+.think-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1;
+}
+
+.think-live-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  color: var(--text-placeholder);
+}
+
+.think-dots {
+  position: relative;
+  display: inline-block;
+  width: 3ch;
+  height: 1em;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--primary);
+}
+
+.think-dots .think-frame {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: pre;
+  opacity: 0;
+  animation: think-step 1.2s steps(1, end) infinite;
+}
+
+.think-dots .think-frame:nth-child(1) { animation-delay: 0s; }
+.think-dots .think-frame:nth-child(2) { animation-delay: 0.3s; }
+.think-dots .think-frame:nth-child(3) { animation-delay: 0.6s; }
+.think-dots .think-frame:nth-child(4) { animation-delay: 0.9s; }
+
+@keyframes think-step {
+  0% { opacity: 1; }
+  25%, 100% { opacity: 0; }
+}
+
+/* 低频 glitch 点缀：标签的青/品红副本短暂切片撕裂，字形做 1px RGB 分离。
+   三层周期互相错开（4.6s / 5.9s / 5.3s），刚出现时先抖一次，之后偶尔失步 */
+.status-label,
+.think-live-label {
+  position: relative;
+  display: inline-block;
+}
+
+.status-label::before,
+.status-label::after,
+.think-live-label::before,
+.think-live-label::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.status-label::before,
+.think-live-label::before {
+  color: var(--glitch-cyan);
+  animation: status-label-tear-a 4.6s steps(1, end) infinite;
+}
+
+.status-label::after,
+.think-live-label::after {
+  color: var(--glitch-magenta);
+  animation: status-label-tear-b 5.9s steps(1, end) 40ms infinite;
+}
+
+/* CONNECTING 分支整体延迟 220ms 出现，撕裂同步对齐到出现时刻 */
+.link-wait .status-label::before { animation-delay: 220ms; }
+.link-wait .status-label::after { animation-delay: 260ms; }
+.link-wait .link-meter { animation-delay: 220ms; }
+
+@keyframes status-label-tear-a {
+  0% { opacity: 0.85; clip-path: inset(16% 0 58% 0); transform: translate(-1px, 0); }
+  1.4% { opacity: 0.9; clip-path: inset(62% 0 14% 0); transform: translate(1px, 0); }
+  2.8% { opacity: 0.6; clip-path: inset(38% 0 42% 0); transform: translate(-0.5px, 0); }
+  4.2%, 100% { opacity: 0; clip-path: inset(0 0 100% 0); transform: none; }
+}
+
+@keyframes status-label-tear-b {
+  0% { opacity: 0.75; clip-path: inset(58% 0 18% 0); transform: translate(1px, 0); }
+  1.6% { opacity: 0.85; clip-path: inset(10% 0 68% 0); transform: translate(-1px, 0); }
+  3.2%, 100% { opacity: 0; clip-path: inset(0 0 100% 0); transform: none; }
+}
+
+/* 括号表 / 转轮 / 点阵：整组做一次横向 1px 的 RGB 分离，随后回到干净字形 */
+.link-meter,
+.stream-spin,
+.think-dots {
+  animation: status-icon-tear 5.3s steps(1, end) infinite;
+}
+
+@keyframes status-icon-tear {
+  0% { filter: drop-shadow(1px 0 var(--glitch-cyan)) drop-shadow(-1px 0 var(--glitch-magenta)); transform: translateX(-1px); }
+  1.5% { filter: drop-shadow(-1px 0 var(--glitch-cyan)) drop-shadow(1px 0 var(--glitch-magenta)); transform: translateX(1px); }
+  3%, 100% { filter: none; transform: none; }
+}
+
+/* 减弱动态效果：转轮静止在首帧 |，链路表静止在一格，思考点阵静止在 ··· */
+@media (prefers-reduced-motion: reduce) {
+  .link-wait {
+    animation: none;
+  }
+
+  .link-meter .meter-frame {
+    animation: none;
+  }
+
+  .link-meter .meter-frame:nth-child(2) {
+    opacity: 1;
+  }
+
+  .stream-spin .spin-frame {
+    animation: none;
+  }
+
+  .stream-spin .spin-frame:nth-child(1) {
+    opacity: 1;
+  }
+
+  .think-dots .think-frame {
+    animation: none;
+  }
+
+  .think-dots .think-frame:nth-child(3) {
+    opacity: 1;
+  }
+
+  .status-label::before,
+  .status-label::after,
+  .think-live-label::before,
+  .think-live-label::after,
+  .link-meter,
+  .stream-spin,
+  .think-dots {
+    animation: none;
+  }
+
+  .status-label::before,
+  .status-label::after,
+  .think-live-label::before,
+  .think-live-label::after {
+    opacity: 0;
+  }
+
+  .link-meter,
+  .stream-spin,
+  .think-dots {
+    filter: none;
+    transform: none;
+  }
+}
+
+
 </style>
