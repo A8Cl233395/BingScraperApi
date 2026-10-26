@@ -12,8 +12,11 @@ from anthropic.types import (
     ContentBlockDeltaEvent,
     ContentBlockStartEvent,
     InputJSONDelta,
+    RedactedThinkingBlock,
+    SignatureDelta,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
     ThinkingDelta,
     ToolUseBlock,
 )
@@ -421,11 +424,12 @@ class StreamingCache:
 @dataclass
 class StreamEvent:
     """三种协议（chat-completions / responses / anthropic）归一化后的流式事件"""
-    kind: str  # "thinking" | "content" | "tool_start" | "tool_args"
+    kind: str  # "thinking" | "content" | "tool_start" | "tool_args" | "thinking_block" | "signature" | "redacted" | "reasoning_item"
     text: str = ""
     index: int | None = None
     call_id: str | None = None
     name: str | None = None
+    payload: Any = None  # redacted 的密文 / reasoning_item 的原生回放对象（id/summary/encrypted_content）
 
 @dataclass
 class UserSession:
@@ -836,10 +840,15 @@ class ChatInstance:
                 yield event
 
     async def _ai_completions(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
+        # 消息准备（内联）：chat-completions 协议没有原生思考凭据回放，剥掉 reasoning_model/reasoning_blob 再发
+        clean_messages = [
+            {k: v for k, v in msg.items() if k not in ("reasoning_model", "reasoning_blob")}
+            for msg in messages
+        ]
         model_config = MODELS[model]
         params = {
             "model": model,
-            "messages": messages,
+            "messages": clean_messages,
             "stream": True
         }
         if enable_function:
@@ -867,85 +876,19 @@ class ChatInstance:
                         yield StreamEvent("tool_args", index=tool_call.index, text=tool_call.function.arguments)
 
     async def _ai_responses(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
-        # responses API 不接受 system role 消息，system 提出到 instructions 参数
+        # 消息准备（内联）：system 提出到 instructions；tool_calls 拆成 function_call item，
+        # tool 消息转为 function_call_output；同模型的 encrypted_content 回放为 reasoning item
         model_config = MODELS[model]
-        instructions, input_messages = self._prepare_responses_messages(messages)
-        params = {
-            "model": model,
-            "input": input_messages,
-            "instructions": instructions,
-            "stream": True,
-        }
-        if enable_function:
-            params["tools"] = self.responses_tools
-        params.update(construct_params(model_config, thinking, "responses"))
-        if "max_tokens" in model_config:
-            params["max_output_tokens"] = model_config["max_tokens"]
-
-        client = get_oclient(model)
-        completion = await client.responses.create(**params)
-        call_indices: dict[str, int] = {}
-        call_index = 0
-        async for event in completion:
-            match event.type:
-                case "response.output_item.added":
-                    item = event.item
-                    if item.type == "function_call":
-                        call_indices[item.id] = call_index
-                        yield StreamEvent("tool_start", index=call_index, call_id=item.call_id, name=item.name)
-                        call_index += 1
-                case "response.function_call_arguments.delta":
-                    yield StreamEvent("tool_args", index=call_indices[event.item_id], text=event.delta)
-                case "response.output_text.delta":
-                    yield StreamEvent("content", text=event.delta)
-                case "response.reasoning_summary_text.delta":
-                    yield StreamEvent("thinking", text=event.delta)
-                case "response.reasoning_text.delta":
-                    yield StreamEvent("thinking", text=event.delta)
-
-    async def _ai_anthropic(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
-        # anthropic 协议不接受 system role 消息，system 提出到顶层参数
-        model_config = MODELS[model]
-        system, anthropic_messages = self._prepare_anthropic_messages(messages)
-        params = {
-            "model": model,
-            "messages": anthropic_messages,
-            "system": system,
-            "max_tokens": model_config["max_tokens"],
-        }
-        if enable_function:
-            params["tools"] = self.anthropic_tools
-        params.update(construct_params(model_config, thinking, "anthropic"))
-
-        client = get_aclient(model)
-        tool_indices = {}
-        tool_index = 0
-        async with client.messages.stream(**params) as chunk_stream:
-            async for event in chunk_stream:
-                if isinstance(event, ContentBlockStartEvent):
-                    if isinstance(event.content_block, ToolUseBlock):
-                        tool_indices[event.index] = tool_index
-                        yield StreamEvent("tool_start", index=tool_index, call_id=event.content_block.id, name=event.content_block.name)
-                        tool_index += 1
-                elif isinstance(event, ContentBlockDeltaEvent):
-                    if isinstance(event.delta, ThinkingDelta):
-                        yield StreamEvent("thinking", text=event.delta.thinking)
-                    elif isinstance(event.delta, TextDelta):
-                        yield StreamEvent("content", text=event.delta.text)
-                    elif isinstance(event.delta, InputJSONDelta):
-                        index = tool_indices.get(event.index)
-                        if index is not None:
-                            yield StreamEvent("tool_args", index=index, text=event.delta.partial_json)
-
-    def _prepare_responses_messages(self, messages: list) -> tuple[str, list]:
-        """
-        将内部 OpenAI 格式消息转换为 responses API 输入格式
-        system 消息拆出为 instructions；工具调用和工具结果转为顶层 input item
-        """
         instructions = messages[0]["content"]
         input_messages = []
         for msg in messages[1:]:
+            # 思考凭据只在思考开启且模型一致时原样展开回放（blob 为原生对象列表，兼容旧单对象格式）
+            blob = msg.get("reasoning_blob")
+            replay_items: list[dict] = []
+            if blob and thinking and msg.get("reasoning_model") == model:
+                replay_items = [dict(blob)] if isinstance(blob, dict) else [dict(b) for b in blob]
             if msg["role"] == "assistant" and msg.get("tool_calls"):
+                input_messages.extend(replay_items)
                 if msg.get("content"):
                     input_messages.append({"role": "assistant", "content": msg["content"]})
                 input_messages.extend(
@@ -964,6 +907,7 @@ class ChatInstance:
                     "output": msg["content"],
                 })
             elif msg["role"] == "assistant":
+                input_messages.extend(replay_items)
                 input_messages.append({"role": "assistant", "content": msg.get("content") or ""})
             elif isinstance(msg["content"], list):
                 content = []
@@ -975,14 +919,70 @@ class ChatInstance:
                 input_messages.append({"role": msg["role"], "content": content})
             else:
                 input_messages.append({"role": msg["role"], "content": msg["content"]})
-        return instructions, input_messages
+        params = {
+            "model": model,
+            "input": input_messages,
+            "instructions": instructions,
+            "stream": True,
+        }
+        if enable_function:
+            params["tools"] = self.responses_tools
+        params.update(construct_params(model_config, thinking, "responses"))
+        if "max_tokens" in model_config:
+            params["max_output_tokens"] = model_config["max_tokens"]
 
-    def _prepare_anthropic_messages(self, messages: list) -> tuple[list, list]:
-        """
-        将内部 OpenAI 格式消息转换为 anthropic messages 输入格式
-        system 消息拆出为顶层参数；image_url 转为 base64 image block；assistant 的 tool_calls 转为 tool_use block；
-        tool 消息合并为 user 消息的 tool_result block
-        """
+        client = get_oclient(model)
+        completion = await client.responses.create(**params)
+        call_indices: dict[str, int] = {}
+        call_index = 0
+        delta_buf: dict[tuple[str, str, int], str] = {}  # (轨道, item_id, 下标) → 文本，done item 没回传对应块时的兜底
+        async for event in completion:
+            match event.type:
+                case "response.output_item.added":
+                    item = event.item
+                    if item.type == "function_call":
+                        call_indices[item.id] = call_index
+                        yield StreamEvent("tool_start", index=call_index, call_id=item.call_id, name=item.name)
+                        call_index += 1
+                case "response.output_item.done":
+                    # reasoning item 结束时才带完整内容。回放对象保持原生 item 形状（去掉仅输出的 status）：
+                    # summary/content 两条轨道都存——官方 schema 回传必填 id/type/summary（summary 没有则 []），
+                    # deepseek 思考文本在 content 轨道且回读 content，encrypted_content 仅官方端点有
+                    item = event.item
+                    if item.type == "reasoning":
+                        item_key = getattr(item, "id", None) or ""
+                        # 以 done item 为准；上游流了 delta 却没在 item 回传对应块时按轨道下标兜底
+                        summary = [{"type": b.type, "text": b.text} for b in (getattr(item, "summary", None) or [])] \
+                            or [{"type": "summary_text", "text": text} for (t, k, _i), text in sorted(delta_buf.items()) if t == "summary" and k == item_key]
+                        content = [{"type": b.type, "text": b.text} for b in (getattr(item, "content", None) or [])] \
+                            or [{"type": "reasoning_text", "text": text} for (t, k, _i), text in sorted(delta_buf.items()) if t == "content" and k == item_key]
+                        replay: dict = {"type": "reasoning"}
+                        if item_key:
+                            replay["id"] = item.id
+                        replay["summary"] = summary
+                        if content:
+                            replay["content"] = content
+                        if getattr(item, "encrypted_content", None):
+                            replay["encrypted_content"] = item.encrypted_content
+                        if summary or content or "encrypted_content" in replay:
+                            yield StreamEvent("reasoning_item", payload=replay)
+                case "response.function_call_arguments.delta":
+                    yield StreamEvent("tool_args", index=call_indices[event.item_id], text=event.delta)
+                case "response.output_text.delta":
+                    yield StreamEvent("content", text=event.delta)
+                case "response.reasoning_summary_text.delta":
+                    key = ("summary", getattr(event, "item_id", None) or "", getattr(event, "summary_index", None) or 0)
+                    delta_buf[key] = delta_buf.get(key, "") + event.delta
+                    yield StreamEvent("thinking", text=event.delta)
+                case "response.reasoning_text.delta":
+                    key = ("content", getattr(event, "item_id", None) or "", getattr(event, "content_index", None) or 0)
+                    delta_buf[key] = delta_buf.get(key, "") + event.delta
+                    yield StreamEvent("thinking", text=event.delta)
+
+    async def _ai_anthropic(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
+        # 消息准备（内联）：system 提出到顶层参数；tool_calls 转 tool_use block，
+        # tool 消息合并成 user 的 tool_result block；同模型的 thinking 块（带 signature）插到 assistant 内容最前
+        model_config = MODELS[model]
         system = [{"type": "text", "text": messages[0]["content"]}]
         anthropic_messages = []
         for msg in messages[1:]:
@@ -1002,6 +1002,11 @@ class ChatInstance:
                 continue
             if msg["role"] == "assistant" and msg.get("tool_calls"):
                 content = []
+                # 思考凭据只在思考开启且模型一致时原样展开回放（blob 为原生块列表，兼容旧单对象格式）。
+                # thinking / redacted_thinking 块必须原样置于 tool_use 之前（signature 会被逐块校验）
+                blob = msg.get("reasoning_blob")
+                if blob and thinking and msg.get("reasoning_model") == model:
+                    content.extend(dict(b) for b in ([blob] if isinstance(blob, dict) else blob))
                 if msg.get("content"):
                     content.append({"type": "text", "text": msg["content"]})
                 for tc in msg["tool_calls"]:
@@ -1032,7 +1037,45 @@ class ChatInstance:
             else:
                 content = msg["content"]
             anthropic_messages.append({"role": msg["role"], "content": content})
-        return system, anthropic_messages
+        params = {
+            "model": model,
+            "messages": anthropic_messages,
+            "system": system,
+            "max_tokens": model_config["max_tokens"],
+        }
+        if enable_function:
+            params["tools"] = self.anthropic_tools
+        params.update(construct_params(model_config, thinking, "anthropic"))
+
+        client = get_aclient(model)
+        tool_indices = {}
+        tool_index = 0
+        async with client.messages.stream(**params) as chunk_stream:
+            async for event in chunk_stream:
+                if isinstance(event, ContentBlockStartEvent):
+                    if isinstance(event.content_block, ToolUseBlock):
+                        tool_indices[event.index] = tool_index
+                        yield StreamEvent("tool_start", index=tool_index, call_id=event.content_block.id, name=event.content_block.name)
+                        tool_index += 1
+                    elif isinstance(event.content_block, ThinkingBlock):
+                        # 思考块边界：一条 assistant 消息可能有多个 thinking / redacted_thinking 块，
+                        # signature 按块累积，不能跨块拼接
+                        yield StreamEvent("thinking_block")
+                    elif isinstance(event.content_block, RedactedThinkingBlock):
+                        # 服务端扣留的思考，只回传密文本身
+                        yield StreamEvent("redacted", payload=event.content_block.data)
+                elif isinstance(event, ContentBlockDeltaEvent):
+                    if isinstance(event.delta, ThinkingDelta):
+                        yield StreamEvent("thinking", text=event.delta.thinking)
+                    elif isinstance(event.delta, SignatureDelta):
+                        # thinking 块的签名，工具循环回传时必须原样带上
+                        yield StreamEvent("signature", text=event.delta.signature)
+                    elif isinstance(event.delta, TextDelta):
+                        yield StreamEvent("content", text=event.delta.text)
+                    elif isinstance(event.delta, InputJSONDelta):
+                        index = tool_indices.get(event.index)
+                        if index is not None:
+                            yield StreamEvent("tool_args", index=index, text=event.delta.partial_json)
 
     async def __call__(self, node_id, content, model=None, vmodel=None, thinking=None, enable_function=None, current_messages: list | None = None, current_node_assistant_messages=None, _model=None) -> AsyncGenerator[str | asyncio.Task, None]:
         try:
@@ -1053,6 +1096,8 @@ class ChatInstance:
             # 开始生成
             answering_content = ""
             reasoning_content = ""
+            reasoning_blocks: list[dict] = []  # 本段的原生思考凭据块，按出现顺序（anthropic thinking/redacted_thinking、responses reasoning item）
+            cur_thinking: dict | None = None  # anthropic 正在流入的 thinking 块
             is_thinking = False
             is_answering = False
             tool_calls = []
@@ -1063,7 +1108,23 @@ class ChatInstance:
                         is_thinking = True
                         yield self._sse("thinking", "signal")
                     reasoning_content += ev.text
+                    if cur_thinking is None: # 上游没发块起始事件时兜底
+                        cur_thinking = {"type": "thinking", "thinking": "", "signature": ""}
+                        reasoning_blocks.append(cur_thinking)
+                    cur_thinking["thinking"] += ev.text
                     yield self._sse(ev.text)
+                elif ev.kind == "thinking_block":
+                    cur_thinking = {"type": "thinking", "thinking": "", "signature": ""}
+                    reasoning_blocks.append(cur_thinking)
+                elif ev.kind == "signature":
+                    if cur_thinking is None:
+                        cur_thinking = {"type": "thinking", "thinking": "", "signature": ""}
+                        reasoning_blocks.append(cur_thinking)
+                    cur_thinking["signature"] += ev.text
+                elif ev.kind == "redacted":
+                    reasoning_blocks.append({"type": "redacted_thinking", "data": ev.payload})
+                elif ev.kind == "reasoning_item":
+                    reasoning_blocks.append(ev.payload) # responses 的原生 reasoning item
                 elif ev.kind == "content":
                     if not is_answering:
                         yield self._sse("answering", "signal")
@@ -1112,6 +1173,12 @@ class ChatInstance:
                 current_node_assistant_messages.append({"role": "assistant", "content": answering_content})
                 if is_thinking:
                     current_node_assistant_messages[-1]["reasoning_content"] = reasoning_content
+                # 思考凭据只在存在时存储，格式即原生回放对象列表（anthropic 的 thinking/redacted_thinking 块、
+                # responses 的 reasoning item，按出现顺序；一条 assistant 消息可能有多个块），
+                # 按 reasoning_model 校验后原样展开回放；chat-completions 协议不产生，自然没有这些键
+                if reasoning_blocks:
+                    current_node_assistant_messages[-1]["reasoning_blob"] = reasoning_blocks
+                    current_node_assistant_messages[-1]["reasoning_model"] = _model
                 # 更新chat_tree
                 node_id = self._update_node(node_id, current_node_assistant_messages)
             else:
@@ -1127,6 +1194,10 @@ class ChatInstance:
                 if is_thinking:
                     current_node_assistant_messages[-1]["reasoning_content"] = reasoning_content
                     current_messages[-1]["reasoning_content"] = reasoning_content
+                if reasoning_blocks: # 凭据说明同上；下一轮续跑也要带上
+                    for m in (current_node_assistant_messages[-1], current_messages[-1]):
+                        m["reasoning_blob"] = reasoning_blocks
+                        m["reasoning_model"] = _model
                 current_messages.extend(tool_responses)
                 current_node_assistant_messages.extend(tool_responses)
                 async for data in self.__call__(
@@ -1561,14 +1632,24 @@ class Webchat:
     def get_message(self, user_id: int, chat_id: int):
         user = usermanager.get_user(user_id)
         if chat_id in user.chat_cache:
-            return user.chat_cache[chat_id].chat_tree
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute(f"SELECT compressed_message FROM u{user_id} WHERE id = ?", (chat_id,))
-            compressed = cursor.fetchone()
-        if compressed is None:
-            raise HTTPException(status_code=404, detail="bad chat id")
-        return self._decompress(compressed[0])
+            tree = user.chat_cache[chat_id].chat_tree
+        else:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"SELECT compressed_message FROM u{user_id} WHERE id = ?", (chat_id,))
+                compressed = cursor.fetchone()
+            if compressed is None:
+                raise HTTPException(status_code=404, detail="bad chat id")
+            tree = self._decompress(compressed[0])
+        # 思考凭据（reasoning_model/reasoning_blob）不下发：体积可观且前端用不上，
+        # 回放由后端按 reasoning_model 匹配完成。返回副本，chat_cache 里的活树不能动
+        return {
+            node_id: ({**node, "assistant": [
+                {k: v for k, v in msg.items() if k not in ("reasoning_model", "reasoning_blob")}
+                for msg in node.get("assistant", [])
+            ]} if isinstance(node, dict) else node)
+            for node_id, node in tree.items()
+        }
     
     async def chat(self, user_id: int, request: ChatPost):
         user = usermanager.get_user(user_id)
