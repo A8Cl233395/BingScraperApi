@@ -14,8 +14,12 @@ let lastTouchMidX = 0;
 let lastTouchMidY = 0;
 
 const fitScale = ref(1);
-// 打开时的自动适配必须直接落定、不播缩放动画：适配完成前禁用 transform 过渡
+// 打开时的自动适配必须直接落定、不播缩放动画：
+// - 适配完成前先隐藏图片，避免 <img> 先按原始尺寸（或 0 尺寸）参与布局后再缩放到位
+// - 适配结果落定后再单独开启过渡，保证首帧不会把 1 → fitScale 的跳变补成动画
 const fitted = ref(false);
+const transitionEnabled = ref(false);
+let transitionRaf = 0;
 
 // 移动端浏览器/系统返回键关闭预览：打开时压入一条不改变 URL 的历史记录，
 // 返回键触发 popstate 时关闭预览；点击关闭按钮则主动回退该记录，避免历史栈堆积
@@ -31,11 +35,18 @@ watch(() => state.previewImageUrl, (newUrl) => {
   if (newUrl) {
     fitScale.value = 1;
     fitted.value = false;
+    transitionEnabled.value = false;
+    cancelAnimationFrame(transitionRaf);
     resetView();
     if (!previewPushed) {
       previewPushed = true;
       window.history.pushState({ imagePreview: true }, '');
     }
+  } else {
+    // 关闭时同步清掉显示/过渡状态，避免下次打开复用上一张图的残留
+    fitted.value = false;
+    transitionEnabled.value = false;
+    cancelAnimationFrame(transitionRaf);
   }
 });
 
@@ -55,11 +66,20 @@ const handleImageLoad = async (e: Event) => {
     fitScale.value = Math.min(scaleX, scaleY, 1);
     resetView();
   }
-  // 适配结果先无过渡写入 DOM 并强制重排落定，再开启后续缩放/拖拽的过渡，
-  // 否则打开瞬间的 1 → fitScale 跳变会播放缩放动画
+  // 适配结果先无过渡写入 DOM 并强制重排落定（此时图片仍隐藏），
+  // 再显示图片，最后才开启后续缩放/拖拽的过渡
   await nextTick();
   void img.offsetWidth;
   fitted.value = true;
+  transitionRaf = requestAnimationFrame(() => {
+    if (fitted.value) transitionEnabled.value = true;
+  });
+};
+
+const handleImageError = () => {
+  // 加载失败时也显示出来，至少能看到破损图标/替代文本，避免遮罩一片空白
+  fitted.value = true;
+  transitionEnabled.value = true;
 };
 
 const closePreview = () => {
@@ -217,6 +237,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  cancelAnimationFrame(transitionRaf);
   window.removeEventListener('mousemove', handleMouseMove);
   window.removeEventListener('mouseup', handleMouseUp);
   window.removeEventListener('popstate', handlePopState);
@@ -250,9 +271,14 @@ onUnmounted(() => {
         <img :src="state.previewImageUrl"
              alt="Preview"
              class="max-w-none max-h-none object-contain select-none"
-             :class="[isDragging ? 'cursor-grabbing' : 'cursor-grab', fitted ? 'transition-transform duration-75 ease-out' : '']"
+             :class="[
+               isDragging ? 'cursor-grabbing' : 'cursor-grab',
+               fitted ? '' : 'invisible',
+               transitionEnabled ? 'transition-transform duration-75 ease-out' : ''
+             ]"
              :style="{ transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`, touchAction: 'none' }"
              @load="handleImageLoad"
+             @error="handleImageError"
              @mousedown="handleMouseDown"
              @touchstart="handleTouchStart"
              @touchmove="handleTouchMove"
