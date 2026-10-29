@@ -22,27 +22,11 @@ export default defineConfig({
         invite: resolve(__dirname, 'invite.html'),
         profile: resolve(__dirname, 'profile.html'),
       },
-      output: {
-        manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (id.includes('lucide')) {
-              return 'icons';
-            }
-            if (id.includes('vue')) {
-              return 'vendor';
-            }
-            if (id.includes('axios')) {
-              return 'core';
-            }
-            if (id.includes('@microsoft')) {
-              return 'sse';
-            }
-            if (id.includes('marked') || id.includes('katex') || id.includes('highlight.js') || id.includes('dompurify')) {
-              return 'markdown';
-            }
-          }
-        }
-      }
+      // 注意：不要用 manualChunks 手动分包。rolldown 下它会把 axios 等库切到独立
+      // chunk，而 CJS 互操作辅助函数（var 赋值、不提升）落到共享 chunk（含 api/store，
+      // 又反向 import 库 chunk），形成 chunk 循环依赖：库 chunk 顶层先求值时拿到的
+      // 辅助函数还是 undefined，报 "TypeError: undefined is not a function"。
+      // dev 无 chunk 切分故不复现。交由 rolldown 自动分包即可（循环模块会同 chunk）。
     }
   }
 })
