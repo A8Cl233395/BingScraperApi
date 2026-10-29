@@ -487,7 +487,7 @@ class User:
     def save(self):
         with self.lock:
             if not self._edited:
-                logger.debug(f"跳过保存用户 {self.user_id}")
+                # logger.debug(f"跳过保存用户 {self.user_id}")
                 return
             # 临时文件 + rename 原子替换：daemon 周期写盘后进程被强杀不再产生截断的 JSON
             tmp_path = f"link_datas/{self.user_id}.json.tmp"

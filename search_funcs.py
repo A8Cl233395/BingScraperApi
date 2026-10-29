@@ -205,7 +205,8 @@ class BingCrawler(SearchModel):
                     raise RuntimeError("预热失败！")
 
             while True:
-                for _ in range(2):
+                last_error = ""
+                for attempt in range(2):
                     first = len(results) + 1 if results else ""
                     url = (
                         f"https://www.bing.com/search?q={quote_plus(query)}"
@@ -216,13 +217,17 @@ class BingCrawler(SearchModel):
                         if self.strict_anti_crawl_model:
                             await self._press_inputbox_enter(page)
                     except PwTimeoutError:
+                        # 超时无 traceback 可打，记录 URL 与超时值便于定位网络问题
+                        last_error = f"第{attempt + 1}次页面加载超时({self.timeout}ms): {url}"
+                        logger.warning(f"必应搜索{last_error}")
                         continue
-                    except Exception:
-                        logger.exception("搜索失败")
+                    except Exception as e:
+                        last_error = f"第{attempt + 1}次页面加载异常 {type(e).__name__}: {e}"
+                        logger.exception(f"必应搜索{last_error} url={url}")
                         continue
                     break
                 else:
-                    raise RuntimeError("无法搜索！网络正常吗？")
+                    raise RuntimeError(f"无法搜索！网络正常吗？({last_error})")
 
                 page_results = await page.evaluate("""
                     () => {
@@ -313,7 +318,7 @@ class ExaSearch(SearchModel):
     def __init__(self, api_key: None | str = None):
         self.api_key: None | str = api_key
         self.cooldown_until: float = 0
-        self.client = httpx.Client(http2=True, base_url="https://mcp.exa.ai")
+        self.client = httpx.Client(base_url="https://mcp.exa.ai")
 
     def _call_mcp(self, method: str, params: dict) -> dict | None:
         payload = {
@@ -397,7 +402,7 @@ class DeepseekSearch(SearchModel):
     def __init__(self, api_key: None | str = None):
         self.api_key: None | str = api_key
         self.cooldown_until: float = 0
-        self.client = httpx.Client(http2=True, base_url="https://api.deepseek.com")
+        self.client = httpx.Client(base_url="https://api.deepseek.com")
 
     def _call_api(self, path: str, payload: dict) -> dict | None:
         headers = {"Content-Type": "application/json"}
