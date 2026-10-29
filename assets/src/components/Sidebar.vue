@@ -310,7 +310,6 @@ const indicatorTop = ref(0);
 const indicatorHeight = ref(0);
 const indicatorReady = ref(false);
 const justClickedId = ref<number | null>(null);
-let clickAnimTimer: ReturnType<typeof setTimeout> | null = null;
 
 const indicatorVisible = computed(
   () => hoveredId.value !== null && hoveredId.value !== state.currentChatId
@@ -365,72 +364,30 @@ const repositionIndicator = () => {
   });
 };
 
-// 左上角相对盒子中心的锥形角度（0° = 正上方，顺时针）
-const sweepFrom = (w: number, h: number) => 270 + (Math.atan(h / w) * 180) / Math.PI;
-
-// 生成 linear() 缓动采样：让锥形角度沿周长弧长线性推进（匀速扫过边框）
-const buildSweepEasing = (w: number, h: number, from: number): string => {
-  const hw = w / 2;
-  const hh = h / 2;
-  const deg = (r: number) => (r * 180) / Math.PI;
-  const N = 60;
-  const pts: string[] = ['0'];
-  let prev = from;
-  for (let i = 1; i <= N; i++) {
-    const s = (i / N) * 2 * (w + h);
-    let r: number;
-    if (s <= w) {
-      r = Math.atan2(-hw + s, hh); // 顶边
-    } else if (s <= w + h) {
-      r = Math.atan2(hw, hh - (s - w)); // 右边
-    } else if (s <= 2 * w + h) {
-      r = Math.atan2(hw - (s - w - h), -hh); // 底边
-    } else {
-      r = Math.atan2(-hw, -(hh - (s - 2 * w - h))); // 左边
-    }
-    let a = ((deg(r) % 360) + 360) % 360;
-    while (a < prev) a += 360;
-    prev = a;
-    pts.push(`${((a - from) / 360).toFixed(4)} ${((i / N) * 100).toFixed(2)}%`);
-  }
-  return `linear(${pts.join(', ')})`;
-};
-
-// 点击时触发虚线→实线扫描动画，起点精确对准条目左上角且沿周长匀速
-const sweepEasingCache = new Map<string, string>();
-const getSweepEasing = (w: number, h: number, from: number): string => {
-  const key = `${w}x${h}x${from.toFixed(1)}`;
-  let easing = sweepEasingCache.get(key);
-  if (!easing) {
-    easing = buildSweepEasing(w, h, from);
-    sweepEasingCache.set(key, easing);
-  }
-  return easing;
-};
-
-let sweepTarget: number | null = null;
-
+// 点击时触发虚线→实线扫描动画：SVG 实线描边沿周长从左上角顺时针逐段画出（rect 路径起点即左上角），
+// dash 沿路径推进天然匀速，无需角度↔弧长换算；WAAPI 驱动，连点直接重调 animate() 即重播
 const onItemClick = (e: MouseEvent, id: number) => {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const el = e.currentTarget as HTMLElement;
-  const w = el.offsetWidth;
-  const h = el.offsetHeight;
-  const from = sweepFrom(w, h);
-  el.style.setProperty('--sb-from', `${from.toFixed(2)}deg`);
-  el.style.animationTimingFunction = getSweepEasing(w, h, from);
-  sweepTarget = id;
-  if (justClickedId.value !== id) {
-    justClickedId.value = id;
-  } else {
-    // 连续点击同一条目：class 不变不会重播动画，先移除再在下一帧恢复
-    justClickedId.value = null;
-    requestAnimationFrame(() => {
-      if (sweepTarget === id) justClickedId.value = id;
-    });
-  }
-  if (clickAnimTimer) clearTimeout(clickAnimTimer);
-  clickAnimTimer = setTimeout(() => {
-    justClickedId.value = null;
-  }, 600);
+  const solid = el.querySelector<SVGRectElement>('.box-solid');
+  if (!solid) return;
+  justClickedId.value = id;
+  // rect 周长 = 2(w+h)，+4 余量抵消 offsetWidth/Height 取整，确保末端闭合；
+  // dash 长度取全周长，offset 周长→0 时逐段画满
+  const L = 2 * (el.offsetWidth + el.offsetHeight) + 4;
+  solid.style.strokeDasharray = `${L} ${L}`;
+  solid.getAnimations().forEach(a => a.cancel()); // 取消上一次未完成的扫描，避免叠加
+  const anim = solid.animate(
+    [{ strokeDashoffset: L }, { strokeDashoffset: 0 }],
+    { duration: 450, easing: 'linear' },
+  );
+  // 成功结束才清 is-anim（连点取消旧动画时 finished 会 reject，吞掉，避免误清新一轮）
+  anim.finished.then(
+    () => {
+      if (justClickedId.value === id) justClickedId.value = null;
+    },
+    () => {},
+  );
 };
 
 // --- 滚动加载更多 ---
@@ -685,9 +642,9 @@ const confirmDelete = () => {
               pressingChatId === chat[0] ? 'scale-[0.98] bg-bg-hover' : ''
             ]"
           >
-            <!-- 选择框图层：虚线（扫描轨道）+ 实线（选中态） -->
-            <span class="box-dashed" aria-hidden="true"></span>
-            <span class="box-solid" aria-hidden="true"></span>
+            <!-- 选择框图层：虚线轨道（未扫描）+ 实线描画（已扫描），SVG 描边沿周长逐段画出 -->
+            <svg class="box-frame" aria-hidden="true"><rect class="box-dashed" width="100%" height="100%" /></svg>
+            <svg class="box-frame box-draw" aria-hidden="true"><rect class="box-solid" width="100%" height="100%" /></svg>
             <!-- Selected effect -->
             <Transition name="fade">
               <div 
@@ -820,58 +777,46 @@ const confirmDelete = () => {
   background-color: rgba(255, 255, 255, 0.85);
 }
 
-/* 扫描角度：360° 为完整实线（不支持 @property 时退化为直接显示） */
-@property --sb-sweep {
-  syntax: '<angle>';
-  inherits: true;
-  initial-value: 360deg;
-}
-
 .chat-item {
-  --sb-sweep: 360deg;
   /* 颜色 + 按压缩放（scale-[0.98]）统一平滑过渡 */
   transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
 }
 
-/* 选中态选择框：稍亮白色外圈 + 蓝色实线 */
-.box-solid,
-.box-dashed {
+/* 选择框图层：SVG 描边替代 CSS border，stroke-width 2 超出 SVG viewport 的一半被默认裁切 = 1px 内描边 */
+.box-frame {
   position: absolute;
   inset: 0;
+  /* SVG 是替换元素，inset: 0 不会拉伸（auto 取固有尺寸 300×150），需显式定尺寸 */
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s ease;
 }
-.box-solid {
-  border: 1px solid var(--sb-blue);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
-  /* 实线框：仅已扫过的区域可见；起点角度由 JS 写入 --sb-from，对准左上角 */
-  -webkit-mask: conic-gradient(from var(--sb-from, 315deg), #000 var(--sb-sweep), transparent var(--sb-sweep));
-  mask: conic-gradient(from var(--sb-from, 315deg), #000 var(--sb-sweep), transparent var(--sb-sweep));
+.box-frame rect {
+  fill: none;
+  stroke: var(--sb-blue);
+  stroke-width: 2;
 }
+/* 虚线轨道（未扫描区域），实线描画层逐段盖在上面 */
 .box-dashed {
-  border: 1px dashed var(--sb-blue);
-  /* 虚线框：仅未扫到的区域可见，被实线逐段覆盖 */
-  -webkit-mask: conic-gradient(from var(--sb-from, 315deg), transparent var(--sb-sweep), #000 var(--sb-sweep));
-  mask: conic-gradient(from var(--sb-from, 315deg), transparent var(--sb-sweep), #000 var(--sb-sweep));
+  stroke-dasharray: 3 3;
 }
-.chat-item.is-active .box-solid {
-  opacity: 1;
+/* 默认全长实线 = 选中态整圈；点击扫描由 WAAPI 把 dashoffset 从周长线性扫回 0 */
+.box-solid {
+  stroke-dashoffset: 0;
+}
+/* 白色外圈光晕只作用于已画出的实线像素，跟随扫描进度 */
+.box-draw {
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.3));
 }
 
-/* 点击动画：实线从左上角沿虚线扫一圈逐段覆盖；角度匀速，实际线速度由 JS 写入的
-   linear() 缓动按条目宽高比修正（不支持的浏览器退化为匀角速） */
-.chat-item.is-anim {
-  animation: sb-sweep 0.45s linear both;
-}
-.chat-item.is-anim .box-solid,
-.chat-item.is-anim .box-dashed {
+.chat-item.is-active .box-frame,
+.chat-item.is-anim .box-frame {
   opacity: 1;
+}
+/* 扫描启动瞬间直接显示，结束后未选中则淡出 */
+.chat-item.is-anim .box-frame {
   transition: none;
-}
-
-@keyframes sb-sweep {
-  from { --sb-sweep: 0deg; }
-  to { --sb-sweep: 360deg; }
 }
 </style>
