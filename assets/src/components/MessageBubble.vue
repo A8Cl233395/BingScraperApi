@@ -74,6 +74,7 @@ let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 onBeforeUnmount(() => {
   if (copiedTimer) clearTimeout(copiedTimer);
+  if (exportedTimer) clearTimeout(exportedTimer);
 });
 
 watch(() => props.nodeId, () => {
@@ -91,7 +92,7 @@ const {
   startLongPress: startLongPressBase,
   cancelLongPress,
   closeMenu,
-} = useLongPress({ menuWidth: 160, menuHeight: 130 });
+} = useLongPress({ menuWidth: 160, menuHeight: props.isUser ? 130 : 165 });
 
 const startLongPress = (e: TouchEvent) => {
   if (!state.isMobile || isEditing.value) return;
@@ -149,6 +150,46 @@ const handleEditAction = () => {
 const handleRegenerateAction = () => {
   emit('regenerate', props.nodeId);
   closeMenu();
+};
+
+// === 导出图片（仅正文，直接下载 PNG）===
+const exporting = ref(false);
+const exported = ref(false);
+let exportedTimer: ReturnType<typeof setTimeout> | null = null;
+
+// 流式中内容不完整、没有正文段时不可导出
+const canExportImage = computed(() =>
+  !props.isUser &&
+  !props.message?.isStreaming &&
+  !!props.message?.assistant?.some((m: any) => m.role === 'assistant' && m.content && m.content.trim())
+);
+
+const showExportFeedback = () => {
+  if (exportedTimer) clearTimeout(exportedTimer);
+  exported.value = true;
+  exportedTimer = setTimeout(() => { exported.value = false; }, 2000);
+};
+
+const handleExportImage = async () => {
+  if (exporting.value || !canExportImage.value) return;
+  exporting.value = true;
+  try {
+    // 懒加载：导出模块与 html-to-image 都只在首次导出时才拉取
+    const { exportAssistantImage } = await import('../utils/shareImage');
+    await exportAssistantImage(props.nodeId);
+    showExportFeedback();
+    // 移动端操作栏隐藏，inline 反馈不可见，用 toast 提示
+    if (state.isMobile) showToast('已导出图片', 'success');
+  } catch {
+    showToast('导出图片失败', 'error');
+  } finally {
+    exporting.value = false;
+  }
+};
+
+const handleExportAction = () => {
+  closeMenu();
+  handleExportImage();
 };
 
 // === USER message rendering ===
@@ -492,10 +533,14 @@ watch(editText, () => {
           </div>
 
           <!-- Assistant Actions -->
-          <div class="mt-2 flex items-center gap-3 transition-opacity" :class="state.isMobile ? 'opacity-0 h-0 overflow-hidden' : 'opacity-0 group-hover:opacity-100'">
+          <div class="mt-2 flex items-center gap-3 transition-opacity" :class="state.isMobile ? 'opacity-0 h-0 overflow-hidden' : (exporting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')">
             <button @click="handleCopyAssistant" class="transition-colors text-xs flex items-center gap-1 h-[18px] px-1" :class="copied ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="copied ? '已复制' : '复制'">
               <component :is="copied ? 'Check' : 'Copy'" class="text-[11px] min-w-3 text-center" />
               <Transition name="fade"><span v-if="copied" class="text-[10px]">已复制</span></Transition>
+            </button>
+            <button v-if="canExportImage" @click="handleExportImage" class="transition-colors text-xs flex items-center gap-1 h-[18px] px-1" :class="exported ? 'text-success-main' : 'text-text-placeholder hover:text-text-main'" :title="exported ? '已导出' : '导出图片'">
+              <component :is="exporting ? 'Loader2' : exported ? 'Check' : 'ImageDown'" class="text-[11px] min-w-3 text-center" :class="exporting ? 'animate-spin' : ''" />
+              <Transition name="fade"><span v-if="exported" class="text-[10px]">已导出</span></Transition>
             </button>
           </div>
         </div>
@@ -515,6 +560,10 @@ watch(editText, () => {
           <button @click="handleCopyAction" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
             <Copy class="min-w-4 text-center text-text-muted" />
             <span>复制</span>
+          </button>
+          <button v-if="!isUser && canExportImage" @click="handleExportAction" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
+            <ImageDown class="min-w-4 text-center text-text-muted" />
+            <span>导出图片</span>
           </button>
           <button @click="handleSelectTextAction" class="w-full flex items-center gap-3 px-3 py-2 transition-colors text-text-main text-sm">
             <TextCursor class="min-w-4 text-center text-text-muted" />

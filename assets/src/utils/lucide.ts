@@ -25,6 +25,7 @@ import {
   FileText,
   Folder,
   Gauge,
+  ImageDown,
   Info,
   KeyRound,
   Laptop,
@@ -76,6 +77,7 @@ export function registerLucide(app: App) {
   app.component('FileText', FileText)
   app.component('Folder', Folder)
   app.component('Gauge', Gauge)
+  app.component('ImageDown', ImageDown)
   app.component('Info', Info)
   app.component('KeyRound', KeyRound)
   app.component('Laptop', Laptop)

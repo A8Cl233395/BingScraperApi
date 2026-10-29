@@ -16,6 +16,7 @@
     "dompurify": "^3.4.2",
     "heic2any": "^0.0.4",
     "highlight.js": "^11.11.1",
+    "html-to-image": "^1.11.13",
     "jschardet": "^3.1.4",
     "katex": "^0.16.45",
     "marked": "^18.0.2",
