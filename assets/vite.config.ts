@@ -17,10 +17,10 @@ export default defineConfig({
     reportCompressedSize: false,
     rolldownOptions: {
       input: {
-        webchat: resolve(__dirname, 'webchat.html'),
-        login: resolve(__dirname, 'login.html'),
-        invite: resolve(__dirname, 'invite.html'),
-        profile: resolve(__dirname, 'profile.html'),
+        webchat: resolve(import.meta.dirname, 'webchat.html'),
+        login: resolve(import.meta.dirname, 'login.html'),
+        invite: resolve(import.meta.dirname, 'invite.html'),
+        profile: resolve(import.meta.dirname, 'profile.html'),
       },
       // 注意：不要用 manualChunks 手动分包。rolldown 下它会把 axios 等库切到独立
       // chunk，而 CJS 互操作辅助函数（var 赋值、不提升）落到共享 chunk（含 api/store，
