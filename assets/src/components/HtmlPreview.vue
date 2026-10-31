@@ -14,7 +14,7 @@ const isWide = ref(wideQuery.matches);
 const handleMediaChange = (e: MediaQueryListEvent) => { isWide.value = e.matches; };
 const splitMode = computed(() => isWide.value && !state.isMobile);
 
-// 预览仅面向 html 代码块（svg 代码块走图表块渲染 + 全屏预览，不再经此组件）
+// 预览仅面向 html 代码块（svg / mermaid / XML 中的 SVG 走图表块渲染 + 全屏预览，不再经此组件）
 const title = 'HTML 预览';
 
 // === 分屏面板宽度 ===

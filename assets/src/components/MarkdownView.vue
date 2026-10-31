@@ -50,7 +50,8 @@ const applyHtml = () => {
   el.querySelectorAll<HTMLElement>('.table-wrapper').forEach((wrapper, i) => {
     if (savedWrapperScrolls[i] !== undefined) wrapper.scrollLeft = savedWrapperScrolls[i];
   });
-  // 图表块（mermaid/svg）在解析器完成围栏闭合后才输出，流式期间也可安全渲染
+  // 图表块（mermaid/svg）在解析器完成围栏闭合后才渲染；XML 里的 SVG 会在识别到
+  // 首元素后提前输出 chart-incomplete 占位（源码默认隐藏），闭合后再由 chart.ts 渲染
   if (el.querySelector('.chart-block.chart-complete:not(.rendered)')) {
     renderChartPlaceholders(el);
   }

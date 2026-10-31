@@ -3,7 +3,7 @@ import DOMPurify from 'dompurify';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import hljs from 'highlight.js/lib/common';
-import { getCachedChartContent, isChartFailed, escapeHtml } from './chart';
+import { getCachedChartContent, isChartFailed, escapeHtml, classifySvgXmlPrefix } from './chart';
 import type { ChartType } from './chart';
 
 // Lucide 图标的 SVG 属性与内部元素（用于 marked 渲染器生成的 HTML 字符串，
@@ -22,13 +22,14 @@ function isFenceComplete(raw: string): boolean {
   return !!fenceMatch && raw.trimEnd().endsWith(fenceMatch[0]);
 }
 
-// 图表块（mermaid / svg）共用构建器：块结构与按钮完全一致，仅标签/源码语言不同，
-// 渲染管线与缓存在 chart.ts 统一处理。图表块只显示不交互，缩放/拖拽在「查看」进入的
-// 全屏预览（ImagePreview）中操作。已渲染过的图表直接内联缓存内容（成功 SVG 或失败占位），
-// 保证流式重写时图表高度稳定（否则会从已渲染图/错误块退回占位符，DOM 高度反复变化导致
-// 浏览器调整 scrollTop，表现为莫名滚回底部或视口来回跳；损坏的 mermaid 每帧重试渲染
-// 就是这个抖动的最明显来源）。
-function renderChartBlockHtml(type: ChartType, token: { text: string; raw: string }): string {
+// 图表块（mermaid / svg / XML 中的 SVG）共用构建器：块结构与按钮完全一致，
+// 仅标签/源码语言不同，渲染管线与缓存在 chart.ts 统一处理。图表块只显示不交互，
+// 缩放/拖拽在「查看」进入的全屏预览（ImagePreview）中操作。已渲染过的图表直接内联
+// 缓存内容（成功 SVG 或失败占位），保证流式重写时图表高度稳定（否则会从已渲染图/
+// 错误块退回占位符，DOM 高度反复变化导致浏览器调整 scrollTop，表现为莫名滚回底部或
+// 视口来回跳；损坏的 mermaid 每帧重试渲染就是这个抖动的最明显来源）。
+// label 用于保留原始围栏语言：XML 中的 SVG 仍显示 XML，但内部按 svg 渲染。
+function renderChartBlockHtml(type: ChartType, token: { text: string; raw: string }, label: string = type): string {
   const escapedCode = escapeHtml(token.text);
   const cachedChart = getCachedChartContent(type, token.text);
   const completeClass = isFenceComplete(token.raw) ? 'chart-complete' : 'chart-incomplete';
@@ -40,7 +41,7 @@ function renderChartBlockHtml(type: ChartType, token: { text: string; raw: strin
 
   return `<div class="chart-block ${completeClass} my-4 border-[0.5px] border-border-main overflow-hidden bg-code-bg" data-chart="${type}">
   <div class="flex justify-between items-center bg-bg-panel px-3 py-1.5 border-b-[0.5px] border-border-main">
-    <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${type}</span>
+    <span class="text-[10px] font-medium text-text-placeholder uppercase tracking-wider">${label}</span>
     <div class="flex items-center gap-2">
       <button class="chart-toggle-btn text-text-placeholder hover:text-text-main px-1 transition-colors flex items-center gap-1" title="切换显示">
         <svg ${lucideSvgAttrs} width="10" height="10" class="toggle-icon-svg">${arrowLeftRightIconInner}</svg>
@@ -81,6 +82,13 @@ marked.use({
       // 图表块（mermaid / svg）统一走图表渲染方式（图 + 源码切换、查看全屏预览）
       if (baseLang === 'mermaid' || baseLang === 'svg') {
         return renderChartBlockHtml(baseLang, token);
+      }
+
+      // XML 代码块里如果首元素是 <svg>，同样接入 SVG 图表管线。判定不等围栏闭合：
+      // 看到 `<svg ` 边界就提前切成图表占位（chart-incomplete），XML 源码藏在隐藏的
+      // 源码区，避免流式代码块一路长高、闭合时再塌成图片造成大段视口跳动。
+      if (baseLang === 'xml' && classifySvgXmlPrefix(token.text) === 'svg') {
+        return renderChartBlockHtml('svg', token, 'xml');
       }
 
       let highlightedCode;

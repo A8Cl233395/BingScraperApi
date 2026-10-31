@@ -1,15 +1,114 @@
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
 
-// === 图表块（mermaid / svg）共用渲染管线 ===
-// 两种图表代码块共用一套块结构（构建器在 markdown.ts 的 renderChartBlockHtml）与
+// === 图表块（mermaid / svg / XML 中的 SVG）共用渲染管线 ===
+// 这些图表代码块共用一套块结构（构建器在 markdown.ts 的 renderChartBlockHtml）与
 // 渲染流程：解析器只输出占位符或缓存内容，DOM 写入后由 renderChartPlaceholders
 // 统一完成渲染与源码高亮。图表块只显示不交互，缩放/拖拽在「查看」进入的全屏预览
 // （ImagePreview）中操作。渲染结果（成功 SVG 与失败占位）按“类型 + 归一化源码”缓存，
 // 流式重写时由构建器直接内联，保证图表高度稳定。
-// mermaid 语法渲染在 mermaid.ts（懒加载），svg 源码消毒后即最终图形。
+// mermaid 语法渲染在 mermaid.ts（懒加载），svg 源码消毒后即最终图形。```xml 中根节点
+// 为 <svg> 的代码块也归入 svg（判定见下方 classifySvgXmlPrefix）。
 
 export type ChartType = 'mermaid' | 'svg';
+
+// === XML 代码块中的 SVG ===
+// 有些模型会把 SVG 放在 ```xml 里。首个元素是 <svg> 时直接接入 SVG 图表管线，
+// 与 ```svg 共用渲染/缓存/全屏预览。
+// 判定必须能处理流式内容：XML 声明、注释、DOCTYPE 或标签名都可能只输出了一半，
+// 此时返回 pending，调用方继续按普通 XML 代码块显示；一旦确认首元素是 svg，
+// 立刻切成图表块占位（chart-incomplete），避免整段 XML 把块撑高、闭合时再塌成图片。
+export type SvgXmlState = 'svg' | 'other' | 'pending';
+
+/** DOCTYPE 结束位置：跳过引号与 [内部子集] 中的 '>'；未闭合返回 -1 */
+function findDoctypeEnd(src: string, start: number): number {
+  let quote = '';
+  let subset = 0;
+  for (let i = start; i < src.length; i++) {
+    const ch = src[i];
+    if (quote) {
+      if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '[') {
+      subset++;
+    } else if (ch === ']') {
+      subset = Math.max(0, subset - 1);
+    } else if (ch === '>' && subset === 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** 跳过 BOM 之后的空白、XML 声明、注释、DOCTYPE；流式内容没写完返回 -1 */
+function skipXmlPreamble(src: string, start: number): number {
+  let i = start;
+  for (;;) {
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (i >= src.length) return i;
+
+    if (src.startsWith('<?', i)) {
+      const end = src.indexOf('?>', i + 2);
+      if (end === -1) return -1;
+      i = end + 2;
+      continue;
+    }
+    if (src.startsWith('<!--', i)) {
+      const end = src.indexOf('-->', i + 4);
+      if (end === -1) return -1;
+      i = end + 3;
+      continue;
+    }
+    if (/^<!doctype(?=\s|$)/i.test(src.slice(i))) {
+      const end = findDoctypeEnd(src, i + 9);
+      if (end === -1) return -1;
+      i = end + 1;
+      continue;
+    }
+    // 半截注释/DOCTYPE（<!-、<!D、<!DOCTYPE ... 未闭合）继续等待
+    if (src[i] === '<' && src[i + 1] === '!') {
+      const head = src.slice(i).toLowerCase();
+      if ('<!--'.startsWith(head) || '<!doctype'.startsWith(head)) return -1;
+    }
+    return i;
+  }
+}
+
+/**
+ * XML 代码块首元素判定（流式友好）：
+ * - svg：已确认首个元素是 <svg>（带标签边界，避免 <svgfoo>）
+ * - other：已确认不是 SVG（普通 XML）
+ * - pending：只有空白/未闭合的 XML 声明、注释、DOCTYPE，或标签名还没输出完
+ *
+ * 只认无命名空间前缀的 <svg>；SVG 几乎不会用 <x:svg> 这种写法。
+ */
+export function classifySvgXmlPrefix(code: string): SvgXmlState {
+  const start = code.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const i = skipXmlPreamble(code, start);
+  if (i === -1) return 'pending';
+  if (i >= code.length) return 'pending';
+  if (code[i] !== '<') return 'other';
+
+  let j = i + 1;
+  let name = '';
+  while (j < code.length && /[A-Za-z0-9_.:-]/.test(code[j])) {
+    name += code[j];
+    j++;
+  }
+  name = name.toLowerCase();
+  if (!name) return j >= code.length ? 'pending' : 'other';
+  if (name === 'svg') {
+    // 必须等边界字符，避免把 <svgfoo> 判成 SVG
+    if (j >= code.length) return 'pending';
+    return /[\s/>]/.test(code[j]) ? 'svg' : 'other';
+  }
+  // 标签名还没输完（<s / <sv），可能继续成为 svg
+  if (j >= code.length && 'svg'.startsWith(name)) return 'pending';
+  return 'other';
+}
 
 // 渲染结果缓存：key 为“类型 + 归一化源码”
 const chartSvgCache = new Map<string, string>(); // 消毒后的 SVG（挂载与全屏数据源）
@@ -140,6 +239,7 @@ function disableChartPreview(block: Element): void {
 
 /**
  * 渲染消息内的图表块（mermaid / svg 共用）：源码高亮、图表渲染与缓存。
+ * 只处理 chart-complete：XML-SVG 在围栏未闭合时先显示占位，不能渲染半截 SVG。
  * 图表块只显示不交互，流式重写后 DOM 是全新子树，缓存命中也要重新写入图表
  */
 export async function renderChartPlaceholders(root: Element | Document = document): Promise<void> {
