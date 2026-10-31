@@ -424,7 +424,7 @@ class StreamingCache:
 @dataclass
 class StreamEvent:
     """三种协议（chat-completions / responses / anthropic）归一化后的流式事件"""
-    kind: str  # "thinking" | "content" | "tool_start" | "tool_args" | "thinking_block" | "signature" | "redacted" | "reasoning_item"
+    kind: str  # "thinking" | "content" | "tool_start" | "tool_args" | "thinking_block" | "signature" | "redacted" | "reasoning_item" | "phase"
     text: str = ""
     index: int | None = None
     call_id: str | None = None
@@ -840,9 +840,9 @@ class ChatInstance:
                 yield event
 
     async def _ai_completions(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
-        # 消息准备（内联）：chat-completions 协议没有原生思考凭据回放，剥掉 reasoning_model/reasoning_blob 再发
+        # 消息准备（内联）：chat-completions 协议没有原生思考凭据回放，剥掉 reasoning_model/reasoning_blob/phase 再发
         clean_messages = [
-            {k: v for k, v in msg.items() if k not in ("reasoning_model", "reasoning_blob")}
+            {k: v for k, v in msg.items() if k not in ("reasoning_model", "reasoning_blob", "phase")}
             for msg in messages
         ]
         model_config = MODELS[model]
@@ -877,20 +877,21 @@ class ChatInstance:
 
     async def _ai_responses(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
         # 消息准备（内联）：system 提出到 instructions；tool_calls 拆成 function_call item，
-        # tool 消息转为 function_call_output；同模型的 encrypted_content 回放为 reasoning item
+        # tool 消息转为 function_call_output；reasoning item（含 encrypted_content）原样展开回放
         model_config = MODELS[model]
         instructions = messages[0]["content"]
         input_messages = []
         for msg in messages[1:]:
-            # 思考凭据只在思考开启且模型一致时原样展开回放（blob 为原生对象列表，兼容旧单对象格式）
-            blob = msg.get("reasoning_blob")
-            replay_items: list[dict] = []
-            if blob and thinking and msg.get("reasoning_model") == model:
-                replay_items = [dict(blob)] if isinstance(blob, dict) else [dict(b) for b in blob]
+            # 思考凭据有就传、忽略思考开关（blob 为 done item 原生对象列表）：只展开 reasoning 类 item，
+            # 异协议块/无凭据杂块跳过；跨模型照传，不兼容项由上游自行忽略
+            replay_items = [dict(b) for b in msg.get("reasoning_blob") or [] if b.get("type") == "reasoning"]
             if msg["role"] == "assistant" and msg.get("tool_calls"):
                 input_messages.extend(replay_items)
                 if msg.get("content"):
-                    input_messages.append({"role": "assistant", "content": msg["content"]})
+                    assistant_msg = {"role": "assistant", "content": msg["content"]}
+                    if msg.get("phase"):
+                        assistant_msg["phase"] = msg["phase"]
+                    input_messages.append(assistant_msg)
                 input_messages.extend(
                     {
                         "type": "function_call",
@@ -908,7 +909,10 @@ class ChatInstance:
                 })
             elif msg["role"] == "assistant":
                 input_messages.extend(replay_items)
-                input_messages.append({"role": "assistant", "content": msg.get("content") or ""})
+                assistant_msg = {"role": "assistant", "content": msg.get("content") or ""}
+                if msg.get("phase"):
+                    assistant_msg["phase"] = msg["phase"]
+                input_messages.append(assistant_msg)
             elif isinstance(msg["content"], list):
                 content = []
                 for block in msg["content"]:
@@ -935,7 +939,6 @@ class ChatInstance:
         completion = await client.responses.create(**params)
         call_indices: dict[str, int] = {}
         call_index = 0
-        delta_buf: dict[tuple[str, str, int], str] = {}  # (轨道, item_id, 下标) → 文本，done item 没回传对应块时的兜底
         async for event in completion:
             match event.type:
                 case "response.output_item.added":
@@ -945,43 +948,30 @@ class ChatInstance:
                         yield StreamEvent("tool_start", index=call_index, call_id=item.call_id, name=item.name)
                         call_index += 1
                 case "response.output_item.done":
-                    # reasoning item 结束时才带完整内容。回放对象保持原生 item 形状（去掉仅输出的 status）：
-                    # summary/content 两条轨道都存——官方 schema 回传必填 id/type/summary（summary 没有则 []），
-                    # deepseek 思考文本在 content 轨道且回读 content，encrypted_content 仅官方端点有
+                    # 回传物 = done item：原样序列化（剔除 None），不做任何块重建——
+                    # 官方要求流式场景用 output_item.done 的 item 及其 encrypted_content 回传
+                    # （added 事件的 encrypted_content 可能不完整），增量事件只是展示流
                     item = event.item
                     if item.type == "reasoning":
-                        item_key = getattr(item, "id", None) or ""
-                        # 以 done item 为准；上游流了 delta 却没在 item 回传对应块时按轨道下标兜底
-                        summary = [{"type": b.type, "text": b.text} for b in (getattr(item, "summary", None) or [])] \
-                            or [{"type": "summary_text", "text": text} for (t, k, _i), text in sorted(delta_buf.items()) if t == "summary" and k == item_key]
-                        content = [{"type": b.type, "text": b.text} for b in (getattr(item, "content", None) or [])] \
-                            or [{"type": "reasoning_text", "text": text} for (t, k, _i), text in sorted(delta_buf.items()) if t == "content" and k == item_key]
-                        replay: dict = {"type": "reasoning"}
-                        if item_key:
-                            replay["id"] = item.id
-                        replay["summary"] = summary
-                        if content:
-                            replay["content"] = content
-                        if getattr(item, "encrypted_content", None):
-                            replay["encrypted_content"] = item.encrypted_content
-                        if summary or content or "encrypted_content" in replay:
+                        replay = item.model_dump(exclude_none=True)
+                        # 有实质字段才存（id/summary/content/encrypted_content 任一）；纯空壳丢弃
+                        if any(replay.get(k) for k in ("id", "summary", "content", "encrypted_content")):
                             yield StreamEvent("reasoning_item", payload=replay)
+                    elif item.type == "message" and getattr(item, "phase", None):
+                        # phase（commentary/final_answer）：随消息落树，下次回放原样带回（官方要求 preserve and resend）
+                        yield StreamEvent("phase", text=item.phase)
                 case "response.function_call_arguments.delta":
                     yield StreamEvent("tool_args", index=call_indices[event.item_id], text=event.delta)
                 case "response.output_text.delta":
                     yield StreamEvent("content", text=event.delta)
                 case "response.reasoning_summary_text.delta":
-                    key = ("summary", getattr(event, "item_id", None) or "", getattr(event, "summary_index", None) or 0)
-                    delta_buf[key] = delta_buf.get(key, "") + event.delta
                     yield StreamEvent("thinking", text=event.delta)
                 case "response.reasoning_text.delta":
-                    key = ("content", getattr(event, "item_id", None) or "", getattr(event, "content_index", None) or 0)
-                    delta_buf[key] = delta_buf.get(key, "") + event.delta
                     yield StreamEvent("thinking", text=event.delta)
 
     async def _ai_anthropic(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
         # 消息准备（内联）：system 提出到顶层参数；tool_calls 转 tool_use block，
-        # tool 消息合并成 user 的 tool_result block；同模型的 thinking 块（带 signature）插到 assistant 内容最前
+        # tool 消息合并成 user 的 tool_result block；thinking 块（带 signature）原样插到 assistant 内容最前
         model_config = MODELS[model]
         system = [{"type": "text", "text": messages[0]["content"]}]
         anthropic_messages = []
@@ -1000,13 +990,16 @@ class ChatInstance:
                         "content": [{"type": "tool_result", "tool_use_id": msg["tool_call_id"], "content": msg["content"]}],
                     })
                 continue
+            # 思考凭据有就传、忽略思考开关与模型（官方：工具回合必传、跨轮推荐全传，读不了的块 API 自行丢弃）：
+            # 只展开原生 anthropic 块（thinking 必带 signature、redacted_thinking 必带 data），
+            # 空签名伪块（旧兜底残渣）与异协议 item 跳过
+            replay_blocks = [dict(b) for b in msg.get("reasoning_blob") or []
+                             if (b.get("type") == "thinking" and b.get("signature"))
+                             or (b.get("type") == "redacted_thinking" and b.get("data"))]
             if msg["role"] == "assistant" and msg.get("tool_calls"):
                 content = []
-                # 思考凭据只在思考开启且模型一致时原样展开回放（blob 为原生块列表，兼容旧单对象格式）。
                 # thinking / redacted_thinking 块必须原样置于 tool_use 之前（signature 会被逐块校验）
-                blob = msg.get("reasoning_blob")
-                if blob and thinking and msg.get("reasoning_model") == model:
-                    content.extend(dict(b) for b in ([blob] if isinstance(blob, dict) else blob))
+                content.extend(replay_blocks)
                 if msg.get("content"):
                     content.append({"type": "text", "text": msg["content"]})
                 for tc in msg["tool_calls"]:
@@ -1021,6 +1014,13 @@ class ChatInstance:
                         "name": tc["function"]["name"],
                         "input": input_json,
                     })
+            elif msg["role"] == "assistant":
+                # 非工具回合同样带回思考块（官方推荐跨轮回传），原样置于 text 之前
+                content = replay_blocks
+                if msg.get("content"):
+                    content.append({"type": "text", "text": msg["content"]})
+                if not content:
+                    content = msg.get("content") or ""
             elif isinstance(msg["content"], list):
                 content = []
                 for block in msg["content"]:
@@ -1096,6 +1096,7 @@ class ChatInstance:
             # 开始生成
             answering_content = ""
             reasoning_content = ""
+            msg_phase: str | None = None  # responses 消息相位（commentary/final_answer），随消息落树并原样回传
             reasoning_blocks: list[dict] = []  # 本段的原生思考凭据块，按出现顺序（anthropic thinking/redacted_thinking、responses reasoning item）
             cur_thinking: dict | None = None  # anthropic 正在流入的 thinking 块
             is_thinking = False
@@ -1108,23 +1109,21 @@ class ChatInstance:
                         is_thinking = True
                         yield self._sse("thinking", "signal")
                     reasoning_content += ev.text
-                    if cur_thinking is None: # 上游没发块起始事件时兜底
-                        cur_thinking = {"type": "thinking", "thinking": "", "signature": ""}
-                        reasoning_blocks.append(cur_thinking)
-                    cur_thinking["thinking"] += ev.text
+                    if cur_thinking is not None: # 只累积显式 thinking_block 起的块；无块起始事件的上游（chat-completions、responses 的思考 delta）不造块
+                        cur_thinking["thinking"] += ev.text
                     yield self._sse(ev.text)
                 elif ev.kind == "thinking_block":
                     cur_thinking = {"type": "thinking", "thinking": "", "signature": ""}
                     reasoning_blocks.append(cur_thinking)
                 elif ev.kind == "signature":
-                    if cur_thinking is None:
-                        cur_thinking = {"type": "thinking", "thinking": "", "signature": ""}
-                        reasoning_blocks.append(cur_thinking)
-                    cur_thinking["signature"] += ev.text
+                    if cur_thinking is not None: # 无归属块的签名无处可挂，丢弃
+                        cur_thinking["signature"] += ev.text
                 elif ev.kind == "redacted":
                     reasoning_blocks.append({"type": "redacted_thinking", "data": ev.payload})
                 elif ev.kind == "reasoning_item":
                     reasoning_blocks.append(ev.payload) # responses 的原生 reasoning item
+                elif ev.kind == "phase":
+                    msg_phase = ev.text # responses 的消息相位，原样带回（官方：dropping it can degrade performance）
                 elif ev.kind == "content":
                     if not is_answering:
                         yield self._sse("answering", "signal")
@@ -1173,9 +1172,11 @@ class ChatInstance:
                 current_node_assistant_messages.append({"role": "assistant", "content": answering_content})
                 if is_thinking:
                     current_node_assistant_messages[-1]["reasoning_content"] = reasoning_content
+                if msg_phase: # phase 原样带回（官方：dropping it can degrade performance）
+                    current_node_assistant_messages[-1]["phase"] = msg_phase
                 # 思考凭据只在存在时存储，格式即原生回放对象列表（anthropic 的 thinking/redacted_thinking 块、
                 # responses 的 reasoning item，按出现顺序；一条 assistant 消息可能有多个块），
-                # 按 reasoning_model 校验后原样展开回放；chat-completions 协议不产生，自然没有这些键
+                # 有就原样展开回放；chat-completions 协议不产生，自然没有这些键
                 if reasoning_blocks:
                     current_node_assistant_messages[-1]["reasoning_blob"] = reasoning_blocks
                     current_node_assistant_messages[-1]["reasoning_model"] = _model
@@ -1194,6 +1195,9 @@ class ChatInstance:
                 if is_thinking:
                     current_node_assistant_messages[-1]["reasoning_content"] = reasoning_content
                     current_messages[-1]["reasoning_content"] = reasoning_content
+                if msg_phase:
+                    for m in (current_node_assistant_messages[-1], current_messages[-1]):
+                        m["phase"] = msg_phase
                 if reasoning_blocks: # 凭据说明同上；下一轮续跑也要带上
                     for m in (current_node_assistant_messages[-1], current_messages[-1]):
                         m["reasoning_blob"] = reasoning_blocks
@@ -1641,11 +1645,11 @@ class Webchat:
             if compressed is None:
                 raise HTTPException(status_code=404, detail="bad chat id")
             tree = self._decompress(compressed[0])
-        # 思考凭据（reasoning_model/reasoning_blob）不下发：体积可观且前端用不上，
-        # 回放由后端按 reasoning_model 匹配完成。返回副本，chat_cache 里的活树不能动
+        # 思考凭据（reasoning_model/reasoning_blob）与 phase 不下发：前端用不上，
+        # 回放由后端自行完成。返回副本，chat_cache 里的活树不能动
         return {
             node_id: ({**node, "assistant": [
-                {k: v for k, v in msg.items() if k not in ("reasoning_model", "reasoning_blob")}
+                {k: v for k, v in msg.items() if k not in ("reasoning_model", "reasoning_blob", "phase")}
                 for msg in node.get("assistant", [])
             ]} if isinstance(node, dict) else node)
             for node_id, node in tree.items()
