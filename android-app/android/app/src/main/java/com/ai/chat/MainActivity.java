@@ -28,6 +28,7 @@ public class MainActivity extends BridgeActivity {
 
     private CachedWebViewClient cachedClient;
     private StatusBarSync statusBarSync;
+    private ImageDownloadBridge imageDownloadBridge;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -49,6 +50,14 @@ public class MainActivity extends BridgeActivity {
             @Override
             public void onReceivedHttpError(WebView view) {
                 markFirstContentReady();
+            }
+
+            @Override
+            public void onPageLoaded(WebView view) {
+                // 兜底注入下载脚本：不支持 document-start 的旧 WebView 在这里安装
+                if (imageDownloadBridge != null) {
+                    imageDownloadBridge.injectFallback(view);
+                }
             }
         });
 
@@ -72,6 +81,10 @@ public class MainActivity extends BridgeActivity {
             // HTML 校验 JS 桥：页面加载完成后由注入脚本走 WebView 网络栈校验缓存
             HtmlCacheBridge htmlCacheBridge = cachedClient.getHtmlCacheBridge();
             webView.addJavascriptInterface(htmlCacheBridge, htmlCacheBridge.getJsBridgeName());
+            // 图片保存：原生注入下载脚本接管 <a download>，前端无需任何改动
+            imageDownloadBridge = new ImageDownloadBridge(this, webView);
+            webView.addJavascriptInterface(imageDownloadBridge, imageDownloadBridge.getJsBridgeName());
+            imageDownloadBridge.install(webView, getBridge().getServerUrl());
             cachedClient.prepare(webView);
         }
         // 返回键：优先沿 WebView 历史后退，到底后退出应用
@@ -113,6 +126,16 @@ public class MainActivity extends BridgeActivity {
         Log.i(TAG, "冷启动到首帧: " + (SystemClock.uptimeMillis() - Process.getStartUptimeMillis()) + "ms");
     }
 
+    /** Android 9 及以下保存图片需要存储权限，请求结果转交图片保存桥 */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (imageDownloadBridge != null
+                && imageDownloadBridge.onRequestPermissionsResult(requestCode, grantResults)) {
+            return;
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
+
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
@@ -130,6 +153,9 @@ public class MainActivity extends BridgeActivity {
         // 先于 WebView 销毁标记，阻止缓存层的延迟/后台回调继续操作
         if (cachedClient != null) {
             cachedClient.release();
+        }
+        if (imageDownloadBridge != null) {
+            imageDownloadBridge.release();
         }
         super.onDestroy();
     }

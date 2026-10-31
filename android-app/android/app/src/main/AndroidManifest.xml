@@ -46,4 +46,9 @@
          缺少 MODIFY_AUDIO_SETTINGS 会导致 WebView 拒绝 getUserMedia（普通权限，安装时自动授予） -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 图片保存：Android 10+ 走 MediaStore 无需权限；仅旧系统写公共下载目录需要，
+         首次保存时由 ImageDownloadBridge 动态申请 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 </manifest>
