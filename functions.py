@@ -157,71 +157,95 @@ class Bilibili:
         self.cache.put(bv, final_text)
         return final_text
 
-class VoiceRecognition: # TODO: 检查API是否返回报错，而不是默认api正常返回
+class VoiceRecognition:
     def __init__(self, services):
         self.services = services
         self.balancing_index = 0
         self.require_link = services[self.balancing_index]["type"] == "aliyun"
+
+    @staticmethod
+    def _parse_json(resp: requests.Response) -> dict:
+        """校验 HTTP 状态 + JSON 解析 + 必须为 dict"""
+        if not resp.ok:
+            raise RuntimeError(f"HTTP [{resp.status_code}]: {resp.text}")
+        try:
+            data = resp.json()
+        except requests.exceptions.JSONDecodeError:
+            raise RuntimeError(f"非json: {resp.text}")
+        if not isinstance(data, dict):
+            raise RuntimeError(f"非字典: {resp.text}")
+        return data
 
     def audio_transcription_aliyun(self, key, model, file_url):
         url = "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription"
         headers = {
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
-            "X-DashScope-Async": "enable"
+            "X-DashScope-Async": "enable",
         }
-        data = {
-            "model": model,
-            "input": {
-                "file_urls": [file_url],
-            }
-        }
+        data = {"model": model, "input": {"file_urls": [file_url]}}
+
         try:
-            result = requests.post(url, json=data, headers=headers).json()
-            task_id = result["output"]["task_id"]
+            resp = self._parse_json(requests.post(url, json=data, headers=headers, timeout=15))
+            try:
+                task_id = resp["output"]["task_id"]
+            except (KeyError, TypeError):
+                raise RuntimeError(f"阿里云任务创建失败: {resp}")
+
             result_url = self.get_aliyun_stt_result_loop(key, task_id)
-            text_json = requests.get(result_url).json()
-            text = text_json["transcripts"][0]['text']
-            return text
+
+            res = self._parse_json(requests.get(result_url, timeout=20))
+            try:
+                return res["transcripts"][0]["text"]
+            except (KeyError, IndexError, TypeError):
+                raise RuntimeError(f"返回结果中未包含有效文字: {res}")
+
         except Exception as e:
-            logger.exception(f"VoiceRecognition 失败: {str(e)}")
-            raise Exception(f"VoiceRecognition failed: {str(e)}")
-    
+            logger.exception("阿里云语音识别失败: %s", e)
+            raise RuntimeError(f"阿里云语音识别失败: {e}") from e
+
     def get_aliyun_stt_result_loop(self, key, task_id):
         url = f"https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
         headers = {"Authorization": f"Bearer {key}"}
+
+        start = time.time()
         time.sleep(2)
-        while True:
-            result = requests.get(url, headers=headers).json()
-            if result["output"]["task_status"] == "SUCCEEDED":
-                return result["output"]["results"][0]["transcription_url"]
-            elif result["output"]["task_status"] in ["RUNNING", "PENDING"]:
-                time.sleep(1)
-            else:
-                raise Exception(result)
-    
+
+        while time.time() - start < 600:
+            res = self._parse_json(requests.get(url, headers=headers, timeout=10))
+            try:
+                status = res["output"]["task_status"]
+                if status == "SUCCEEDED":
+                    return res["output"]["results"][0]["transcription_url"]
+                elif status in ["RUNNING", "PENDING"]:
+                    time.sleep(1)
+                else:
+                    # 状态变成 FAILED 或其他
+                    raise RuntimeError(f"任务执行失败，状态为 [{status}]: {res}")
+            except (KeyError, IndexError, TypeError):
+                raise RuntimeError(f"阿里云返回结构异常无法解析: {res}")
+
+        raise TimeoutError("阿里云语音识别超时（超过10分钟）")
+
     def audio_transcription_azure(self, url, key, audio_data=None, audio_url=None) -> str:
-        params = {
-            "url": url,
-            "headers": {
-                "Ocp-Apim-Subscription-Key": key
-            },
-        }
+        params = {"url": url, "headers": {"Ocp-Apim-Subscription-Key": key}, "timeout": 30}
         if audio_data is not None:
-            params["files"] = {'audio': audio_data}
+            params["files"] = {"audio": audio_data}
         elif audio_url is not None:
-            params["data"] = {'definition': json.dumps({"audioUrl": audio_url}, ensure_ascii=False)}
+            params["data"] = {"definition": json.dumps({"audioUrl": audio_url}, ensure_ascii=False)}
         else:
-            raise Exception("audio_data or audio_url is required")
+            raise ValueError("audio_data or audio_url is required")
+
         try:
-            response = requests.post(**params).json()
-            text = ""
-            for i in response["phrases"]:
-                text += i["text"] + "\n"
-            return text
+            res = self._parse_json(requests.post(**params))
+            try:
+                return "\n".join(i["text"] for i in res["phrases"] if "text" in i)
+            except (KeyError, TypeError):
+                raise RuntimeError(f"Azure 返回了无法解析的内容: {res}")
+
         except Exception as e:
-            logger.exception(f"VoiceRecognition 失败: {str(e)}")
-            raise Exception(f"VoiceRecognition failed: {str(e)}")
+            logger.exception("Azure语音识别失败: %s", e)
+            raise RuntimeError(f"Azure语音识别失败: {e}") from e
     
     def transcribe_from_url(self, audio_url) -> str:
         service = self.services[self.balancing_index]
