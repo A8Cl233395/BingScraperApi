@@ -307,11 +307,13 @@ function textUnits(text: string): string[] {
 
 /** 把一个文本片段映射成等结构乱码：空白原样保留（保证对齐），
  *  HTML 实体解码后按字符范围取乱码，其余逐字同范围替换 */
-function garbleRun(text: string): string {
+export function garbleRun(text: string, keep = 0): string {
   let out = '';
   for (const u of textUnits(text)) {
     if (!u.trim()) { out += u; continue; }
-    out += u.startsWith('&') ? garbleChar(entityCodePoint(u)) : garbleChar(u.codePointAt(0)!);
+    const cp = u.startsWith('&') ? entityCodePoint(u) : u.codePointAt(0)!;
+    // keep：该比例的字符直接保持真字，用于「渐进解码」的中间帧（全乱 → 半对 → 全对）
+    out += keep > 0 && Math.random() < keep ? String.fromCodePoint(cp) : garbleChar(cp);
   }
   return out;
 }
@@ -437,7 +439,9 @@ function wrapStreamTail(html: string, prev: StreamTailState | undefined, now: nu
       while (j < node.units.length && born[node.offset + j] === bornAt) j++;
       const delay = ((now - bornAt) / 1000).toFixed(2);
       const runText = src.slice(node.units[i].index, j < node.units.length ? node.units[j].index : undefined);
-      out += `<span class="stream-tail-unit" style="--tail-delay:-${delay}s" data-g1="${escapeAttr(garbleRun(runText))}" data-g2="${escapeAttr(garbleRun(runText))}">${runText}</span>`;
+      // 余辉强度 --tail-k：按该批次距节点末尾的单元数，越靠近前沿越强（最低 0.25）
+      const glow = Math.max(0.25, 1 - (node.units.length - j) / STREAM_TAIL_WRAP).toFixed(2);
+      out += `<span class="stream-tail-unit" style="--tail-delay:-${delay}s;--tail-k:${glow}" data-g1="${escapeAttr(garbleRun(runText))}" data-g2="${escapeAttr(garbleRun(runText, 0.5))}">${runText}</span>`;
       i = j;
       plainFrom = i;
     }

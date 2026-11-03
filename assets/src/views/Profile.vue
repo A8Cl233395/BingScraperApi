@@ -116,19 +116,21 @@ const handleChangePwd = async () => {
   pwdError.value = '';
   pwdSuccess.value = '';
 
-  if (!oldPwd.value.trim()) {
+  const oldVal = oldPwd.value.trim();
+  const newVal = newPwd.value.trim();
+  if (!oldVal) {
     pwdError.value = '请输入旧密码';
     return;
   }
-  if (newPwd.value.length < 6) {
+  if (newVal.length < 6) {
     pwdError.value = '新密码长度不能少于6个字符';
     return;
   }
-  if (newPwd.value === oldPwd.value) {
+  if (newVal === oldVal) {
     pwdError.value = '新密码不能与旧密码相同';
     return;
   }
-  if (newPwd.value !== newPwdConfirm.value) {
+  if (newVal !== newPwdConfirm.value.trim()) {
     pwdError.value = '两次输入的新密码不一致';
     return;
   }
@@ -136,8 +138,8 @@ const handleChangePwd = async () => {
   try {
     isChangingPwd.value = true;
     await api.post('/api/changepwd', {
-      old_pwd: oldPwd.value,
-      new_pwd: newPwd.value
+      old_pwd: oldVal,
+      new_pwd: newVal
     });
     pwdSuccess.value = '密码修改成功';
     oldPwd.value = '';
@@ -204,7 +206,7 @@ const confirmKickSession = async () => {
     kickError.value = '';
     await api.post('/api/kicksession', {
       session: kickingSession.value,
-      pwd: kickPwd.value
+      pwd: kickPwd.value.trim()
     });
     sessions.value = sessions.value.filter(([s]) => s !== kickingSession.value);
     showKickConfirm.value = false;

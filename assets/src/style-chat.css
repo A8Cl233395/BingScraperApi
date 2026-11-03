@@ -310,7 +310,9 @@ html.dark .prose tr:nth-child(even) {
 .prose .stream-tail-unit {
   position: relative;
   visibility: hidden;
-  animation: tail-reveal 0.4s steps(1, end) var(--tail-delay, 0s) both;
+  animation:
+    tail-reveal 0.4s steps(1, end) var(--tail-delay, 0s) both,
+    tail-glow 0.5s steps(1, end) var(--tail-delay, 0s) both;
 }
 
 .prose .stream-tail-unit::before,
@@ -353,15 +355,13 @@ html.dark .prose tr:nth-child(even) {
 }
 
 /* 乱码层 = hover 按钮文字同款 RGB 分离：文字本色，青/品红双向 text-shadow，
-   分离方向/幅度逐帧跳变（A/B 反相，交替时色差跟着翻面） */
+   分离方向/幅度逐帧跳变（A/B 反相，交替时色差跟着翻面）。
+   渐进解码：A 层只播前 26%（全乱），B 层 26%–70%（半对）接力 */
 @keyframes tail-garble-a {
   0% { opacity: 1; text-shadow: 1.5px 0 var(--glitch-text-cyan), -1px 0 var(--glitch-text-magenta); }
   9% { text-shadow: -1.25px 0 var(--glitch-text-cyan), 1px 0 var(--glitch-text-magenta); }
   18% { text-shadow: 0.75px 0 var(--glitch-text-cyan), -0.75px 0 var(--glitch-text-magenta); }
-  26% { opacity: 0; text-shadow: none; }
-  52% { opacity: 1; text-shadow: -1px 0 var(--glitch-text-cyan), 1.25px 0 var(--glitch-text-magenta); }
-  62% { text-shadow: 1px 0 var(--glitch-text-cyan), -1px 0 var(--glitch-text-magenta); }
-  70%, 100% { opacity: 0; text-shadow: none; }
+  26%, 100% { opacity: 0; text-shadow: none; }
 }
 
 @keyframes tail-garble-b {
@@ -369,7 +369,17 @@ html.dark .prose tr:nth-child(even) {
   26% { opacity: 1; text-shadow: -1.5px 0 var(--glitch-text-cyan), 1px 0 var(--glitch-text-magenta); }
   35% { text-shadow: 1.25px 0 var(--glitch-text-cyan), -1px 0 var(--glitch-text-magenta); }
   44% { text-shadow: -0.5px 0 var(--glitch-text-cyan), 0.5px 0 var(--glitch-text-magenta); }
-  52%, 100% { opacity: 0; text-shadow: none; }
+  52% { text-shadow: 1px 0 var(--glitch-text-cyan), -0.75px 0 var(--glitch-text-magenta); }
+  61% { text-shadow: -0.75px 0 var(--glitch-text-cyan), 0.5px 0 var(--glitch-text-magenta); }
+  70%, 100% { opacity: 0; text-shadow: none; }
+}
+
+/* 余辉：真文字（56% 处显形）起从主色逐级褪回正文色，强度由 --tail-k 决定 */
+@keyframes tail-glow {
+  0%, 55% { color: color-mix(in srgb, var(--primary) calc(var(--tail-k, 1) * 85%), currentColor); }
+  70% { color: color-mix(in srgb, var(--primary) calc(var(--tail-k, 1) * 60%), currentColor); }
+  84% { color: color-mix(in srgb, var(--primary) calc(var(--tail-k, 1) * 35%), currentColor); }
+  100% { color: inherit; }
 }
 
 @media (prefers-reduced-motion: reduce) {
