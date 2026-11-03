@@ -319,13 +319,12 @@ html.dark .prose tr:nth-child(even) {
 .prose .stream-tail-unit::after {
   position: absolute;
   left: 0;
-  /* 基线严格对齐真文字：不能用 top: 0——inline 内容盒高 = 字体 ascent+descent、
-     真文字基准线在盒顶 + ascent 处，而伪元素行盒内文字自带半 leading
-     （(line-height − 内容盒高)/2），top: 0 会让乱码整体沉下去一截。
-     行盒居中于内容盒（top: 50% + translateY(-50%)）后半 leading 相消，
-     基准线精确重合，对任意 line-height / 字体成立 */
-  top: 50%;
-  transform: translateY(-50%);
+  /* 基线严格对齐真文字：inline 内容盒高 = 字体 ascent+descent（无半 leading），
+     伪元素设 line-height: 1 去掉行盒自带的半 leading 后，top: 0 即与首行内容盒顶
+     精确对齐；絕不能用 top: 50% + translateY(-50%)——一旦批次在行尾自动折行跨两行，
+     包含块高度会变成两行总高，top: 50% 会让乱码掉到两行中间（最右边下沉半截） */
+  top: 0;
+  line-height: 1;
   white-space: pre;
   pointer-events: none;
   visibility: visible;

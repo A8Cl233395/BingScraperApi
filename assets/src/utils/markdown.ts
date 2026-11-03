@@ -227,7 +227,7 @@ marked.use({
 // 自行完成，与 chunk 到达节奏无关——停顿期间单元照常落定，不会卡在乱码状态。
 // 每个 span 附带两份乱码副本（data-g1/data-g2，纯装饰、无语义，同 Unicode 范围随机），
 // 由 CSS 伪元素交替显示后收起、真文字显形；乱码每帧重渲染都会重新随机，解码期间字形
-// 自然持续变化。同一批次（出现时刻相同）的单元合并为一个 span。调用方需保存
+// 自然持续变化。同一批次（出现时刻相同且不含换行符）的单元合并为一个 span。调用方需保存
 // 返回的 tailState 并在下次渲染时传回。
 // 出现时刻的继承必须按「单元」对齐（实体/代理对整体一格），且要能跨过尾文本节点
 // 换身份的渲染（行内标签收拢、换段等）——错位或整批重来都会把特效套到错的字符上：
@@ -240,9 +240,7 @@ export interface StreamTailState {
                   // 与 emoji（占 2 码元）会多算，混用会让 born 映射整体错位
 }
 
-const STREAM_TAIL_FADE = 500; // 尾段包裹窗口（ms）：年龄小于该值的单元才带乱码解码效果；style-chat.css 的解码动画 400ms 早于窗口结束
-const STREAM_TAIL_WRAP = 6;   // 只有尾部这么多个单元带解码动效（「最后一小段」）——按位置封顶，
-                              // 快速流式时不会随 500ms 窗口堆出一长条乱码；被挤出窗口的单元直接落定
+const STREAM_TAIL_FADE = 500; // 尾段包裹窗口（ms）：年龄小于该值的单元带乱码解码效果；style-chat.css 的解码动画 400ms 早于窗口结束
 const STREAM_TAIL_KEEP = 64;  // 状态中保留出现时刻的尾部单元数
 
 // 同范围乱码：从与原字符相同的 Unicode 区间里随机取码位——大小写字母、数字、
@@ -316,6 +314,17 @@ export function garbleRun(text: string, keep = 0): string {
     out += keep > 0 && Math.random() < keep ? String.fromCodePoint(cp) : garbleChar(cp);
   }
   return out;
+}
+
+/** 批次切分：除出现时刻不同外，遇到块末尾的尾随空白（如 marked 生成的 </p> 前自带的 \n）
+ *  或段内换行符（\n / \r）时必须切开、留作普通文本，绝不能包进 .stream-tail-unit。
+ *  原因（曾导致最右边总有一小撮乱码低半截）：
+ *  marked 输出的块文本末尾自带换行符（如 `<p>正文\n</p>`），若末尾的 `\n` 或跨行文本被包进
+ *  `<span class="stream-tail-unit">...</span>`，在代码块（white-space: pre）或带尾部换行的
+ *  内联盒里，该 span 会跨两行，导致绝对定位伪元素的 `top: 50%` 落到上下两行正中间（下沉半行）；
+ *  同时 CSS 侧伪元素使用 `line-height: 1; top: 0` 直接贴合单行内容盒顶，彻底消除多行盒高影响 */
+function isLineBreakUnit(u: string): boolean {
+  return u === '\n' || u === '\r';
 }
 
 // 对齐第二段：公共前缀之后的「旧余部尾 ↔ 新余部头」重叠单元数（见下方 born 对齐注释）。
@@ -420,27 +429,29 @@ function wrapStreamTail(html: string, prev: StreamTailState | undefined, now: nu
   const state: StreamTailState = { text, born: born.slice(-STREAM_TAIL_KEEP), units: total };
 
   // 逐单元重组各文本节点：解码窗口内的按批次包 span（负 delay 从当前进度续播，
-  // 延迟走 --tail-delay 自定义属性——animation-delay 不会被伪元素继承，必须 var 传递）。
-  // wrapFrom 按【节点】封顶：每个文本节点只包尾部一小段（正文一段、表格一格都遵守
-  // 「最后一小段」），快速流式时不会堆出一长条乱码
+  // 延迟走 --tail-delay 自定义属性——animation-delay 不会被伪元素继承，必须 var 传递）
   const outs = new Map<number, string>();
   for (const node of nodes) {
     const src = parts[node.pi];
-    const wrapFrom = Math.max(0, node.units.length - STREAM_TAIL_WRAP);
     let out = '';
     let plainFrom = 0;
     let i = 0;
     while (i < node.units.length) {
       const g = node.offset + i;
-      if (i < wrapFrom || now - born[g] >= STREAM_TAIL_FADE) { i++; continue; }
+      const u0 = node.units[i][0];
+      if (isLineBreakUnit(u0) || now - born[g] >= STREAM_TAIL_FADE) { i++; continue; }
       if (i > plainFrom) out += src.slice(node.units[plainFrom].index, node.units[i].index);
       const bornAt = born[g];
       let j = i + 1;
-      while (j < node.units.length && born[node.offset + j] === bornAt) j++;
+      while (
+        j < node.units.length &&
+        born[node.offset + j] === bornAt &&
+        !isLineBreakUnit(node.units[j][0])
+      ) j++;
       const delay = ((now - bornAt) / 1000).toFixed(2);
       const runText = src.slice(node.units[i].index, j < node.units.length ? node.units[j].index : undefined);
-      // 余辉强度 --tail-k：按该批次距节点末尾的单元数，越靠近前沿越强（最低 0.25）
-      const glow = Math.max(0.25, 1 - (node.units.length - j) / STREAM_TAIL_WRAP).toFixed(2);
+      // 余辉强度 --tail-k：按该批次距节点末尾的比例，越靠近前沿越强（最低 0.25）
+      const glow = Math.max(0.25, j / node.units.length).toFixed(2);
       out += `<span class="stream-tail-unit" style="--tail-delay:-${delay}s;--tail-k:${glow}" data-g1="${escapeAttr(garbleRun(runText))}" data-g2="${escapeAttr(garbleRun(runText, 0.5))}">${runText}</span>`;
       i = j;
       plainFrom = i;

@@ -82,7 +82,7 @@ watch(() => props.message?.isStreaming, (now, was) => {
   if (!Array.isArray(arr) || !arr.some((m: any) => m?.role === 'assistant' && m.content)) return;
   if (receiptTimer) clearTimeout(receiptTimer);
   showReceipt.value = true;
-  receiptTimer = setTimeout(() => { showReceipt.value = false; receiptTimer = null; }, 1300);
+  receiptTimer = setTimeout(() => { showReceipt.value = false; receiptTimer = null; }, 750);
 });
 
 onBeforeUnmount(() => {
@@ -256,15 +256,15 @@ const liveThinkingIdx = computed(() => {
   return arr.length - 1;
 });
 
-// 状态标签的切换乱码：与流式尾段同源（同 Unicode 区间随机），每次进入对应阶段重摇一次，
-// 不再写死固定字形；解码只播 240ms，属性随后变化不可见
+// 状态标签的切换乱码：与流式尾段同源（同 Unicode 区间随机），采用 A 全乱（keep=0）→ B 半真（keep=0.5）→ 真字的渐进解码；
+// 每次进入对应阶段重摇一次，不再写死固定字形；解码完后属性变化不可见
 const LABEL_GARBLE_TEXT = { connecting: 'CONNECTING', waiting: 'WAITING', thinking: 'THINKING' } as const;
 const labelGarble = reactive<Record<keyof typeof LABEL_GARBLE_TEXT, [string, string]>>({
   connecting: ['', ''], waiting: ['', ''], thinking: ['', ''],
 });
 const rollLabelGarble = (key: keyof typeof LABEL_GARBLE_TEXT) => {
   const t = LABEL_GARBLE_TEXT[key];
-  labelGarble[key] = [garbleRun(t), garbleRun(t)];
+  labelGarble[key] = [garbleRun(t, 0), garbleRun(t, 0.5)];
 };
 (Object.keys(LABEL_GARBLE_TEXT) as Array<keyof typeof LABEL_GARBLE_TEXT>).forEach(rollLabelGarble);
 watch(() => props.message?.streamConnected, () => { rollLabelGarble('connecting'); rollLabelGarble('waiting'); });
@@ -488,26 +488,33 @@ watch(editText, () => {
               ></div>
             </Transition>
 
-            <!-- 等待指示分两段：HTTP 握手（CONNECTING，握手探测）→ SSE 已开、首 token 未到（WAITING，待机心跳）。
+            <!-- 等待指示分两段：HTTP 握手（CONNECTING，信道握手矩阵）→ SSE 已开、首 token 未到（WAITING，示波锁定心跳）。
                  首个可见输出（思考 / 正文 / 工具）出现即让位；CONNECTING 延迟 220ms 出现，避免快连接闪一下 -->
             <div v-if="waitingForOutput" class="stream-status" role="status" aria-live="polite">
-              <span v-if="!message.streamConnected" class="status-branch link-wait" title="正在建立连接">
+              <span v-if="!message.streamConnected" key="connecting" class="status-branch resync-surge link-wait" title="正在建立连接">
                 <span class="status-icon" aria-hidden="true">
-                  <span class="link-probe">
-                    <span class="probe-cell"></span><span class="probe-cell"></span><span class="probe-cell"></span><span class="probe-cell"></span><span class="probe-cell"></span><span class="probe-cell"></span><span class="probe-cell"></span>
-                    <span class="probe-tail"></span><span class="probe-trail"></span><span class="probe-head"></span>
+                  <span class="hex-matrix">
+                    <span class="matrix-bracket matrix-bracket-l"></span>
+                    <span class="matrix-grid">
+                      <!-- TX 上轨：自左向右探测波束 -->
+                      <span class="matrix-cell tx-cell"></span><span class="matrix-cell tx-cell"></span><span class="matrix-cell tx-cell"></span><span class="matrix-cell tx-cell"></span><span class="matrix-cell tx-cell"></span><span class="matrix-cell tx-cell"></span><span class="matrix-cell tx-cell"></span><span class="matrix-cell tx-cell"></span>
+                      <!-- RX 下轨：自右向左应答波束 -->
+                      <span class="matrix-cell rx-cell"></span><span class="matrix-cell rx-cell"></span><span class="matrix-cell rx-cell"></span><span class="matrix-cell rx-cell"></span><span class="matrix-cell rx-cell"></span><span class="matrix-cell rx-cell"></span><span class="matrix-cell rx-cell"></span><span class="matrix-cell rx-cell"></span>
+                    </span>
+                    <span class="matrix-bracket matrix-bracket-r"></span>
                   </span>
                 </span>
                 <span class="status-label" data-text="CONNECTING" aria-hidden="true">CONNECTING<i class="label-garble" :data-g1="labelGarble.connecting[0]" :data-g2="labelGarble.connecting[1]"></i></span>
-                <span class="link-proto" aria-hidden="true"><span class="proto-a">SYN &gt;&gt;</span><span class="proto-b">&lt;&lt; ACK</span></span>
                 <span class="sr-only">正在建立连接</span>
               </span>
-              <span v-else class="status-branch wait-wait" title="已连接，等待模型响应">
+              <span v-else key="waiting" class="status-branch resync-surge wait-wait" title="已连接，等待模型响应">
                 <span class="status-icon" aria-hidden="true">
                   <span class="standby">
-                    <span class="standby-cursor"></span>
+                    <span class="standby-beacon"><span class="beacon-core"></span></span>
                     <span class="standby-track">
-                      <svg class="standby-pulse" viewBox="0 0 14 10" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="miter"><polyline points="0,5 3,5 5,1 8,9 10,5 14,5" /></svg>
+                      <span class="standby-ticks"></span>
+                      <svg class="standby-pulse standby-pulse-echo" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="miter"><polyline points="0,5 3,5 5,1 7.5,9 9.5,3 11,5 16,5" /></svg>
+                      <svg class="standby-pulse standby-pulse-main" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="miter"><polyline points="0,5 3,5 5,1 7.5,9 9.5,3 11,5 16,5" /></svg>
                     </span>
                   </span>
                 </span>
@@ -522,10 +529,10 @@ watch(editText, () => {
                   <Brain class="text-[10px] min-w-3 text-center" /><span>思考过程</span>
                   <ChevronRight class="text-[10px] transition-transform duration-200" :class="isThinkingSegmentExpanded(idx) ? 'rotate-90' : ''" />
                   <!-- 折叠时的输出活性：只挂最新一段仍在输出的思考，正文/工具一出现立即让位 -->
-                  <span v-if="liveThinkingIdx === idx" class="think-live" title="正在输出">
+                  <span v-if="liveThinkingIdx === idx" class="think-live resync-surge" title="正在输出">
                     <span v-if="!isThinkingSegmentExpanded(idx)" class="think-live-label" data-text="THINKING" aria-hidden="true">THINKING<i class="label-garble" :data-g1="labelGarble.thinking[0]" :data-g2="labelGarble.thinking[1]"></i></span>
                     <span class="spectrum" :class="{ mini: isThinkingSegmentExpanded(idx) }" aria-hidden="true">
-                      <span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span>
+                      <span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span><span class="spectrum-bar"></span>
                     </span>
                     <span class="sr-only">正在输出</span>
                   </span>
@@ -619,10 +626,14 @@ watch(editText, () => {
 }
 
 /* 等待指示三段接力，每段一个不同的动作，一眼可辨阶段：
-   CONNECTING = 握手探测（光点在 7 格里来回扫，找路）
-   WAITING    = 待机心跳（块光标闪烁 + 细线上周期划过心电尖峰，已就绪在等）
-   THINKING   = 迷你频谱（高低不齐的柱子各自跳变，内部有活动）
-   阶段切换 = 「锁定」：新图标自左向右展开并带一帧 RGB 分离，标签乱码 → 真字解码。
+   CONNECTING = 信道握手矩阵（L 型战术准星 + 2×8 TX/RX 双轨扫描波束）
+   WAITING    = 示波锁定心跳（外框常亮锁定信标 + 标尺轨道双层残影心电尖峰）
+   THINKING   = 8 轨双极神经频谱（高低跳变 + 过载峰值帽 + 双色激光采样扫描）
+   阶段切换 = 「战术级重同步脉冲（.resync-surge）」：
+   1) 高压双色激光束自左向右贯穿横扫（::after）
+   2) 左上/右下战术直角框瞬态咬合收拢（::before）
+   3) 容器 2 帧离散水平 kick 震动 + 图标切片撕裂展开（lock-in / lock-tear）
+   4) 标签 A 全乱 → B 半真 → 真字落定 + 主色余辉褪回（label-decode / label-glow）
    全部走 CSS，图标区固定宽度，切换不抖布局。CONNECTING 分支延迟 220ms 出现，快连接时不会闪一下 */
 .stream-status {
   position: relative;
@@ -636,11 +647,15 @@ watch(editText, () => {
 }
 
 .status-branch {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 1.2em;
+  min-height: 16px;
+  padding: 2px 4px;
+  margin: -2px -4px;
   flex: none;
+  --surge-delay: 0s;
 }
 
 .status-icon {
@@ -648,7 +663,7 @@ watch(editText, () => {
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  width: 54px;
+  width: 58px;
   height: 12px;
   flex: none;
 }
@@ -663,7 +678,14 @@ watch(editText, () => {
 }
 
 .link-wait {
-  animation: status-in 1ms steps(1, end) 0.22s both;
+  --surge-delay: 0.22s;
+  animation:
+    status-in 1ms steps(1, end) 0.22s both,
+    resync-kick 0.22s steps(1, end) 0.22s both;
+}
+
+.wait-wait {
+  animation: resync-kick 0.22s steps(1, end) both;
 }
 
 @keyframes status-in {
@@ -671,106 +693,286 @@ watch(editText, () => {
   to { opacity: 1; }
 }
 
-/* ---------- CONNECTING：握手探测 ---------- */
-.link-probe {
+/* ---------- 阶段切换：战术级重同步脉冲（.resync-surge） ---------- */
+.resync-surge {
   position: relative;
-  display: flex;
-  gap: 2px;
-  width: 54px;
-  height: 8px;
-  --pitch: 8px;
-  animation: lock-in 0.2s steps(5, end) 0.22s both, lock-tear 0.2s steps(1, end) 0.22s both;
 }
 
-.probe-cell {
+/* 左上角 + 右下角战术锁定框瞬态咬合收拢，播完即散，不留静态边框 */
+.resync-surge::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  background:
+    linear-gradient(to right, var(--glitch-cyan) 6px, transparent 6px) 0 0 / 100% 1px no-repeat,
+    linear-gradient(to bottom, var(--glitch-cyan) 5px, transparent 5px) 0 0 / 1px 100% no-repeat,
+    linear-gradient(to left, var(--glitch-magenta) 6px, transparent 6px) 100% 100% / 100% 1px no-repeat,
+    linear-gradient(to top, var(--glitch-magenta) 5px, transparent 5px) 100% 100% / 1px 100% no-repeat;
+  animation: resync-brackets 0.26s steps(1, end) var(--surge-delay, 0s) both;
+}
+
+/* 高压双色激光束自左向右贯穿整个状态条 */
+.resync-surge::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -1px;
+  bottom: -1px;
+  width: 100%;
+  pointer-events: none;
+  z-index: 4;
+  opacity: 0;
+  transform-origin: left center;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--glitch-magenta) 25%,
+    var(--primary) 65%,
+    var(--glitch-cyan) 92%,
+    transparent 100%
+  );
+  animation: resync-laser 0.24s cubic-bezier(0.16, 1, 0.3, 1) var(--surge-delay, 0s) both;
+}
+
+@keyframes resync-brackets {
+  0% { opacity: 0; inset: -3px; }
+  12% { opacity: 0.95; inset: -3px; }
+  38% { opacity: 0.9; inset: -1px; }
+  66% { opacity: 0.65; inset: 0; }
+  100% { opacity: 0; inset: 0; }
+}
+
+@keyframes resync-laser {
+  0% { opacity: 0.95; transform: translateX(-12%) scaleX(0.12); }
+  45% { opacity: 0.85; transform: translateX(38%) scaleX(0.32); }
+  85% { opacity: 0.45; transform: translateX(88%) scaleX(0.16); }
+  100% { opacity: 0; transform: translateX(104%) scaleX(0.04); }
+}
+
+/* 2 帧离散水平 kick 震动 + 末段 ease-out 归位（在容器内边距内，不触发外部布局偏移） */
+@keyframes resync-kick {
+  0% { transform: none; }
+  14% { transform: translateX(-1.5px); }
+  32% { transform: translateX(1.5px); }
+  50% { transform: translateX(-0.5px); animation-timing-function: ease-out; }
+  75%, 100% { transform: none; }
+}
+
+/* ---------- CONNECTING：信道握手矩阵 (Hex / Channel Matrix) ---------- */
+.hex-matrix {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 58px;
+  height: 12px;
+  animation:
+    lock-in 0.22s steps(6, end) 0.22s both,
+    lock-tear 0.24s steps(1, end) 0.22s both;
+}
+
+.matrix-bracket {
   flex: none;
-  width: 6px;
-  height: 8px;
+  width: 3px;
+  height: 12px;
+  box-sizing: border-box;
+  border-top: 1px solid var(--primary);
+  border-bottom: 1px solid var(--primary);
+  opacity: 0.85;
+}
+
+.matrix-bracket-l {
+  border-left: 1px solid var(--primary);
+  animation: bracket-snap-l 0.24s steps(3, end) 0.22s both;
+}
+
+.matrix-bracket-r {
+  border-right: 1px solid var(--primary);
+  animation: bracket-snap-r 0.24s steps(3, end) 0.22s both;
+}
+
+@keyframes bracket-snap-l {
+  0% { transform: translateX(-2px); border-color: var(--glitch-cyan); }
+  60% { transform: translateX(0.5px); border-color: var(--glitch-magenta); }
+  100% { transform: none; border-color: var(--primary); }
+}
+
+@keyframes bracket-snap-r {
+  0% { transform: translateX(2px); border-color: var(--glitch-magenta); }
+  60% { transform: translateX(-0.5px); border-color: var(--glitch-cyan); }
+  100% { transform: none; border-color: var(--primary); }
+}
+
+.matrix-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(8, 4px);
+  grid-template-rows: repeat(2, 4px);
+  gap: 2px;
+  width: 46px;
+  height: 10px;
+}
+
+/* 中央交叉配对时的横向扫描导轨微光 */
+.matrix-grid::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 2px;
+  background: var(--glitch-cyan);
+  opacity: 0;
+  pointer-events: none;
+  animation: matrix-sync-rail 1.2s steps(1, end) 0.22s infinite;
+}
+
+@keyframes matrix-sync-rail {
+  0%, 79% { opacity: 0; transform: scaleX(0.2); }
+  80%, 92% { opacity: 0.65; transform: scaleX(1); background: var(--primary); }
+  93%, 100% { opacity: 0; transform: scaleX(1); }
+}
+
+.matrix-cell {
+  width: 4px;
+  height: 4px;
   box-sizing: border-box;
   border: 1px solid var(--border-color);
+  background: transparent;
 }
 
-.probe-head,
-.probe-trail,
-.probe-tail {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 6px;
-  height: 8px;
-  background: var(--primary);
-  animation: probe-move 0.6s steps(6, jump-none) infinite alternate;
+/* TX 上排（1~8）：自左向右发射青色前沿 + 主色锁定波束 */
+.tx-cell {
+  animation: matrix-tx-wave 1.2s steps(1, end) infinite;
 }
 
-.probe-trail { opacity: 0.5; animation-delay: 0.1s; }
-.probe-tail { opacity: 0.22; animation-delay: 0.2s; }
+.tx-cell:nth-child(1) { animation-delay: 0.22s; }
+.tx-cell:nth-child(2) { animation-delay: 0.27s; }
+.tx-cell:nth-child(3) { animation-delay: 0.32s; }
+.tx-cell:nth-child(4) { animation-delay: 0.37s; }
+.tx-cell:nth-child(5) { animation-delay: 0.42s; }
+.tx-cell:nth-child(6) { animation-delay: 0.47s; }
+.tx-cell:nth-child(7) { animation-delay: 0.52s; }
+.tx-cell:nth-child(8) { animation-delay: 0.57s; }
 
-@keyframes probe-move {
-  from { transform: translateX(0); }
-  to { transform: translateX(calc(var(--pitch) * 6)); }
+/* RX 下排（9~16）：自右向左回传品红前沿 + 主色应答波束 */
+.rx-cell {
+  animation: matrix-rx-wave 1.2s steps(1, end) infinite;
 }
 
-/* 协议小缀：与探测方向同步，去程 SYN >>，回程 << ACK */
-.link-proto {
-  position: relative;
-  display: inline-block;
-  width: 7ch;
-  font-size: 0.65rem;
-  line-height: 1;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
-  color: var(--text-placeholder);
-  opacity: 0.7;
+.rx-cell:nth-child(16) { animation-delay: 0.58s; }
+.rx-cell:nth-child(15) { animation-delay: 0.63s; }
+.rx-cell:nth-child(14) { animation-delay: 0.68s; }
+.rx-cell:nth-child(13) { animation-delay: 0.73s; }
+.rx-cell:nth-child(12) { animation-delay: 0.78s; }
+.rx-cell:nth-child(11) { animation-delay: 0.83s; }
+.rx-cell:nth-child(10) { animation-delay: 0.88s; }
+.rx-cell:nth-child(9)  { animation-delay: 0.93s; }
+
+@keyframes matrix-tx-wave {
+  0%, 8% {
+    background: var(--glitch-cyan);
+    border-color: var(--glitch-cyan);
+    transform: translateY(-0.5px);
+  }
+  9%, 24% {
+    background: var(--primary);
+    border-color: var(--primary);
+    transform: none;
+  }
+  25%, 36% {
+    background: color-mix(in srgb, var(--primary) 45%, transparent);
+    border-color: var(--primary);
+  }
+  /* 周期末段全信道同步握手闪烁 */
+  78%, 86% {
+    background: var(--primary);
+    border-color: var(--glitch-cyan);
+  }
+  37%, 77%, 87%, 100% {
+    background: transparent;
+    border-color: var(--border-color);
+    transform: none;
+  }
 }
 
-.proto-a,
-.proto-b {
-  position: absolute;
-  left: 0;
-  top: 0;
-  opacity: 0;
-  animation: proto-step 1.2s steps(1, end) infinite;
+@keyframes matrix-rx-wave {
+  0%, 8% {
+    background: var(--glitch-magenta);
+    border-color: var(--glitch-magenta);
+    transform: translateY(0.5px);
+  }
+  9%, 24% {
+    background: var(--primary);
+    border-color: var(--primary);
+    transform: none;
+  }
+  25%, 36% {
+    background: color-mix(in srgb, var(--primary) 45%, transparent);
+    border-color: var(--primary);
+  }
+  /* 与上轨对齐的全信道握手确认 */
+  48%, 56% {
+    background: var(--primary);
+    border-color: var(--glitch-magenta);
+  }
+  37%, 47%, 57%, 100% {
+    background: transparent;
+    border-color: var(--border-color);
+    transform: none;
+  }
 }
 
-.proto-a { animation-delay: 0s; }
-.proto-b { animation-delay: 0.6s; }
-
-@keyframes proto-step {
-  0% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-
-/* ---------- WAITING：待机心跳 ---------- */
+/* ---------- WAITING：示波锁定心跳 (Oscilloscope Lock & ECG Surge) ---------- */
 .standby {
   display: flex;
   align-items: center;
-  gap: 6px;
-  width: 54px;
-  height: 10px;
-  animation: lock-in 0.2s steps(5, end) both, lock-tear 0.2s steps(1, end) both;
+  gap: 5px;
+  width: 58px;
+  height: 12px;
+  animation:
+    lock-in 0.22s steps(6, end) both,
+    lock-tear 0.24s steps(1, end) both;
 }
 
-.standby-cursor {
+/* 左侧复合锁定信标：外框常亮（代表信道已锁死），内核硬切呼吸 */
+.standby-beacon {
+  position: relative;
   flex: none;
-  width: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
   height: 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--primary);
+}
+
+.beacon-core {
+  width: 4px;
+  height: 6px;
   background: var(--primary);
   animation: cursor-blink 1s steps(1, end) infinite;
 }
 
 @keyframes cursor-blink {
-  0% { opacity: 1; }
-  60%, 100% { opacity: 0; }
+  0%, 62% { opacity: 1; background: var(--primary); }
+  63%, 72% { opacity: 0.85; background: var(--glitch-cyan); }
+  73%, 100% { opacity: 0.15; background: var(--primary); }
 }
 
 .standby-track {
   position: relative;
   flex: 1;
-  height: 10px;
+  height: 12px;
   overflow: hidden;
-  animation: pulse-glitch 7.2s steps(1, end) infinite;
+  animation: pulse-glitch 4.4s steps(1, end) infinite;
 }
 
+/* 示波器中央基准线 */
 .standby-track::before {
   content: '';
   position: absolute;
@@ -781,37 +983,70 @@ watch(editText, () => {
   background: var(--border-color);
 }
 
+/* 示波器精密垂直刻度齿（每 9px 一格，高 3px） */
+.standby-ticks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--border-input) 0,
+    var(--border-input) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+  opacity: 0.65;
+  pointer-events: none;
+}
+
 .standby-pulse {
   position: absolute;
   left: 0;
-  top: 0;
-  width: 14px;
+  top: 1px;
+  width: 16px;
   height: 10px;
+  transform: translateX(-16px);
+}
+
+.standby-pulse-main {
   color: var(--primary);
-  transform: translateX(-14px);
-  animation: pulse-run 2.4s steps(14, end) infinite;
+  animation: pulse-run 2.2s steps(16, end) infinite;
+}
+
+.standby-pulse-echo {
+  color: var(--glitch-cyan);
+  opacity: 0.55;
+  animation: pulse-run 2.2s steps(16, end) 0.07s infinite;
 }
 
 @keyframes pulse-run {
-  0% { transform: translateX(-14px); }
-  60%, 100% { transform: translateX(42px); }
+  0% { transform: translateX(-16px); }
+  62%, 100% { transform: translateX(46px); }
 }
 
-/* 每 3 次心跳里第 3 次尖峰划到一半时带一帧 RGB 分离 */
+/* 每 2 次心跳尖峰划过中央刻度时触发一次短促色差分离 */
 @keyframes pulse-glitch {
-  0%, 74% { filter: none; }
-  75% { filter: drop-shadow(1px 0 var(--glitch-cyan)) drop-shadow(-1px 0 var(--glitch-magenta)); }
-  79%, 100% { filter: none; }
+  0%, 72% { filter: none; }
+  73%, 77% { filter: drop-shadow(1px 0 var(--glitch-cyan)) drop-shadow(-1px 0 var(--glitch-magenta)); }
+  78%, 100% { filter: none; }
 }
 
-/* ---------- THINKING：迷你频谱 ---------- */
+/* ---------- THINKING：8 轨双极神经频谱 (Bi-Polar Neural Spectrum) ---------- */
 .think-live {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 2px 4px;
+  margin: -2px -4px;
   flex: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   line-height: 1;
+  --surge-delay: 0s;
+  animation: resync-kick 0.22s steps(1, end) both;
 }
 
 .think-live-label {
@@ -826,10 +1061,15 @@ watch(editText, () => {
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 10px;
+  height: 12px;
+  padding: 0 2px;
   box-sizing: content-box;
   border-bottom: 1px solid var(--border-color);
-  animation: lock-in 0.2s steps(5, end) both, lock-tear 0.2s steps(1, end) both;
+  border-left: 1px solid var(--border-input);
+  border-right: 1px solid var(--border-input);
+  animation:
+    lock-in 0.22s steps(6, end) both,
+    lock-tear 0.24s steps(1, end) both;
 }
 
 .spectrum-bar {
@@ -837,7 +1077,7 @@ watch(editText, () => {
   width: 2px;
   height: 3px;
   background: var(--text-placeholder);
-  animation: spectrum-jump 1s steps(1, end) infinite;
+  animation: spectrum-jump 0.9s steps(1, end) infinite;
 }
 
 .spectrum-bar::before {
@@ -848,25 +1088,37 @@ watch(editText, () => {
   top: 0;
   height: 2px;
   background: var(--primary);
+  animation: spectrum-cap 0.9s steps(1, end) infinite;
+  animation-duration: inherit;
+  animation-delay: inherit;
 }
 
-.spectrum-bar:nth-child(1) { animation-duration: 0.6s; animation-delay: -0.1s; }
-.spectrum-bar:nth-child(2) { animation-duration: 0.8s; animation-delay: -0.5s; }
-.spectrum-bar:nth-child(3) { animation-duration: 1s; animation-delay: -0.3s; }
-.spectrum-bar:nth-child(4) { animation-duration: 1.2s; animation-delay: -0.9s; }
-.spectrum-bar:nth-child(5) { animation-duration: 0.7s; animation-delay: -0.2s; }
-.spectrum-bar:nth-child(6) { animation-duration: 0.9s; animation-delay: -0.6s; }
+.spectrum-bar:nth-child(1) { animation-duration: 0.56s; animation-delay: -0.08s; }
+.spectrum-bar:nth-child(2) { animation-duration: 0.78s; animation-delay: -0.45s; }
+.spectrum-bar:nth-child(3) { animation-duration: 0.94s; animation-delay: -0.26s; }
+.spectrum-bar:nth-child(4) { animation-duration: 0.64s; animation-delay: -0.62s; }
+.spectrum-bar:nth-child(5) { animation-duration: 1.08s; animation-delay: -0.84s; }
+.spectrum-bar:nth-child(6) { animation-duration: 0.72s; animation-delay: -0.18s; }
+.spectrum-bar:nth-child(7) { animation-duration: 0.86s; animation-delay: -0.52s; }
+.spectrum-bar:nth-child(8) { animation-duration: 0.68s; animation-delay: -0.34s; }
 
 @keyframes spectrum-jump {
-  0% { height: 3px; }
-  20% { height: 8px; }
-  40% { height: 5px; }
-  60% { height: 10px; }
-  80% { height: 4px; }
-  100% { height: 3px; }
+  0%   { height: 3px; }
+  16%  { height: 9px; }
+  32%  { height: 5px; }
+  50%  { height: 12px; }
+  68%  { height: 7px; }
+  84%  { height: 10px; }
+  100% { height: 4px; }
 }
 
-/* 约每 7s 一次「采样扫描」：一条青色竖线自左扫过整个频谱 */
+/* 柱子跳到 12px 峰值时，顶端峰值帽瞬间切为青色过载高光 */
+@keyframes spectrum-cap {
+  0%, 49%, 68%, 100% { background: var(--primary); }
+  50%, 67% { background: var(--glitch-cyan); }
+}
+
+/* 每 3.6s 一次双色激光采样线快速扫过整个频谱 */
 .spectrum::after {
   content: '';
   position: absolute;
@@ -875,45 +1127,79 @@ watch(editText, () => {
   bottom: 0;
   width: 2px;
   background: var(--glitch-cyan);
+  box-shadow: -1px 0 0 var(--glitch-magenta);
   opacity: 0;
-  animation: spectrum-scan 7s steps(1, end) infinite;
+  pointer-events: none;
+  animation: spectrum-scan 3.6s steps(1, end) infinite;
 }
 
 @keyframes spectrum-scan {
-  0% { opacity: 0.9; transform: translateX(0); animation-timing-function: steps(5, end); }
-  5% { opacity: 0.9; transform: translateX(20px); }
-  5.01%, 100% { opacity: 0; transform: none; }
+  0% { opacity: 0.95; transform: translateX(0); animation-timing-function: steps(7, end); }
+  8% { opacity: 0.95; transform: translateX(30px); }
+  8.01%, 100% { opacity: 0; transform: none; }
 }
 
-/* 展开思考时只保留 3 柱小版本，不带扫描 */
-.spectrum.mini .spectrum-bar:nth-child(n + 4),
+/* 展开思考时只保留 4 柱紧凑版，不带左右边框与激光扫描 */
+.spectrum.mini {
+  padding: 0;
+  border-left: none;
+  border-right: none;
+}
+
+.spectrum.mini .spectrum-bar:nth-child(n + 5),
 .spectrum.mini::after {
   display: none;
 }
 
-/* ---------- 阶段切换：锁定 ---------- */
+/* ---------- 图标锁定与标签渐进解码 + 主色余辉 ---------- */
 @keyframes lock-in {
-  from { clip-path: inset(0 100% 0 0); }
-  to { clip-path: inset(0 0 0 0); }
+  0% { clip-path: inset(0 100% 0 0); transform: translateX(-2px); }
+  45% { clip-path: inset(0 32% 0 0); transform: translateX(1px); }
+  80% { clip-path: inset(0 0 0 0); transform: translateX(-0.5px); }
+  100% { clip-path: inset(0 0 0 0); transform: none; }
 }
 
 @keyframes lock-tear {
-  0% { filter: drop-shadow(1px 0 var(--glitch-cyan)) drop-shadow(-1px 0 var(--glitch-magenta)); }
-  40%, 100% { filter: none; }
+  0% { filter: drop-shadow(1.5px 0 var(--glitch-cyan)) drop-shadow(-1.5px 0 var(--glitch-magenta)); }
+  35% { filter: drop-shadow(-1px 0 var(--glitch-cyan)) drop-shadow(1px 0 var(--glitch-magenta)); }
+  65%, 100% { filter: none; }
 }
 
-/* 标签解码：先播 3 帧同区间乱码（青 / 品红色差），再落定为真字 */
+/* 标签渐进解码：前 220ms 隐藏真字并播放 A 全乱 → B 半真乱码帧，
+   220ms 显形瞬间带色差分离并从 --primary 主色余辉逐级褪回 --text-placeholder */
 .status-label,
 .think-live-label {
   position: relative;
   display: inline-block;
-  animation: label-decode 0.24s steps(1, end) both;
+  animation:
+    label-decode 0.28s steps(1, end) var(--surge-delay, 0s) both,
+    label-glow 0.48s steps(1, end) var(--surge-delay, 0s) both;
 }
 
-.link-wait .status-label { animation-delay: 0.22s; }
-
 @keyframes label-decode {
-  0%, 99% { color: transparent; }
+  0%, 74% {
+    color: transparent;
+    text-shadow: none;
+  }
+  75% {
+    color: var(--primary);
+    text-shadow: 1.5px 0 var(--glitch-text-cyan), -1.5px 0 var(--glitch-text-magenta);
+  }
+  88% {
+    color: var(--primary);
+    text-shadow: -0.75px 0 var(--glitch-text-cyan), 0.75px 0 var(--glitch-text-magenta);
+  }
+  100% {
+    color: var(--text-placeholder);
+    text-shadow: none;
+  }
+}
+
+@keyframes label-glow {
+  0%, 74% { color: transparent; }
+  75% { color: var(--primary); }
+  84% { color: color-mix(in srgb, var(--primary) 65%, var(--text-placeholder)); }
+  92% { color: color-mix(in srgb, var(--primary) 32%, var(--text-placeholder)); }
   100% { color: var(--text-placeholder); }
 }
 
@@ -931,25 +1217,35 @@ watch(editText, () => {
   top: 0;
   opacity: 0;
   color: var(--text-placeholder);
-  animation: garble-frame 0.24s steps(1, end) both;
+  animation-duration: 0.28s;
+  animation-timing-function: steps(1, end);
+  animation-delay: var(--surge-delay, 0s);
+  animation-fill-mode: both;
 }
 
-.label-garble::before { content: attr(data-g1); text-shadow: -1px 0 var(--glitch-cyan), 1px 0 var(--glitch-magenta); }
-.label-garble::after { content: attr(data-g2); text-shadow: 1px 0 var(--glitch-cyan), -1px 0 var(--glitch-magenta); animation-name: garble-frame-b; }
-.link-wait .label-garble::before,
-.link-wait .label-garble::after { animation-delay: 0.22s; }
+/* A 层（data-g1，全乱码）：0% ~ 38% 播放，双向色差逐帧翻转 */
+.label-garble::before {
+  content: attr(data-g1);
+  animation-name: garble-frame-a;
+}
 
-@keyframes garble-frame {
-  0%, 33% { opacity: 1; }
-  34%, 66% { opacity: 0; }
-  67%, 99% { opacity: 1; }
-  100% { opacity: 0; }
+/* B 层（data-g2，50% 真字）：38% ~ 75% 接力播放，半解码状态逼近真字 */
+.label-garble::after {
+  content: attr(data-g2);
+  animation-name: garble-frame-b;
+}
+
+@keyframes garble-frame-a {
+  0% { opacity: 1; color: var(--glitch-cyan); text-shadow: 1.5px 0 var(--glitch-text-magenta), -1px 0 var(--glitch-text-cyan); transform: translateX(-1px); }
+  19% { opacity: 1; color: var(--text-main); text-shadow: -1.5px 0 var(--glitch-text-cyan), 1px 0 var(--glitch-text-magenta); transform: translateX(1px); }
+  38%, 100% { opacity: 0; text-shadow: none; transform: none; }
 }
 
 @keyframes garble-frame-b {
-  0%, 33% { opacity: 0; }
-  34%, 66% { opacity: 1; }
-  67%, 100% { opacity: 0; }
+  0%, 37% { opacity: 0; transform: none; }
+  38% { opacity: 1; color: var(--primary); text-shadow: 1px 0 var(--glitch-text-cyan), -1px 0 var(--glitch-text-magenta); transform: translateX(-0.5px); }
+  56% { opacity: 1; color: var(--text-placeholder); text-shadow: -0.75px 0 var(--glitch-text-cyan), 0.75px 0 var(--glitch-text-magenta); transform: none; }
+  75%, 100% { opacity: 0; text-shadow: none; transform: none; }
 }
 
 /* 低频 glitch 点缀：标签的青/品红副本偶尔切片撕裂（周期 4.6s / 5.9s，互相错开） */
@@ -970,17 +1266,17 @@ watch(editText, () => {
 .status-label::before,
 .think-live-label::before {
   color: var(--glitch-cyan);
-  animation: status-label-tear-a 4.6s steps(1, end) 0.3s infinite;
+  animation: status-label-tear-a 4.6s steps(1, end) 0.45s infinite;
 }
 
 .status-label::after,
 .think-live-label::after {
   color: var(--glitch-magenta);
-  animation: status-label-tear-b 5.9s steps(1, end) 0.34s infinite;
+  animation: status-label-tear-b 5.9s steps(1, end) 0.5s infinite;
 }
 
-.link-wait .status-label::before { animation-delay: 0.5s; }
-.link-wait .status-label::after { animation-delay: 0.54s; }
+.link-wait .status-label::before { animation-delay: 0.65s; }
+.link-wait .status-label::after { animation-delay: 0.7s; }
 
 @keyframes status-label-tear-a {
   0% { opacity: 0.85; clip-path: inset(16% 0 58% 0); transform: translate(-1px, 0); }
@@ -1013,15 +1309,15 @@ watch(editText, () => {
   background: var(--primary);
   transform-origin: left center;
   will-change: transform, opacity;
-  animation: receipt-line 1.1s linear both;
+  animation: receipt-line 0.65s linear both;
 }
 
 /* 展开用 scaleX（合成层动画，不触发重绘），ease-out 越扫越慢；停留后平滑淡出。
    不用 steps / clip-path：2px 细线上硬切会一卡一卡 */
 @keyframes receipt-line {
   0% { transform: scaleX(0); opacity: 1; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
-  35% { transform: scaleX(1); opacity: 1; }
-  60% { transform: scaleX(1); opacity: 1; animation-timing-function: ease-in; }
+  38% { transform: scaleX(1); opacity: 1; }
+  58% { transform: scaleX(1); opacity: 1; animation-timing-function: ease-in; }
   100% { transform: scaleX(1); opacity: 0; }
 }
 
@@ -1032,10 +1328,14 @@ watch(editText, () => {
   }
 }
 
-/* 减弱动态效果：探测块停在中间格，光标常亮，尖峰静止，频谱停在固定高度，标签直接显形 */
+/* 减弱动态效果：矩阵对角静态点亮，信标常亮，尖峰停在中央，频谱停在固定高度，标签直接显形 */
 @media (prefers-reduced-motion: reduce) {
   .link-wait,
-  .link-probe,
+  .wait-wait,
+  .think-live,
+  .hex-matrix,
+  .matrix-bracket-l,
+  .matrix-bracket-r,
   .standby,
   .spectrum,
   .standby-track,
@@ -1044,28 +1344,41 @@ watch(editText, () => {
     animation: none;
   }
 
-  .probe-head,
-  .probe-trail,
-  .probe-tail,
-  .proto-a,
-  .proto-b,
-  .standby-cursor,
-  .standby-pulse,
-  .spectrum-bar {
+  .resync-surge::before,
+  .resync-surge::after,
+  .matrix-grid::after {
+    animation: none;
+    opacity: 0;
+    display: none;
+  }
+
+  .tx-cell,
+  .rx-cell,
+  .beacon-core,
+  .standby-pulse-main,
+  .standby-pulse-echo,
+  .spectrum-bar,
+  .spectrum-bar::before {
     animation: none;
   }
 
-  .probe-head { transform: translateX(calc(var(--pitch) * 3)); }
-  .probe-trail,
-  .probe-tail { display: none; }
-  .proto-a { opacity: 1; }
-  .standby-pulse { transform: translateX(14px); }
-  .spectrum-bar:nth-child(odd) { height: 8px; }
+  .tx-cell:nth-child(3),
+  .tx-cell:nth-child(4),
+  .rx-cell:nth-child(13),
+  .rx-cell:nth-child(14) {
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+
+  .standby-pulse-main { transform: translateX(14px); }
+  .standby-pulse-echo { display: none; }
+  .spectrum-bar:nth-child(odd) { height: 9px; }
   .spectrum-bar:nth-child(even) { height: 5px; }
 
   .status-label,
   .think-live-label {
     color: var(--text-placeholder);
+    text-shadow: none;
   }
 
   .status-label::before,
