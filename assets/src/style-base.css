@@ -320,7 +320,7 @@ a[href]:not(.chat-item):focus-visible {
    * 悬停文本框本身也触发外壳反馈；悬停内部按钮时不跟着亮，
    * 避免内外两层同时响应。
    */
-  .edge-shell:hover:not(:has(button:hover, input:hover)) {
+  .edge-shell:hover:not(:has(button:hover)) {
     border-color: var(--primary);
   }
 }
@@ -370,7 +370,8 @@ a[href]:not(.chat-item):focus-visible {
   animation: vhs-shell-roll 520ms steps(1, end) forwards;
 }
 
-.edge-shell textarea:focus {
+.edge-shell textarea:focus,
+.edge-shell input:focus {
   animation: vhs-text-split 300ms steps(1, end) forwards;
 }
 
@@ -403,7 +404,8 @@ a[href]:not(.chat-item):focus-visible {
     transform: translate(0, -120%);
   }
 
-  .edge-shell textarea:focus {
+  .edge-shell textarea:focus,
+  .edge-shell input:focus {
     animation: none;
     text-shadow: none;
   }

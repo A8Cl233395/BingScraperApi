@@ -521,34 +521,39 @@ const confirmDelete = () => {
               :style="{ transform: isSearchOpen ? 'translateX(0)' : 'translateX(calc(-100% - 20px))' }"
               :inert="!isSearchOpen"
             >
-              <!-- 图标区（pl-8=32px）内水平居中：left-2 + text-sm(16px 图标) = 两侧各留 ~8px；
-                   垂直用 flex 居中而非 translate，规避 translate 属性兼容性问题 -->
-              <span class="absolute left-2 inset-y-0 flex items-center text-sm text-text-placeholder pointer-events-none">
-                <Search />
-              </span>
-              <input
-                ref="searchInputRef"
-                :value="searchQuery"
-                type="text"
-                placeholder="搜索对话标题"
-                class="edge-control w-full h-8 bg-bg-main border border-border-input pl-8 pr-8 text-sm text-text-main transition-colors placeholder:text-text-placeholder"
-                @input="handleSearchInput"
-                @compositionstart="handleSearchCompositionStart"
-                @compositionend="handleSearchCompositionEnd"
-                @keydown.esc="closeSearch"
-              />
-              <!-- 搜索中：右侧显示转圈（输入过程中列表保持上一次的结果，用这里的转圈表示正在搜） -->
-              <span v-if="isSearching" class="absolute right-2 inset-y-0 flex items-center text-xs text-text-placeholder pointer-events-none">
-                <Loader2 class="animate-spin" />
-              </span>
-              <button
-                v-else-if="searchQuery"
-                @click="handleClearSearch"
-                class="absolute right-2 inset-y-0 my-1 w-6 flex items-center justify-center text-text-placeholder hover:text-text-main transition-colors"
-                title="清空"
-              >
-                <X class="text-xs" />
-              </button>
+              <!-- 复合输入容器（edge-shell）：聚焦时整个外壳（含搜索图标、输入框、清空按钮）
+                   作为整体播放 VHS 边框硬闪、edge-jitter 离散抖动与顶部扫描线，
+                   解决独立 input 抖动时外部搜索图标不跟随的问题 -->
+              <div class="edge-shell w-full h-8 bg-bg-main border border-border-input flex items-center">
+                <!-- 图标区（pl-8=32px）内水平居中：left-2 + text-sm(16px 图标) = 两侧各留 ~8px；
+                     垂直用 flex 居中而非 translate，规避 translate 属性兼容性问题 -->
+                <span class="absolute left-2 inset-y-0 flex items-center text-sm text-text-placeholder pointer-events-none">
+                  <Search />
+                </span>
+                <input
+                  ref="searchInputRef"
+                  :value="searchQuery"
+                  type="text"
+                  placeholder="搜索对话标题"
+                  class="w-full h-full bg-transparent border-0 outline-none pl-8 pr-8 text-sm text-text-main placeholder:text-text-placeholder"
+                  @input="handleSearchInput"
+                  @compositionstart="handleSearchCompositionStart"
+                  @compositionend="handleSearchCompositionEnd"
+                  @keydown.esc="closeSearch"
+                />
+                <!-- 搜索中：右侧显示转圈（输入过程中列表保持上一次的结果，用这里的转圈表示正在搜） -->
+                <span v-if="isSearching" class="absolute right-2 inset-y-0 flex items-center text-xs text-text-placeholder pointer-events-none">
+                  <Loader2 class="animate-spin" />
+                </span>
+                <button
+                  v-else-if="searchQuery"
+                  @click="handleClearSearch"
+                  class="absolute right-2 inset-y-0 my-1 w-6 z-10 flex items-center justify-center text-text-placeholder hover:text-text-main transition-colors"
+                  title="清空"
+                >
+                  <X class="text-xs" />
+                </button>
+              </div>
             </div>
           </div>
           <!-- 新对话 + 模型选择器：开搜索时与搜索框等速向右平移，整体推出侧栏（溢出由侧栏 overflow: clip 裁掉） -->
