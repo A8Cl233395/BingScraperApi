@@ -45,19 +45,37 @@ logging.getLogger("pdfminer").setLevel(logging.ERROR)
 import bcrypt
 from functools import wraps 
 
+MAX_MEMORY_LENGTH = 500
+MAX_MEMORY_COUNT = 50
+
 class Ncm:
     def __init__(self):
         self.cache = LRUCache(100)
 
+    @staticmethod
+    def extract_song_id(url: str) -> str:
+        """从网易云音乐链接或 163cn.tv 短链中提取歌曲 ID"""
+        target_url = url
+        if "music.163.com" not in target_url:
+            final_url = searcher.get_final_url(target_url)
+            if not final_url or "music.163.com" not in final_url:
+                raise ValueError("url is not a ncm lyric url")
+            target_url = final_url
+        match = re.search(r"id=(\d+)", target_url)
+        if not match:
+            raise ValueError("Invalid url")
+        return match.group(1)
+
     def get_details_text(self, song_id, comment_limit=5):
-        if self.cache.get(song_id):
-            return self.cache.get(song_id)
+        cached = self.cache.get(song_id)
+        if cached:
+            return cached
         lyric_api = f"https://music.163.com/api/song/lyric?os=pc&id={song_id}&lv=-1&tv=-1"
         comment_api = f"https://music.163.com/api/v1/resource/comments/R_SO_4_{song_id}?offset=0&limit={comment_limit}"
         details_api = f"https://music.163.com/api/song/detail/?ids=[{song_id}]"
         combined = ""
 
-        lyric_json = requests.get(lyric_api).json()
+        lyric_json = requests.get(lyric_api, timeout=10).json()
         translations = {}
         time_tag_regex = r'\[(?:\d{2,}:)?\d{2}[:.]\d{2,}(?:\.\d+)?\]'
         if "tlyric" in lyric_json and lyric_json["tlyric"]["version"] and lyric_json["tlyric"]["lyric"]:
@@ -79,14 +97,14 @@ class Ncm:
                     combined_lyrics.append("")  # 如果没有翻译，也添加一个空行保持格式一致
         combined_lyrics_text = "\n".join(combined_lyrics).strip()
 
-        detail_json = requests.get(details_api).json()
+        detail_json = requests.get(details_api, timeout=10).json()
         song_detail_json = detail_json["songs"][0]
         name = song_detail_json["name"]
         artists = [artist["name"] for artist in song_detail_json["artists"]]
         transname = song_detail_json["transName"] if "transName" in song_detail_json else None
         alias = song_detail_json["alias"][0] if "alias" in song_detail_json and song_detail_json["alias"] else None
 
-        comment_json = requests.get(comment_api).json()
+        comment_json = requests.get(comment_api, timeout=10).json()
         hot_comments = comment_json["hotComments"]
         comments = [comment["content"] for comment in hot_comments][:comment_limit]
         comments_text = "\n\n".join(comments).strip()
@@ -94,7 +112,7 @@ class Ncm:
         combined += f"翻译名: {transname}\n" if transname else ""
         combined += f"别名: {alias}\n" if alias else ""
         combined += f"歌手: {', '.join(artists)}\n"
-        combined += f"歌词{"（包含翻译）" if translations else ""}:\n```\n{combined_lyrics_text}\n```\n"
+        combined += f"歌词{'（包含翻译）' if translations else ''}:\n```\n{combined_lyrics_text}\n```\n"
         combined += f"热评:\n```\n{comments_text}\n```"
         self.cache.put(song_id, combined)
         return combined
@@ -123,13 +141,16 @@ class Bilibili:
         bv = bv or self._extract_bv_from_url(url)
         if not bv:
             return 'url is not a bilibili video url'
+        cached = self.cache.get(bv)
+        if cached:
+            return cached
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
             "Referer": f"https://www.bilibili.com/video/{bv}",
             "Origin": "https://www.bilibili.com",
             "Host": "api.bilibili.com",
         }
-        view_response = requests.get(f"https://api.bilibili.com/x/web-interface/view?bvid={bv}", headers=headers)
+        view_response = requests.get(f"https://api.bilibili.com/x/web-interface/view?bvid={bv}", headers=headers, timeout=15)
         if view_response.status_code != 200:
             return f"B站视频不存在"
         data = view_response.json()
@@ -137,7 +158,7 @@ class Bilibili:
         desc = data["data"]["desc"]
         cid = data["data"]["cid"]
 
-        video_url_response = requests.get("https://api.bilibili.com/x/player/wbi/playurl", headers=headers, params={"fnval": 4048, "bvid": bv, "cid": cid})
+        video_url_response = requests.get("https://api.bilibili.com/x/player/wbi/playurl", headers=headers, params={"fnval": 4048, "bvid": bv, "cid": cid}, timeout=15)
         if video_url_response.status_code != 200:
             return f"B站视频不存在"
         video_url_data = video_url_response.json()
@@ -147,7 +168,7 @@ class Bilibili:
             "Referer": f"https://www.bilibili.com/video/{bv}",
             "Origin": "https://www.bilibili.com",
         }
-        audio_request = requests.get(audio_url, headers=headers)
+        audio_request = requests.get(audio_url, headers=headers, timeout=60)
         audio_data = audio_request.content
         if audio_request.status_code != 200:
             return f"B站视频不存在"
@@ -323,7 +344,7 @@ class OCR:
             },
         }, ensure_ascii=False)
         try:
-            result = requests.post(self.endpoint, headers={"Content-Type": "application/json"}, data=json_data).json()["data"]
+            result = requests.post(self.endpoint, headers={"Content-Type": "application/json"}, data=json_data, timeout=30).json()["data"]
             return result
         except Exception as e:
             logger.exception("OCR 识别失败")
@@ -467,28 +488,20 @@ class User:
         # init memory
         if not os.path.exists(f"link_datas/{user_id}.json"):
             logger.debug(f"用户 {user_id} 数据文件不存在，正在创建")
-            self.memory = []
-            if is_webchat_enabled:
-                self.model = config["webchat"]["default-model"]
-                self.vision_model = config["webchat"]["default-vision-model"]
-                self.thinking = False
-                self.enable_function = False
-                self.sessions = {}
-                self.secret = None
-                self.config_version = "0"
+            data = {}
         else:
             with open(f"link_datas/{user_id}.json", "r", encoding="utf-8") as f:
                 logger.debug(f"正在从文件加载用户 {user_id} 数据")
                 data: dict = json.load(f)
-                self.memory: list[str] = data["memory"]
-                if is_webchat_enabled:
-                    self.model: str = data.get("model", config["webchat"]["default-model"])
-                    self.vision_model: str = data.get("vision_model", config["webchat"]["default-vision-model"])
-                    self.thinking: bool = data.get("thinking", False)
-                    self.enable_function: bool = data.get("enable_function", False)
-                    self.sessions: dict[str, dict] = data.get("sessions", {}) if isinstance(data.get("sessions"), dict) else {}
-                    self.secret: bytes | None = data["secret"].encode() if data.get("secret") else None
-                    self.config_version: str = data.get("config_version", "0")
+        self.memory: list[str] = data.get("memory", [])
+        if is_webchat_enabled:
+            self.model: str = data.get("model", config["webchat"]["default-model"])
+            self.vision_model: str = data.get("vision_model", config["webchat"]["default-vision-model"])
+            self.thinking: bool = data.get("thinking", False)
+            self.enable_function: bool = data.get("enable_function", False)
+            self.sessions: dict[str, dict] = data.get("sessions", {}) if isinstance(data.get("sessions"), dict) else {}
+            self.secret: bytes | None = data["secret"].encode() if data.get("secret") else None
+            self.config_version: str = data.get("config_version", "0")
         self.chat_cache: dict[int, ChatInstance] = {}
         # tuple: (chat_id, node_id)
         self.streaming_cache: dict[tuple[int, str], StreamingCache] = {}
@@ -586,6 +599,28 @@ class User:
             self.memory.remove(memory)
         self._edited = True
         return True
+
+    def validate_and_add_memory(self, memory: str) -> tuple[bool, int, str]:
+        """统一校验并添加记忆，返回 (是否成功, HTTP状态码, 提示信息)"""
+        if not memory:
+            return False, 400, "记忆不能为空！"
+        if len(memory) > MAX_MEMORY_LENGTH:
+            return False, 413, f"记忆长度不能超过{MAX_MEMORY_LENGTH}个字符！"
+        if memory in self.memory:
+            return False, 409, "记忆已存在！"
+        if len(self.memory) >= MAX_MEMORY_COUNT:
+            return False, 422, "记忆已满！"
+        if not self.add_memory(memory):
+            return False, 500, "添加记忆失败！"
+        return True, 200, f'记忆 "{memory}" 已添加！'
+
+    def validate_and_remove_memory(self, memory: str) -> tuple[bool, int, str]:
+        """统一校验并删除记忆，返回 (是否成功, HTTP状态码, 提示信息)"""
+        if memory not in self.memory:
+            return False, 400, "记忆不存在！"
+        if not self.remove_memory(memory):
+            return False, 500, "删除记忆失败！"
+        return True, 200, f'记忆 "{memory}" 已删除！'
     
     def verify_token(self, session_id: str, token: str) -> bool:
         if session_id not in self.sessions:
@@ -682,67 +717,8 @@ def construct_params(model_config: dict, thinking: bool, api_type: str = "chat-c
     return params
 
 class ChatInstance:
-    tools = [
+    _TOOL_SCHEMAS = [
         {
-            "type": "function",
-            "function": {
-                "name": "searchWeb",
-                "description": "进行网络搜索",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "description": "查询的内容",
-                            "type": "string",
-                        },
-                    },
-                    "required": ["query"]
-                },
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "readURL",
-                "description": "访问指定URL",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "url": {
-                            "description": "访问的URL",
-                            "type": "string",
-                        },
-                    },
-                    "required": ["url"]
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "manageMemory",
-                "description": "管理永久记忆，此处的记忆会持久化存储",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "operation": {
-                            "description": "操作",
-                            "type": "string",
-                            "enum": ["add", "remove"],
-                        },
-                        "memory": {
-                            "description": "要操作的记忆内容，需要完全匹配",
-                            "type": "string",
-                        },
-                    },
-                    "required": ["operation", "memory"]
-                },
-            },
-        }
-    ]
-    responses_tools = [
-        {
-            "type": "function",
             "name": "searchWeb",
             "description": "进行网络搜索",
             "parameters": {
@@ -753,11 +729,10 @@ class ChatInstance:
                         "type": "string",
                     },
                 },
-                "required": ["query"]
+                "required": ["query"],
             },
         },
         {
-            "type": "function",
             "name": "readURL",
             "description": "访问指定URL",
             "parameters": {
@@ -768,11 +743,10 @@ class ChatInstance:
                         "type": "string",
                     },
                 },
-                "required": ["url"]
+                "required": ["url"],
             },
         },
         {
-            "type": "function",
             "name": "manageMemory",
             "description": "管理永久记忆，此处的记忆会持久化存储",
             "parameters": {
@@ -788,58 +762,19 @@ class ChatInstance:
                         "type": "string",
                     },
                 },
-                "required": ["operation", "memory"]
+                "required": ["operation", "memory"],
             },
-        }
+        },
     ]
+    tools = [{"type": "function", "function": schema} for schema in _TOOL_SCHEMAS]
+    responses_tools = [{"type": "function", **schema} for schema in _TOOL_SCHEMAS]
     anthropic_tools = [
         {
-            "name": "searchWeb",
-            "description": "进行网络搜索",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "description": "查询的内容",
-                        "type": "string",
-                    },
-                },
-                "required": ["query"]
-            },
-        },
-        {
-            "name": "readURL",
-            "description": "访问指定URL",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "description": "访问的URL",
-                        "type": "string",
-                    },
-                },
-                "required": ["url"]
-            },
-        },
-        {
-            "name": "manageMemory",
-            "description": "管理永久记忆，此处的记忆会持久化存储",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "operation": {
-                        "description": "操作",
-                        "type": "string",
-                        "enum": ["add", "remove"],
-                    },
-                    "memory": {
-                        "description": "要操作的记忆内容，需要完全匹配",
-                        "type": "string",
-                    },
-                },
-                "required": ["operation", "memory"]
-            },
+            "name": schema["name"],
+            "description": schema["description"],
+            "input_schema": schema["parameters"],
         }
+        for schema in _TOOL_SCHEMAS
     ]
     def __init__(self, user: User, chat_tree: dict = None):  # type: ignore
         self.system_prompt = self._build_system_message(user)
@@ -1271,30 +1206,26 @@ class ChatInstance:
                 case "searchWeb":
                     content = searcher.search(arguments_json["query"])
                 case "manageMemory":
-                    if arguments_json["operation"] == "add":
-                        if len(arguments_json["memory"]) > 500:
-                            content = f"错误：记忆长度不能超过500个字符！"
-                        elif arguments_json["memory"] in self.user.memory:
-                            content = f"错误：记忆已存在！"
-                        elif len(self.user.memory) >= 50:
-                            content = f"记忆已满！"
+                    op = arguments_json["operation"]
+                    mem = arguments_json["memory"]
+                    if op == "add":
+                        ok, status, msg = self.user.validate_and_add_memory(mem)
+                        if ok or status == 422:
+                            content = msg
+                        elif status == 500:
+                            content = "后端错误！无法添加记忆！"
                         else:
-                            success = self.user.add_memory(arguments_json["memory"])
-                            if success:
-                                content = f"记忆 \"{arguments_json['memory']}\" 已添加！"
-                            else:
-                                content = f"后端错误！无法添加记忆！"
-                    elif arguments_json["operation"] == "remove":
-                        if arguments_json["memory"] not in self.user.memory:
-                            content = f"错误：记忆不存在！"
+                            content = f"错误：{msg}"
+                    elif op == "remove":
+                        ok, status, msg = self.user.validate_and_remove_memory(mem)
+                        if ok:
+                            content = msg
+                        elif status == 500:
+                            content = "后端错误！无法删除记忆！"
                         else:
-                            success = self.user.remove_memory(arguments_json["memory"])
-                            if success:
-                                content = f"记忆 \"{arguments_json['memory']}\" 已删除！"
-                            else:
-                                content = f"后端错误！无法删除记忆！"
+                            content = f"错误：{msg}"
                     else:
-                        content = f"错误：未知的操作：{arguments_json['operation']}！"
+                        content = f"错误：未知的操作：{op}！"
                 case _:
                     content = f"Error: Unknown function name: {tool_call['function']['name']}!"
         except json.JSONDecodeError:
@@ -1452,20 +1383,8 @@ class ChatInstance:
         try:
             domain = re.search(domain_regex, url).group(1) # type: ignore
             match domain:
-                case "music.163.com":
-                    song_id = re.search(r"id=(\d+)", url).group(1) # type: ignore
-                    return ncm.get_details_text(song_id)
-                case "163cn.tv":
-                    final_url = searcher.get_final_url(url)
-                    if final_url and "music.163.com" in final_url:
-                        match = re.search(r"id=(\d+)", final_url)
-                        if match:
-                            id = match.group(1)
-                        else:
-                            raise ValueError("无法获取歌曲ID")
-                    else:
-                        raise ValueError("无法获取歌曲ID")
-                    return ncm.get_details_text(id)
+                case "music.163.com" | "163cn.tv":
+                    return ncm.get_details_text(ncm.extract_song_id(url))
                 case "b23.tv" | "bilibili.com" | "www.bilibili.com":
                     return bili.get_bili_text(url=url)
                 case _:
@@ -1762,27 +1681,15 @@ class Webchat:
 
     def add_memory(self, user_id: int, memory: str):
         user = usermanager.get_user(user_id)
-        if not memory:
-            raise HTTPException(status_code=400, detail="记忆不能为空！")
-        if len(memory) > 500:
-            raise HTTPException(status_code=413, detail="记忆长度不能超过500个字符！")
-        elif memory in user.memory:
-            raise HTTPException(status_code=409, detail="记忆已存在！")
-        elif len(user.memory) >= 50:
-            raise HTTPException(status_code=422, detail="记忆已满！")
-        else:
-            result = user.add_memory(memory)
-            if not result:
-                raise HTTPException(status_code=500, detail="添加记忆失败！")
+        ok, status, msg = user.validate_and_add_memory(memory)
+        if not ok:
+            raise HTTPException(status_code=status, detail=msg)
     
     def remove_memory(self, user_id: int, memory: str):
         user = usermanager.get_user(user_id)
-        if memory not in user.memory:
-            raise HTTPException(status_code=400, detail="记忆不存在！")
-        else:
-            result = user.remove_memory(memory)
-            if not result:
-                raise HTTPException(status_code=500, detail="删除记忆失败！")
+        ok, status, msg = user.validate_and_remove_memory(memory)
+        if not ok:
+            raise HTTPException(status_code=status, detail=msg)
 
 class LRUCache:
     def __init__(self, capacity=50, allow_reverse=False):
@@ -1993,21 +1900,24 @@ if __name__ != "__main__":
     if is_download_service_required:
         if "public_address" in config["server"]:
             public_address = config["server"]["public_address"]
+            DOWNLOAD_TTL_SECONDS = 3600
             downloads = {}
+
+            def cleanup_expired_downloads(): # 惰性清理，防止创建过多线程
+                now = time.time()
+                expired = [fname for fname, item in list(downloads.items()) if now >= item.get("expire", 0)]
+                for fname in expired:
+                    downloads.pop(fname, None)
+                    logger.info(f"{fname} 已过期")
+
             def generate_download_link(data):
+                cleanup_expired_downloads()
                 filename = os.urandom(2).hex()
                 while filename in downloads:
                     filename += os.urandom(1).hex()
                 key = os.urandom(8).hex()
-                downloads[filename] = {"key": key, "data": data}
-                threading.Thread(target=expire_control, args=(filename,), daemon=True).start()
+                downloads[filename] = {"key": key, "data": data, "expire": time.time() + DOWNLOAD_TTL_SECONDS}
                 return f"{public_address}/download?k={key}&f={filename}"
-            
-            def expire_control(filename):
-                time.sleep(3600)
-                if filename in downloads:
-                    logger.info(f"{filename} 已过期")
-                    del downloads[filename]
         else:
             logger.critical("配置中未找到 public_address，请确保已配置公网地址")
             logger.critical("或禁用阿里云语音识别功能")

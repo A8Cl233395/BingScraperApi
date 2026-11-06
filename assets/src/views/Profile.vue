@@ -9,6 +9,10 @@ import ToggleSwitch from '../components/ToggleSwitch.vue';
 import GlitchTitle from '../components/GlitchTitle.vue';
 import { type ThemeMode, applyTheme, storeTheme, getCurrentTheme } from '../utils/theme';
 import { useToast } from '../composables/useToast';
+import { useAutoResizeTextarea } from '../composables/useAutoResizeTextarea';
+
+const MAX_MEMORY_LENGTH = 500;
+const MAX_MEMORY_COUNT = 50;
 
 const { showToast } = useToast();
 
@@ -38,7 +42,6 @@ const pwdSuccess = ref('');
 
 const newMemory = ref('');
 const isAddingMemory = ref(false);
-const memoryTextareaRef = ref<HTMLTextAreaElement | null>(null);
 
 const activeTab = ref<'account' | 'memory' | 'custom' | 'pet' | 'sessions'>('account');
 const isSidebarOpen = ref(!state.isMobile);
@@ -65,38 +68,15 @@ const setTheme = (theme: ThemeMode) => {
   });
 };
 
-const adjustMemoryHeight = () => {
-  nextTick(() => {
-    if (memoryTextareaRef.value) {
-      memoryTextareaRef.value.style.height = 'auto';
-      // 增加 2px (上下边框) 防止由于 box-sizing: border-box 导致的高度计算误差
-      memoryTextareaRef.value.style.height = Math.min(memoryTextareaRef.value.scrollHeight + 2, 200) + 'px';
-    }
-  });
-};
-
-watch(newMemory, () => {
-  adjustMemoryHeight();
+const memoryTextareaRef = ref<HTMLTextAreaElement | null>(null);
+const {
+  resetHeight: resetMemoryHeight,
+  handleKeydown: handleMemoryKeydown,
+} = useAutoResizeTextarea(newMemory, {
+  textareaRef: memoryTextareaRef,
+  borderOffset: 2,
+  onSubmit: () => handleAddMemory(),
 });
-
-const handleMemoryKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Enter') {
-    if (!state.isMobile && !e.ctrlKey && !e.shiftKey) {
-      e.preventDefault();
-      handleAddMemory();
-    } else if (e.ctrlKey) {
-      e.preventDefault();
-      const textarea = memoryTextareaRef.value!;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      newMemory.value = newMemory.value.substring(0, start) + '\n' + newMemory.value.substring(end);
-      nextTick(() => {
-        textarea.selectionStart = textarea.selectionEnd = start + 1;
-        adjustMemoryHeight();
-      });
-    }
-  }
-};
 
 const loadProfile = async () => {
   try {
@@ -249,16 +229,16 @@ const handleAddMemory = async () => {
     showToast('请输入记忆内容', 'error');
     return;
   }
-  if (mem.length > 500) {
-    showToast('记忆长度不能超过500个字符', 'error');
+  if (mem.length > MAX_MEMORY_LENGTH) {
+    showToast(`记忆长度不能超过${MAX_MEMORY_LENGTH}个字符`, 'error');
     return;
   }
   if (memories.value.includes(mem)) {
     showToast('该记忆已存在', 'error');
     return;
   }
-  if (memories.value.length >= 50) {
-    showToast('记忆数量已达上限（50条）', 'error');
+  if (memories.value.length >= MAX_MEMORY_COUNT) {
+    showToast(`记忆数量已达上限（${MAX_MEMORY_COUNT}条）`, 'error');
     return;
   }
 
@@ -269,11 +249,7 @@ const handleAddMemory = async () => {
     });
     memories.value.push(mem);
     newMemory.value = '';
-    nextTick(() => {
-      if (memoryTextareaRef.value) {
-        memoryTextareaRef.value.style.height = '';
-      }
-    });
+    nextTick(resetMemoryHeight);
     showToast('记忆添加成功');
   } catch (error: any) {
     const status = error.response?.status;
@@ -636,8 +612,8 @@ watch(activeTab, (newTab) => {
                 ref="memoryTextareaRef"
                 v-model="newMemory"
                 class="form-input memory-textarea"
-                placeholder="添加新记忆（最多500字符）"
-                maxlength="500"
+                :placeholder="`添加新记忆（最多${MAX_MEMORY_LENGTH}字符）`"
+                :maxlength="MAX_MEMORY_LENGTH"
                 rows="1"
                 @keydown="handleMemoryKeydown"
               ></textarea>
@@ -669,7 +645,7 @@ watch(activeTab, (newTab) => {
           </div>
 
           <div v-if="memories.length > 0" class="memory-count">
-            {{ memories.length }} / 50 条记忆
+            {{ memories.length }} / {{ MAX_MEMORY_COUNT }} 条记忆
           </div>
         </div>
 

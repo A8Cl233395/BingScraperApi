@@ -126,21 +126,18 @@ if is_web_function_enabled:
     )
 
     if not REVERSE_PROXY:
-        # 预压缩静态资源：vite-plugin-compression2 生成与源文件同名的 .br/.gz。
-        # 只有存在 .br 的文件才被视为“有预压缩版本”（并假定 .gz 同步存在），
-        # 因此调整 vite.config.ts 的压缩算法时必须同步检查这里。
+        # 预压缩静态资源：按实际存在的 .br / .gz 文件动态匹配客户端 Accept-Encoding，并对构建目录不存在的情况做容错处理。
         class CachedStaticFiles(StaticFiles):
             ASSETS_DIR = "assets/dist/assets"
-            COMPRESSED_FILES = [i[:-3] for i in os.listdir(ASSETS_DIR) if i.endswith('.br')] # 假设所有.br压缩的文件都有.gz压缩的版本，DANGEROUS！
             ENCODING_MAP = [(".br", "br"), (".gz", "gzip")]
             async def __call__(self, scope, receive, send):
                 accept = dict(scope.get("headers", [])).get(b"accept-encoding", b"").decode()
                 filename = os.path.basename(scope["path"])
                 original = os.path.join(self.ASSETS_DIR, filename)
-                if filename in self.COMPRESSED_FILES:
+                if os.path.isfile(original):
                     for ext, encoding in self.ENCODING_MAP:
-                        if encoding in accept:
-                            compressed = original + ext
+                        compressed = original + ext
+                        if encoding in accept and os.path.isfile(compressed):
                             resp = FileResponse(compressed, headers={
                                 "Content-Encoding": encoding,
                                 "Vary": "Accept-Encoding",
@@ -148,22 +145,30 @@ if is_web_function_enabled:
                             })
                             await resp(scope, receive, send)
                             return
-                if os.path.isfile(original):
                     resp = FileResponse(original, headers={"Cache-Control": "public, max-age=2592000, immutable"})
                     await resp(scope, receive, send)
                 else:
                     await super().__call__(scope, receive, send)
         
-        app.mount("/assets", CachedStaticFiles(directory="assets/dist/assets"))
+        os.makedirs(CachedStaticFiles.ASSETS_DIR, exist_ok=True)
+        app.mount("/assets", CachedStaticFiles(directory=CachedStaticFiles.ASSETS_DIR))
 
         @app.get("/icon.svg")
         async def get_favicon(request: Request):
             return FileResponse("assets/dist/icon.svg", headers={"Cache-Control": "public, max-age=2592000"})
         
-        SAFE_PATHS.extend([f"/assets/{filename}" for filename in os.listdir("assets/dist/assets") if not filename.endswith(('.br', '.gz'))])
+        SAFE_PATHS.extend([
+            f"/assets/{filename}"
+            for filename in os.listdir(CachedStaticFiles.ASSETS_DIR)
+            if not filename.endswith(('.br', '.gz'))
+        ])
 
     def verify_turnstile(challenge: str):
-        response = requests.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', data={'secret': TURNSTILE_SECRET, "response": challenge}).json()
+        response = requests.post(
+            'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+            data={'secret': TURNSTILE_SECRET, "response": challenge},
+            timeout=10,
+        ).json()
         return response["success"]
 
 # 自定义请求验证错误处理 - 参数错误时返回 bad arguments
@@ -208,6 +213,7 @@ def status():
 if is_download_service_required:
     @app.get("/download")
     def download(request: Request):
+        cleanup_expired_downloads()
         key = request.query_params.get('k')
         filename = request.query_params.get('f')
         if key is not None and filename is not None and filename in downloads and key == downloads[filename]["key"]:
@@ -251,27 +257,13 @@ if is_ncm_enabled:
     def lyric(id: Annotated[str | None, Query()] = None, url: Annotated[str | None, Query()] = None):
         try:
             if not id:
-                if url:
-                    if "music.163.com" in url:
-                        match = re.search(r"id=(\d+)", url)
-                        if match:
-                            id = match.group(1)
-                        else:
-                            raise HTTPException(status_code=400, detail="Invalid url")
-                    else:
-                        final_url = searcher.get_final_url(url)
-                        if final_url and "music.163.com" in final_url:
-                            match = re.search(r"id=(\d+)", final_url)
-                            if match:
-                                id = match.group(1)
-                            else:
-                                raise HTTPException(status_code=400, detail="Invalid url")
-                        else:
-                            raise HTTPException(status_code=400, detail="url is not a ncm lyric url")
-                else:
+                if not url:
                     raise HTTPException(status_code=400, detail="require id or url")
-            data = ncm.get_details_text(id)
-            return data
+                try:
+                    id = ncm.extract_song_id(url)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+            return ncm.get_details_text(id)
         except HTTPException:
             raise
         except Exception:

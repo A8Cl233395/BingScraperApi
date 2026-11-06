@@ -633,6 +633,8 @@ const confirmDelete = () => {
             :key="chat[0]"
             :href="`#/${chat[0]}`"
             :data-chat-id="chat[0]"
+            draggable="false"
+            @dragstart.prevent
             @mouseenter="onItemEnter($event, chat[0])"
             @click="onItemClick($event, chat[0])"
             @touchstart="handleTouchStart($event, chat[0])"
@@ -640,7 +642,7 @@ const confirmDelete = () => {
             @touchmove="handleTouchEnd"
             @touchcancel="handleTouchEnd"
             @contextmenu="state.isMobile ? $event.preventDefault() : null"
-            class="chat-item relative flex items-center justify-between p-2.5 cursor-pointer no-hover-outline text-text-main no-underline"
+            class="chat-item select-none relative flex items-center justify-between p-2.5 cursor-pointer no-hover-outline text-text-main no-underline"
             :class="[
               state.currentChatId === chat[0] ? 'is-active' : '',
               justClickedId === chat[0] ? 'is-anim' : '',
@@ -785,6 +787,11 @@ const confirmDelete = () => {
 .chat-item {
   /* 颜色 + 按压缩放（scale-[0.98]）统一平滑过渡 */
   transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  touch-action: pan-y;
 }
 
 /* 选择框图层：SVG 描边替代 CSS border，stroke-width 2 超出 SVG viewport 的一半被默认裁切 = 1px 内描边 */

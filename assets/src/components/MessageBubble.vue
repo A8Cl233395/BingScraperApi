@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, reactive, onBeforeUnmount } from 'vue';
 import { state } from '../store';
 import { useImageEditor } from '../composables/useImageEditor';
+import { useAutoResizeTextarea } from '../composables/useAutoResizeTextarea';
 import { useLongPress } from '../composables/useLongPress';
 import { useToast } from '../composables/useToast';
 import FileEditorGrid from './FileEditorGrid.vue';
@@ -331,33 +332,12 @@ const submitEdit = () => {
 
   isEditing.value = false;
 };
-const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Enter') {
-    if (!state.isMobile && !e.ctrlKey && !e.shiftKey) {
-      e.preventDefault();
-      submitEdit();
-    } else if (e.ctrlKey) {
-      e.preventDefault();
-      const start = editTextareaRef.value!.selectionStart;
-      const end = editTextareaRef.value!.selectionEnd;
-      editText.value = editText.value.substring(0, start) + '\n' + editText.value.substring(end);
-      nextTick(() => {
-        editTextareaRef.value!.selectionStart = editTextareaRef.value!.selectionEnd = start + 1;
-        adjustEditHeight();
-      });
-    }
-  }
-};
-
-const editTextareaRef = ref<HTMLTextAreaElement | null>(null);
-const adjustEditHeight = () => {
-  if (editTextareaRef.value) {
-    editTextareaRef.value.style.height = 'auto';
-    editTextareaRef.value.style.height = Math.min(editTextareaRef.value.scrollHeight, 200) + 'px';
-  }
-};
-watch(editText, () => {
-  nextTick(adjustEditHeight);
+const {
+  textareaRef: editTextareaRef,
+  adjustHeight: adjustEditHeight,
+  handleKeydown,
+} = useAutoResizeTextarea(editText, {
+  onSubmit: submitEdit,
 });
 
 </script>

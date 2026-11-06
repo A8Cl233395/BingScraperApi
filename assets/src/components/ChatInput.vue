@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { state } from '../store';
-import { ref, watch, nextTick, onMounted, onUnmounted, computed } from 'vue';
+import { ref, nextTick, onMounted, onUnmounted, computed } from 'vue';
 import { isMobileDevice } from '../utils/device';
 import { useImageEditor } from '../composables/useImageEditor';
+import { useAutoResizeTextarea } from '../composables/useAutoResizeTextarea';
 import { useVoiceInput } from '../composables/useVoiceInput';
 import { useToast } from '../composables/useToast';
 import FileEditorGrid from './FileEditorGrid.vue';
@@ -20,7 +21,6 @@ const emit = defineEmits(['send', 'stop', 'mobile-focus', 'mobile-blur']);
 const textInput = ref('');
 const showOptions = ref(false);
 const optionsRef = ref<HTMLElement | null>(null);
-const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
 // 文件编辑（使用 composable）
 const {
@@ -89,17 +89,6 @@ const handleFileConvertAction = (index: number) => {
   handleFileConvert(index, textInput);
 };
 
-const adjustHeight = () => {
-  if (textareaRef.value) {
-    textareaRef.value.style.height = 'auto';
-    textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 200) + 'px';
-  }
-};
-
-watch(textInput, () => {
-  nextTick(adjustHeight);
-});
-
 let lastBlockedSendToastAt = 0;
 
 const handleSend = () => {
@@ -137,23 +126,9 @@ const handleSend = () => {
   }
 };
 
-const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Enter') {
-    if (!isMobileDevice() && !e.ctrlKey && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    } else if (e.ctrlKey) {
-      e.preventDefault();
-      const start = textareaRef.value!.selectionStart;
-      const end = textareaRef.value!.selectionEnd;
-      textInput.value = textInput.value.substring(0, start) + '\n' + textInput.value.substring(end);
-      nextTick(() => {
-        textareaRef.value!.selectionStart = textareaRef.value!.selectionEnd = start + 1;
-        adjustHeight();
-      });
-    }
-  }
-};
+const { textareaRef, adjustHeight, handleKeydown } = useAutoResizeTextarea(textInput, {
+  onSubmit: handleSend,
+});
 
 let blurTimeout: any = null;
 
