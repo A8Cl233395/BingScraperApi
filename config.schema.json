@@ -198,7 +198,7 @@
 
     "webchat": {
       "type": "object",
-          "required": ["default-model", "default-vision-model", "title-model", "prompt_raw", "models"],
+          "required": ["default-model", "default-vision-model", "title-model", "memory-model", "prompt_raw", "models"],
           "additionalProperties": false,
           "properties": {
             "default-model": {
@@ -215,6 +215,11 @@
               "type": "string",
               "minLength": 1,
               "description": "对话标题生成模型"
+            },
+            "memory-model": {
+              "type": "string",
+              "minLength": 1,
+              "description": "动态记忆生成模型"
             },
             "prompt_raw": {
               "type": "string",

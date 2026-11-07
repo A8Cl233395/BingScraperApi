@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from typing import Annotated
-from fastapi import FastAPI, Request, HTTPException, WebSocketDisconnect
+from fastapi import FastAPI, Request, HTTPException, WebSocketDisconnect, Depends, Header
 from fastapi.params import Query, Body
 from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
@@ -17,38 +17,33 @@ import time
 import uvicorn
 from collections import defaultdict, deque
 from functions import *
+from typing import Literal
 
 def user_rate_limit(qpm: int):
-    """滑动窗口速率限制装饰器，基于uid请求头的每分钟请求数限制（每个函数独立计算）"""
-    _window: dict[int, deque] = defaultdict(lambda: deque())
+    """滑动窗口速率限制装饰器，基于用户 user_id 的每分钟请求数限制（每个函数独立计算）"""
+    _window: dict[int, deque] = defaultdict(deque)
     def decorator(func):
+        def _check_limit(uid: int):
+            now = time.time()
+            threshold = now - 60
+            dq = _window[uid]
+            while dq and dq[0] < threshold:
+                dq.popleft()
+            if len(dq) >= qpm:
+                raise HTTPException(status_code=429, detail="Too Many Requests")
+            dq.append(now)
+
         if inspect.iscoroutinefunction(func):
             @wraps(func)
-            async def async_wrapper(request: Request, *args, **kwargs):
-                uid = int(request.headers.get('uid', 0))
-                now = time.time()
-                threshold = now - 60
-                dq = _window[uid]
-                while dq and dq[0] < threshold:
-                    dq.popleft()
-                if len(dq) >= qpm:
-                    raise HTTPException(status_code=429, detail="Too Many Requests")
-                dq.append(now)
-                return await func(request, *args, **kwargs)
+            async def async_wrapper(*args, **kwargs):
+                _check_limit(kwargs['user'].user_id)
+                return await func(*args, **kwargs)
             return async_wrapper
         else:
             @wraps(func)
-            def wrapper(request: Request, *args, **kwargs):
-                uid = int(request.headers.get('uid', 0))
-                now = time.time()
-                threshold = now - 60
-                dq = _window[uid]
-                while dq and dq[0] < threshold:
-                    dq.popleft()
-                if len(dq) >= qpm:
-                    raise HTTPException(status_code=429, detail="Too Many Requests")
-                dq.append(now)
-                return func(request, *args, **kwargs)
+            def wrapper(*args, **kwargs):
+                _check_limit(kwargs['user'].user_id)
+                return func(*args, **kwargs)
             return wrapper
     return decorator
 
@@ -91,20 +86,7 @@ async def verify_key_middleware(request: Request, call_next):
         return await call_next(request)
     elif request.url.path in SAFE_PATHS:
         return await call_next(request)
-    elif is_webchat_enabled and request.url.path.startswith("/api/"):
-        uid = request.headers.get('uid')
-        try:
-            uid = int(uid) # type: ignore
-        except (ValueError, TypeError):
-            return PlainTextResponse(status_code=401, content="require key")
-        if not usermanager.is_user_exist(uid):
-            return PlainTextResponse(status_code=401, content="require key")
-        session = request.headers.get('session')
-        token = request.headers.get('token')
-        if not isinstance(session, str) or not isinstance(token, str):
-            return PlainTextResponse(status_code=401, content="require key")
-        if not usermanager.get_user(uid).verify_token(session, token):
-            return PlainTextResponse(status_code=401, content="require key")
+    elif is_webchat_enabled and request.url.path.startswith("/api/"): # 每个路由自行添加depends
         return await call_next(request)
     key = request.headers.get('key')
     if key != KEY:
@@ -366,6 +348,25 @@ if is_link_enabled:
             set_websocket_connect(None)
 
 if is_webchat_enabled:
+    def get_current_user(request: Request) -> User:
+        uid = request.headers.get('uid')
+        try:
+            uid = int(uid) # type: ignore
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=401, detail="require key")
+        if not usermanager.is_user_exist(uid):
+            raise HTTPException(status_code=401, detail="require key")
+        session = request.headers.get('session')
+        token = request.headers.get('token')
+        if not isinstance(session, str) or not isinstance(token, str):
+            raise HTTPException(status_code=401, detail="require key")
+        user = usermanager.get_user(uid)
+        if not user.verify_token(session, token):
+            raise HTTPException(status_code=401, detail="require key")
+        return user
+
+    CurrentUser = Annotated[User, Depends(get_current_user)]
+
     @app.get("/login")
     def login_get():
         return FileResponse("assets/dist/login.html")
@@ -416,21 +417,17 @@ if is_webchat_enabled:
         return {"session": login.session_id, "token": login.token}
 
     @app.get("/api/logout", response_class=PlainTextResponse)
-    def api_logout(request: Request):
-        uid = int(request.headers["uid"])
-        user = usermanager.get_user(uid)
-        user.kick_session(request.headers["session"])
+    def api_logout(user: CurrentUser, session: Annotated[str, Header()]):
+        user.kick_session(session)
         return "success"
     
     @app.get("/api/home", response_class=JSONResponse)
-    def api_home(request: Request):
-        uid = int(request.headers["uid"])
-        return webchat.get_home_data(uid)
+    def api_home(user: CurrentUser):
+        return webchat.get_home_data(user.user_id)
     
     @app.get("/api/config", response_class=JSONResponse)
-    def api_config(request: Request):
-        uid = int(request.headers["uid"])
-        return webchat.get_config(uid)
+    def api_config(user: CurrentUser):
+        return webchat.get_config(user.user_id)
     
     def validate_chat_post(data: ChatPost) -> None:
         v = data.content
@@ -533,26 +530,24 @@ if is_webchat_enabled:
     
     @app.post("/api/chat", response_class=StreamingResponse)
     @user_rate_limit(10)
-    async def api_chat(request: Request, data: Annotated[ChatPost, Body()]):
+    async def api_chat(data: Annotated[ChatPost, Body()], user: CurrentUser):
         try:
             await asyncio.to_thread(validate_chat_post, data)
         except ValueError as e:
             # raise HTTPException(status_code=400, detail=str(e)) # 不返回详细错误信息
             raise HTTPException(status_code=400, detail="bad arguments")
 
-        generator = await webchat.chat(int(request.headers["uid"]), data)
+        generator = await webchat.chat(user.user_id, data)
         return StreamingResponse(generator, media_type="text/event-stream")
 
     @app.get("/api/reconnect", response_class=StreamingResponse)
-    async def api_reconnect(request: Request, id: Annotated[int, Query()], node_id: Annotated[str, Query()], after: Annotated[int, Query(ge=0)] = 0):
-        generator = webchat.reconnect(int(request.headers["uid"]), id, node_id, after)
+    async def api_reconnect(id: Annotated[int, Query()], node_id: Annotated[str, Query()], user: CurrentUser, after: Annotated[int, Query(ge=0)] = 0):
+        generator = webchat.reconnect(user.user_id, id, node_id, after)
         return StreamingResponse(generator, media_type="text/event-stream")
 
     @app.get("/api/cancel", response_class=PlainTextResponse)
     @user_rate_limit(30)
-    def api_cancel(request: Request, id: Annotated[int, Query()], node_id: Annotated[str, Query()]):
-        uid = int(request.headers["uid"])
-        user = usermanager.get_user(uid)
+    def api_cancel(id: Annotated[int, Query()], node_id: Annotated[str, Query()], user: CurrentUser):
         sc = user.streaming_cache.get((id, node_id))
         if sc and sc.current_task:
             sc.current_task.cancel()
@@ -585,40 +580,35 @@ if is_webchat_enabled:
             return v
 
     @app.post("/api/config", response_class=PlainTextResponse)
-    def api_config_set(request: Request, data: Annotated[DefaultPost, Body()]):
-        user = usermanager.get_user(int(request.headers["uid"]))
+    def api_config_set(data: Annotated[DefaultPost, Body()], user: CurrentUser):
         config_version = user.set_config(data.model_dump(exclude_unset=True))
         return config_version
     
     @app.get("/api/history", response_class=JSONResponse)
-    def api_history(request: Request, before: Annotated[int | None, Query()] = None, after: Annotated[int | None, Query()] = None, limit: Annotated[int, Query(ge=1, le=100)] = 10):
-        uid = int(request.headers["uid"])
-        history = webchat.get_history(uid, before, after, limit)
+    def api_history(user: CurrentUser, before: Annotated[int | None, Query()] = None, after: Annotated[int | None, Query()] = None, limit: Annotated[int, Query(ge=1, le=100)] = 10):
+        history = webchat.get_history(user.user_id, before, after, limit)
         return history
     
     @app.get("/api/search", response_class=JSONResponse)
     @user_rate_limit(60)
-    def api_search(request: Request, q: Annotated[str, Query(min_length=1, max_length=100)], before: Annotated[int | None, Query()] = None, limit: Annotated[int, Query(ge=1, le=100)] = 20):
-        uid = int(request.headers["uid"])
+    def api_search(q: Annotated[str, Query(min_length=1, max_length=100)], user: CurrentUser, before: Annotated[int | None, Query()] = None, limit: Annotated[int, Query(ge=1, le=100)] = 20):
         query = q.strip()
         if not query: # 纯空白输入直接返回空结果，避免 LIKE '%%' 全表返回
             return []
-        return webchat.search_history(uid, query, before, limit)
+        return webchat.search_history(user.user_id, query, before, limit)
     
     @app.get("/api/message", response_class=JSONResponse)
-    def api_message(request: Request, id: Annotated[int, Query()]):
-        user_id = int(request.headers["uid"])
-        message = webchat.get_message(user_id, id)
+    def api_message(id: Annotated[int, Query()], user: CurrentUser):
+        message = webchat.get_message(user.user_id, id)
         return message
     
     @app.get("/api/models", response_class=JSONResponse)
-    def api_models(request: Request):
+    def api_models(user: CurrentUser):
         return webchat.get_models()
     
     @app.get("/api/delete", response_class=PlainTextResponse)
-    def api_delete(request: Request, id: Annotated[int, Query()]):
-        user_id = int(request.headers["uid"])
-        webchat.delete_chat(user_id, id)
+    def api_delete(id: Annotated[int, Query()], user: CurrentUser):
+        webchat.delete_chat(user.user_id, id)
         return "success"
     
     class OCRPost(BaseModel):
@@ -644,7 +634,7 @@ if is_webchat_enabled:
     
     @app.post("/api/ocr", response_class=PlainTextResponse)
     @user_rate_limit(10)
-    def api_ocr(request: Request, data: Annotated[OCRPost, Body()]):
+    def api_ocr(data: Annotated[OCRPost, Body()], user: CurrentUser):
         try:
             return ocr_service.extract_text_from_b64(data.image)
         except Exception as e:
@@ -659,8 +649,7 @@ if is_webchat_enabled:
 
     @app.post("/api/vr", response_class=PlainTextResponse)
     @user_rate_limit(10)
-    def api_vr(request: Request, data: Annotated[bytes, Body()]):
-        format = request.headers.get("format", "")
+    def api_vr(data: Annotated[bytes, Body()], user: CurrentUser, format: Annotated[str, Header()] = ""):
         if not data or not format:
             raise HTTPException(status_code=400, detail="require data and format header")
         if format not in ["wav", "mp3", "aac", "m4a", "flac", "ogg", "webm"]:
@@ -676,8 +665,7 @@ if is_webchat_enabled:
 
     @app.post("/api/markitdown", response_class=PlainTextResponse)
     @user_rate_limit(10)
-    def api_markitdown(request: Request, data: Annotated[bytes, Body()]):
-        format = request.headers.get("format", "")
+    def api_markitdown(data: Annotated[bytes, Body()], user: CurrentUser, format: Annotated[str, Header()] = ""):
         if not data or not format:
             raise HTTPException(status_code=400, detail="require data and format header")
         if len(data) > 20971520:
@@ -692,8 +680,7 @@ if is_webchat_enabled:
         new_pwd: str
     
     @app.post("/api/changepwd", response_class=PlainTextResponse)
-    def api_changepwd(request: Request, data: Annotated[ChangePwdPost, Body()]):
-        user = usermanager.get_user(int(request.headers["uid"]))
+    def api_changepwd(data: Annotated[ChangePwdPost, Body()], user: CurrentUser):
         if not user.checkpwd(data.old_pwd):
             raise HTTPException(status_code=403, detail="旧密码错误")
         if user.checkpwd(data.new_pwd):
@@ -702,28 +689,34 @@ if is_webchat_enabled:
         return "success"
     
     @app.get("/api/profile", response_class=JSONResponse)
-    def api_profile(request: Request):
-        uid = int(request.headers["uid"])
-        return webchat.get_profile_data(uid)
-    
-    @app.post("/api/addmem", response_class=PlainTextResponse)
+    def api_profile(user: CurrentUser):
+        return webchat.get_profile_data(user.user_id)
+
+    class MemPost(BaseModel):
+        operate: Literal["add", "remove", "func_dynamic_mem"]
+        mem: str | None = None
+        enable: bool | None = None
+
+    @app.post("/api/mem")
     @user_rate_limit(30)
-    def api_addmem(request: Request, data: Annotated[str, Body()]):
-        uid = int(request.headers["uid"])
-        webchat.add_memory(uid, data.strip())
-        return "success"
-    
-    @app.post("/api/removemem", response_class=PlainTextResponse)
-    @user_rate_limit(30)
-    def api_removemem(request: Request, data: Annotated[str, Body()]):
-        uid = int(request.headers["uid"])
-        webchat.remove_memory(uid, data.strip())
-        return "success"
+    def api_mem(data: Annotated[MemPost, Body()], user: CurrentUser):
+        match data.operate:
+            case "add":
+                if not data.mem:
+                    raise HTTPException(400, "bad arguments")
+                webchat.add_memory(user.user_id, data.mem)
+            case "remove":
+                if not data.mem:
+                    raise HTTPException(400, "bad arguments")
+                webchat.remove_memory(user.user_id, data.mem)
+            case "func_dynamic_mem":
+                if data.enable is None:
+                    raise HTTPException(400, "bad arguments")
+                webchat.set_dynamic_memory(user.user_id, data.enable)
+        return "ok"
 
     @app.get("/api/sessions", response_class=JSONResponse)
-    def api_sessions(request: Request):
-        uid = int(request.headers["uid"])
-        user = usermanager.get_user(uid)
+    def api_sessions(user: CurrentUser):
         return user.list_sessions()
 
     class SessionKickPost(BaseModel):
@@ -731,9 +724,7 @@ if is_webchat_enabled:
         pwd: str
 
     @app.post("/api/kicksession", response_class=PlainTextResponse)
-    def api_session_kick(request: Request, data: Annotated[SessionKickPost, Body()]):
-        uid = int(request.headers["uid"])
-        user = usermanager.get_user(uid)
+    def api_session_kick(data: Annotated[SessionKickPost, Body()], user: CurrentUser):
         if not user.checkpwd(data.pwd):
             raise HTTPException(status_code=403, detail="Invalid Password")
         if data.session not in user.sessions:

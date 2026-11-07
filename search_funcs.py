@@ -503,25 +503,3 @@ class WebSearch(SearchModel):
     def stop(self):
         for model in self.models:
             model.stop()
-
-    def get_final_url(self, short_url):
-        try:
-            # 发送HEAD请求（有些服务器可能不支持HEAD方法）
-            try:
-                response = requests.head(short_url, allow_redirects=True, timeout=10)
-                return response.url
-            except Exception:
-                # 如果HEAD失败，使用GET但只读取头部
-                response = requests.get(short_url, allow_redirects=False, timeout=10)
-
-                # 如果有重定向
-                if response.status_code in (301, 302, 303, 307, 308):
-                    redirect_url = response.headers.get('Location')
-                    if redirect_url:
-                        # 可能需要递归处理多次重定向
-                        return self.get_final_url(redirect_url)
-                return response.url
-        except requests.exceptions.RequestException as e:
-            logger.error(f"请求失败: {e}")
-            return None
-

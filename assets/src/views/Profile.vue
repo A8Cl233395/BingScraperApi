@@ -20,6 +20,8 @@ const uid = localStorage.getItem('uid') || '';
 const convCount = ref(0);
 const memories = ref<string[]>([]);
 const createdAt = ref(0);
+const enableAutoMemorize = ref(false);
+const isUpdatingDynamicMemory = ref(false);
 const isLoading = ref(true);
 
 const maskedUid = computed(() => {
@@ -85,6 +87,7 @@ const loadProfile = async () => {
     convCount.value = data.conv_count;
     memories.value = data.memory || [];
     createdAt.value = data.created_at || 0;
+    enableAutoMemorize.value = data.enable_auto_memorize ?? false;
   } catch (error: any) {
     showToast(error.response?.data?.detail || '加载资料失败', 'error');
   } finally {
@@ -244,8 +247,9 @@ const handleAddMemory = async () => {
 
   try {
     isAddingMemory.value = true;
-    await api.post('/api/addmem', mem, {
-      headers: { 'Content-Type': 'text/plain' }
+    await api.post('/api/mem', {
+      operate: 'add',
+      mem
     });
     memories.value.push(mem);
     newMemory.value = '';
@@ -273,13 +277,32 @@ const handleAddMemory = async () => {
 
 const handleRemoveMemory = async (memory: string) => {
   try {
-    await api.post('/api/removemem', memory, {
-      headers: { 'Content-Type': 'text/plain' }
+    await api.post('/api/mem', {
+      operate: 'remove',
+      mem: memory
     });
     memories.value = memories.value.filter(m => m !== memory);
     showToast('记忆已删除');
   } catch (error: any) {
-    showToast(error.response?.data || error.response?.data?.detail || '删除记忆失败', 'error');
+    showToast(error.response?.data?.detail || error.response?.data || '删除记忆失败', 'error');
+  }
+};
+
+const handleToggleDynamicMemory = async (value: boolean) => {
+  const previous = enableAutoMemorize.value;
+  try {
+    isUpdatingDynamicMemory.value = true;
+    enableAutoMemorize.value = value;
+    await api.post('/api/mem', {
+      operate: 'func_dynamic_mem',
+      enable: value
+    });
+    showToast(value ? '动态记忆已开启' : '动态记忆已关闭');
+  } catch (error: any) {
+    enableAutoMemorize.value = previous;
+    showToast(error.response?.data?.detail || '更新动态记忆设置失败', 'error');
+  } finally {
+    isUpdatingDynamicMemory.value = false;
   }
 };
 
@@ -521,6 +544,12 @@ watch(activeTab, (newTab) => {
                   {{ state.isEnableFunction ? '开启' : '关闭' }}
                 </span>
               </div>
+              <div class="pref-item">
+                <span class="pref-label">动态记忆</span>
+                <span class="pref-badge" :class="enableAutoMemorize ? 'badge-on' : 'badge-off'">
+                  {{ enableAutoMemorize ? '开启' : '关闭' }}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -606,6 +635,24 @@ watch(activeTab, (newTab) => {
           </div>
           <p class="memory-desc">记忆会作为上下文提供给 AI，帮助其更好地理解你的需求。</p>
 
+          <div class="memory-dynamic-card">
+            <div class="setting-item">
+              <div class="setting-info">
+                <Zap class="setting-icon" />
+                <div>
+                  <span class="setting-label">开启动态记忆</span>
+                  <span class="setting-desc">根据对话内容自动提取与维护长期记忆</span>
+                </div>
+              </div>
+              <ToggleSwitch
+                :model-value="enableAutoMemorize"
+                :disabled="isUpdatingDynamicMemory"
+                aria-label="开启动态记忆"
+                @update:model-value="handleToggleDynamicMemory"
+              />
+            </div>
+          </div>
+
           <form @submit.prevent="handleAddMemory" class="memory-add-form">
             <div class="memory-input-row">
               <textarea
@@ -637,7 +684,10 @@ watch(activeTab, (newTab) => {
 
           <div v-else class="memory-list">
             <div v-for="(mem, index) in memories" :key="index" class="memory-item">
-              <span class="memory-text">{{ mem }}</span>
+              <div class="memory-content">
+                <span v-if="mem.startsWith('[AUTO] ')" class="memory-tag">动态</span>
+                <span class="memory-text">{{ mem.startsWith('[AUTO] ') ? mem.slice(7) : mem }}</span>
+              </div>
               <button class="remove-btn" @click="handleRemoveMemory(mem)" title="删除">
                 <X />
               </button>
@@ -1298,6 +1348,10 @@ watch(activeTab, (newTab) => {
   margin: 0 0 20px 0;
 }
 
+.memory-dynamic-card {
+  margin-bottom: 20px;
+}
+
 .memory-add-form {
   margin-bottom: 20px;
 }
@@ -1385,6 +1439,29 @@ watch(activeTab, (newTab) => {
   border: 1px solid var(--border-input);
   border-radius: 0;
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.memory-content {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.memory-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  border-radius: 0;
+  background-color: var(--bg-hover);
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  line-height: 1.4;
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .memory-text {

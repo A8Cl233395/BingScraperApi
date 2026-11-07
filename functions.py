@@ -43,10 +43,31 @@ from markitdown.converters import (
 )
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 import bcrypt
-from functools import wraps 
+from functools import wraps
 
 MAX_MEMORY_LENGTH = 500
 MAX_MEMORY_COUNT = 50
+
+def get_final_url(short_url):
+    try:
+        # 发送HEAD请求（有些服务器可能不支持HEAD方法）
+        try:
+            response = requests.head(short_url, allow_redirects=True, timeout=10)
+            return response.url
+        except Exception:
+            # 如果HEAD失败，使用GET但只读取头部
+            response = requests.get(short_url, allow_redirects=False, timeout=10)
+
+            # 如果有重定向
+            if response.status_code in (301, 302, 303, 307, 308):
+                redirect_url = response.headers.get('Location')
+                if redirect_url:
+                    # 可能需要递归处理多次重定向
+                    return get_final_url(redirect_url)
+            return response.url
+    except requests.exceptions.RequestException as e:
+        logger.error(f"请求失败: {e}")
+        return None
 
 class Ncm:
     def __init__(self):
@@ -57,7 +78,7 @@ class Ncm:
         """从网易云音乐链接或 163cn.tv 短链中提取歌曲 ID"""
         target_url = url
         if "music.163.com" not in target_url:
-            final_url = searcher.get_final_url(target_url)
+            final_url = get_final_url(target_url)
             if not final_url or "music.163.com" not in final_url:
                 raise ValueError("url is not a ncm lyric url")
             target_url = final_url
@@ -130,7 +151,7 @@ class Bilibili:
             return match.group(0) if match else None
         
         if "b23.tv" in url:
-            final_url = searcher.get_final_url(url)
+            final_url = get_final_url(url)
             if final_url and "bilibili.com" in final_url:
                 match = re.search(r'BV[a-zA-Z0-9]+', final_url)
                 return match.group(0) if match else None
@@ -499,6 +520,7 @@ class User:
             self.vision_model: str = data.get("vision_model", config["webchat"]["default-vision-model"])
             self.thinking: bool = data.get("thinking", False)
             self.enable_function: bool = data.get("enable_function", False)
+            self.enable_auto_memorize: bool = data.get("enable_auto_memorize", False)
             self.sessions: dict[str, dict] = data.get("sessions", {}) if isinstance(data.get("sessions"), dict) else {}
             self.secret: bytes | None = data["secret"].encode() if data.get("secret") else None
             self.config_version: str = data.get("config_version", "0")
@@ -516,6 +538,7 @@ class User:
             "vision_model": self.vision_model,
             "thinking": self.thinking,
             "enable_function": self.enable_function,
+            "enable_auto_memorize": self.enable_auto_memorize,
             "sessions": self.sessions,
             "secret": self.secret.decode() if self.secret else None,
             "config_version": self.config_version,
@@ -717,6 +740,7 @@ def construct_params(model_config: dict, thinking: bool, api_type: str = "chat-c
     return params
 
 class ChatInstance:
+    # region tool call schema
     _TOOL_SCHEMAS = [
         {
             "name": "searchWeb",
@@ -748,7 +772,7 @@ class ChatInstance:
         },
         {
             "name": "manageMemory",
-            "description": "管理永久记忆，此处的记忆会持久化存储",
+            "description": "管理 AI 自动记忆，仅在用户明确要求记住或删除时调用",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -758,7 +782,7 @@ class ChatInstance:
                         "enum": ["add", "remove"],
                     },
                     "memory": {
-                        "description": "要操作的记忆内容，需要完全匹配",
+                        "description": "记忆正文，不要包含 [AUTO] 前缀",
                         "type": "string",
                     },
                 },
@@ -776,12 +800,14 @@ class ChatInstance:
         }
         for schema in _TOOL_SCHEMAS
     ]
+    # endregion
     def __init__(self, user: User, chat_tree: dict = None):  # type: ignore
+        # 不要修改，避免破坏KV Cache
         self.system_prompt = self._build_system_message(user)
         self.user = user
         self.chat_tree = chat_tree or {"root": {"current": "root", "child": [], "vision": False, "iteration": -1}}
         self.running: int = 0
-        self.last_active: float = 0
+        self.last_active: float = time.time()
 
     async def _stream_events(self, model, messages, thinking, enable_function) -> AsyncGenerator[StreamEvent, None]:
         # 协议由模型条目的 api_type 选择：chat-completions（默认）/ responses / anthropic。
@@ -814,7 +840,6 @@ class ChatInstance:
             params["tools"] = self.tools
         params.update(construct_params(model_config, thinking))
         if "max_tokens" in model_config:
-            params["max_completion_tokens"] = model_config["max_tokens"]
             params["max_tokens"] = model_config["max_tokens"]
         
         client = get_oclient(model)
@@ -1206,24 +1231,42 @@ class ChatInstance:
                 case "searchWeb":
                     content = searcher.search(arguments_json["query"])
                 case "manageMemory":
-                    op = arguments_json["operation"]
-                    mem = arguments_json["memory"]
+                    op = arguments_json.get("operation")
+                    raw_mem = str(arguments_json.get("memory", "")).strip()
+                    clean_mem = raw_mem.removeprefix("[AUTO] ").removeprefix("[AUTO]").strip()
+                    target_auto_mem = f"[AUTO] {clean_mem}"
                     if op == "add":
-                        ok, status, msg = self.user.validate_and_add_memory(mem)
-                        if ok or status == 422:
-                            content = msg
-                        elif status == 500:
-                            content = "后端错误！无法添加记忆！"
+                        if not clean_mem:
+                            content = "错误：记忆内容不能为空！"
+                        elif clean_mem in self.user.memory:
+                            content = f'记忆 "{clean_mem}" 已在用户固定记忆中存在，无需重复添加！'
                         else:
-                            content = f"错误：{msg}"
+                            ok, status, msg = self.user.validate_and_add_memory(target_auto_mem)
+                            if ok:
+                                content = f'记忆 "{clean_mem}" 已添加！'
+                            elif status == 409:
+                                content = f'记忆 "{clean_mem}" 已存在！'
+                            elif status == 422:
+                                content = "错误：记忆已满！"
+                            elif status == 500:
+                                content = "后端错误！无法添加记忆！"
+                            else:
+                                content = f"错误：{msg}"
                     elif op == "remove":
-                        ok, status, msg = self.user.validate_and_remove_memory(mem)
-                        if ok:
-                            content = msg
-                        elif status == 500:
-                            content = "后端错误！无法删除记忆！"
+                        if not clean_mem:
+                            content = "错误：记忆内容不能为空！"
+                        elif target_auto_mem in self.user.memory:
+                            ok, status, msg = self.user.validate_and_remove_memory(target_auto_mem)
+                            if ok:
+                                content = f'记忆 "{clean_mem}" 已删除！'
+                            elif status == 500:
+                                content = "后端错误！无法删除记忆！"
+                            else:
+                                content = f"错误：{msg}"
+                        elif clean_mem in self.user.memory:
+                            content = "错误：该记忆为用户在个人设置中手动添加的只读记忆，无法删除，请提示用户在个人中心手动修改。"
                         else:
-                            content = f"错误：{msg}"
+                            content = f'错误：未找到记忆 "{clean_mem}"！'
                     else:
                         content = f"错误：未知的操作：{op}！"
                 case _:
@@ -1247,7 +1290,9 @@ class ChatInstance:
                 case "searchWeb":
                     return f"查询: {arguments_json['query']}"
                 case "manageMemory":
-                    return f"操作: {arguments_json['operation']}\n记忆: {arguments_json['memory']}"
+                    raw_mem = str(arguments_json.get("memory", "")).strip()
+                    clean_mem = raw_mem.removeprefix("[AUTO] ").removeprefix("[AUTO]").strip()
+                    return f"操作: {arguments_json.get('operation')}\n记忆: {clean_mem}"
                 case _:
                     return f"错误：未知的函数名：{tool_call['function']['name']}！"
         except json.JSONDecodeError:
@@ -1316,52 +1361,67 @@ class ChatInstance:
             memory_block=("\n".join(f"- {p}" if i == 0 else f"  {p}" for item in user.memory for i, p in enumerate(item.split("\n")))) if user.memory else "暂无记忆",
             time=datetime.now().strftime("%Y-%m-%d %A"))
     
+    @staticmethod
+    async def ask_ai(user: str, model: str, system: str | None = None, max_tokens: int = 1024, force_json: bool = False, thinking: bool = False) -> str:
+        model_config = MODELS[model]
+        api_type = model_config.get("api_type", "chat-completions")
+        if api_type == "responses":
+            params = {
+                "model": model,
+                "input": [{"role": "user", "content": user}],
+                "max_output_tokens": max_tokens,
+            }
+            if system:
+                params["instructions"] = system
+            if force_json:
+                params["text"] = {"format": {"type": "json_object"}}
+            params.update(construct_params(model_config, thinking, api_type))
+            r = await get_oclient(model).responses.create(**params)
+            return (r.output_text or "").strip()
+        if api_type == "anthropic":
+            params = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": user}],
+            }
+            if system:
+                params["system"] = system
+            params.update(construct_params(model_config, thinking, api_type))
+            r = await get_aclient(model).messages.create(**params)
+            for text_block in r.content:
+                if isinstance(text_block, TextBlock):
+                    return text_block.text.strip()
+            raise TypeError("AI响应中未找到文本块")
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
+        params = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        if force_json:
+            params["response_format"] = {"type": "json_object"}
+        params.update(construct_params(model_config, thinking, api_type))
+        r = await get_oclient(model).chat.completions.create(**params)
+        return (r.choices[0].message.content or "").strip()
+
     async def generate_title(self):
         try:
             if "0" not in self.chat_tree:
                 return "新对话"
-            title_model = config["webchat"]["title-model"]
             t = self.chat_tree["0"]
-            if isinstance(t["user"], str):
-                u = t["user"]
-            else:
-                u = t["user"][-1]["text"] if t["user"][-1]["type"] == "text" else "[image]"
+            u = self._extract_user_text(t)
             a = t["assistant"][-1]["content"]
             text = f"用户：\n{u if len(u)<50 else u[:20]+'\n...\n'+u[-20:]}\nAI：\n{a if len(a)<120 else a[:50]+'...'+a[-50:]}"
-            model_config = MODELS[title_model]
-            api_type = model_config.get("api_type", "chat-completions")
-            if api_type == "responses":
-                params = {
-                    "model": title_model,
-                    "instructions": "根据对话内容生成简短的标题，不包含标点，不超过15个字，只返回标题",
-                    "input": [{"role": "user", "content": text}],
-                    "max_output_tokens": 30,
-                }
-                params.update(construct_params(model_config, False, api_type))
-                r = await get_oclient(title_model).responses.create(**params)
-                return r.output_text.strip()
-            if api_type == "anthropic":
-                params = {
-                    "model": title_model,
-                    "max_tokens": 30,
-                    "system": "根据对话内容生成简短的标题，不包含标点，不超过15个字，只返回标题",
-                    "messages": [{"role": "user", "content": text}],
-                }
-                params.update(construct_params(model_config, False, api_type))
-                r = await get_aclient(title_model).messages.create(**params)
-                for text_block in r.content:
-                    if isinstance(text_block, TextBlock):
-                        return text_block.text.strip()
-                raise TypeError("标题响应中未找到文本块")
-            params = {
-                "model": title_model,
-                "messages": [{"role":"system","content":"根据对话内容生成简短的标题，不包含标点，不超过15个字，只返回标题"},{"role":"user","content":text}],
-                "max_tokens": 30,
-                "stream": False
-            }
-            params.update(construct_params(model_config, False))
-            r = await get_oclient(title_model).chat.completions.create(**params)
-            return r.choices[0].message.content.strip()
+            return await self.ask_ai(
+                user=text,
+                system="根据对话内容生成简短的标题，不包含标点，不超过15个字，只返回标题",
+                max_tokens=30,
+                model=config["webchat"]["title-model"]
+            )
         except Exception as e:
             logger.exception(f"生成标题失败：{e}")
             return "新对话"
@@ -1370,12 +1430,179 @@ class ChatInstance:
         if parent in self.chat_tree:
             if parent == "root":
                 return True
-            elif self.chat_tree[parent]["assistant"]:
+            elif self.chat_tree[parent]["assistant"]: # 防止对着未完成的节点生成
                 return True
             else:
                 return False
         else:
             return False
+
+    @staticmethod
+    def _extract_user_text(node) -> str:
+        user_content = node["user"]
+
+        if isinstance(user_content, str):
+            return user_content
+        
+        last_block = user_content[-1]
+        if isinstance(last_block, dict) and last_block.get("type") == "text":
+            return last_block.get("text", "")
+        return "[图片]"
+
+    async def generate_dynamic_memory(self):
+        # region prompt
+        prompt = """# Task
+请根据 `<recent_messages>`，生成针对 `<dynamic_memory>` 的 JSONL 操作指令。
+
+# Rules
+1. **默认静默原则（极重要）**：绝大多数日常对话（闲聊、提问、写代码、临时调试）都不包含值得归档的长期事实。**请保持极高阈值，宁可漏记，绝不强行凑数。** 如果没有百分之百确定的长期事实变更，直接输出 `{{"do": "none"}}`。
+2. **严格过滤与只读约束**：
+   - **提取范围**：仅提取跨会话依然生效的**用户客观事实**（如：个人身份/属性、已拥有的软硬件、长期进行中的项目、稳定的个人偏好）。短期上下文（如单次报错、临时需求）及未定意向（计划、犹豫、商量、测试）、指代不明的句子一律忽略。
+   - **去重与只读**：`<immutable_memory>` 为用户的最高优先级只读设定，**严禁对其进行任何修改或删除**。已存在于 `<immutable_memory>` 或 `<dynamic_memory>` 中的事实，严禁重复添加。
+3. **操作选择逻辑**：
+   - `add`：出现了全新的长期事实。
+   - `update`：新事实修正、升级或替换了 `<dynamic_memory>` 中的某条旧记录（例如更换设备、更改方案、补充关键细节），直接覆写该 ID。
+   - `delete`：用户明确否定、放弃了 `<dynamic_memory>` 中的某条旧记录，且没有替代品。
+4. **极简表述**：所有记录必须为独立完整、去时间状语的客观陈述句。
+
+# Output Format
+仅输出纯文本 JSONL（每行一个 JSON 对象，严禁使用 ```json 标记）。
+输出分为以下两种**完全互斥**的情况：
+
+**情况 A：无任何有效变更（高频常态）**
+仅输出单独一行：
+{{"do": "none"}}
+
+**情况 B：存在有效变更**
+按需输出一行或多行指令，每条指令独占一行（**严禁在末尾追加 `{{"do": "none"}}`！**）。格式如下：
+{{"do": "add", "text": "<客观事实>"}}
+{{"do": "update", "id": <整数ID>, "text": "<更新后的客观事实>"}}
+{{"do": "delete", "id": <整数ID>}}
+
+# Context Data
+<immutable_memory>
+{user_customized}
+</immutable_memory>
+
+<dynamic_memory>
+{old_auto_memories_with_id}
+</dynamic_memory>
+
+<recent_messages>
+{latest_user_msgs}
+</recent_messages>"""
+        # endregion
+        formatted_prompt = ""
+        try:
+            curr = self.chat_tree.get("root", {}).get("current", "root")
+            if curr == "root":
+                return
+            latest_node = curr  # 本轮待处理链上的最新节点，成功后作为索引水位
+            user_messages = []
+            last_indexed_node_int = int(self.chat_tree.get("root", {}).get("indexed", -1))
+            while curr != "root" and curr in self.chat_tree and int(curr) > last_indexed_node_int:
+                node = self.chat_tree[curr]
+                text = self._extract_user_text(node).strip()
+                if text:
+                    user_messages.append(text if len(text)<130 else text[:50]+'...'+text[-50:])
+                curr = node.get("parent", "root")
+            user_messages.reverse()
+            if not user_messages:
+                return
+            user_message = "\n".join(user_messages)
+
+            # 拆分只读设定与带编号的动态记忆
+            immutable_items = []
+            dynamic_items = []
+            id_to_item: dict[int, str] = {}
+
+            for idx, item in enumerate(self.user.memory):
+                if item.startswith("[AUTO] "):
+                    id_to_item[idx] = item
+                    clean_text = item.replace("[AUTO] ", "", 1).strip()
+                    dynamic_items.append(json.dumps({"id": idx, "text": clean_text}, ensure_ascii=False))
+                else:
+                    lines = item.splitlines()
+                    if lines:
+                        formatted = f"- {lines[0]}"
+                        if len(lines) > 1:
+                            formatted += "\n" + "\n".join(f"  {l}" for l in lines[1:])
+                        immutable_items.append(formatted)
+
+            immutable_memory = "\n".join(immutable_items) if immutable_items else ""
+            dynamic_memory = "\n".join(dynamic_items) if dynamic_items else ""
+
+            # 组装 Prompt
+            formatted_prompt = prompt.format(
+                user_customized=immutable_memory,
+                old_auto_memories_with_id=dynamic_memory,
+                latest_user_msgs=user_message,
+            )
+            logger.debug(f"动态记忆组装提示词：\n{formatted_prompt}")
+
+            # 请求
+            memory_model = config["webchat"]["memory-model"]
+            response_text = await self.ask_ai(
+                user=formatted_prompt,
+                model=memory_model,
+                max_tokens=16384,
+                thinking=True
+            )
+            logger.debug(f"动态记忆模型返回：\n{response_text}")
+
+            operations = []
+            for line in response_text.strip().splitlines():
+                line = line.strip()
+                # 过滤掉模型可能误输出的 ```json 或 ```
+                if not line or line.startswith("```"):
+                    continue
+                try:
+                    operations.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+            # 模型输出异常时不推进索引，留待下次重试
+            if not operations:
+                return
+
+            # 静默退出也推进索引，避免同一批消息被反复分析
+            if len(operations) == 1 and operations[0].get("do") == "none":
+                self.chat_tree["root"]["indexed"] = latest_node
+                return
+
+            for op in operations:
+                action = op.get("do")
+                text = str(op.get("text", "")).strip()
+                target_id = op.get("id")
+                if target_id is not None:
+                    try: # 如果模型输出string，转换为int
+                        target_id = int(target_id)
+                    except (ValueError, TypeError):
+                        target_id = None
+
+                if action == "add" and text:
+                    ok, _, _ = self.user.validate_and_add_memory(f"[AUTO] {text}")
+
+                elif action == "delete" and target_id is not None:
+                    # 从静态快照中获取旧字符串，完全不受当前 self.memory 实时长度影响
+                    old_item = id_to_item.get(target_id)
+                    if old_item:
+                        ok, _, _ = self.user.validate_and_remove_memory(old_item)
+
+                elif action == "update" and text and target_id is not None:
+                    old_item = id_to_item.get(target_id)
+                    if old_item:
+                        del_ok, _, _ = self.user.validate_and_remove_memory(old_item)
+                        if del_ok: # 成功删除再更新
+                            add_ok, _, _ = self.user.validate_and_add_memory(f"[AUTO] {text}")
+                            if not add_ok: # 未成功删除回滚
+                                self.user.validate_and_add_memory(old_item)
+            self.chat_tree["root"]["indexed"] = latest_node
+        except Exception:
+            # 提示词组装完成前出错时 formatted_prompt 为空，避免异常处理里再次抛 UnboundLocalError
+            if formatted_prompt:
+                logger.error(f"请求提示词：\n{formatted_prompt}")
+            logger.exception("生成动态记忆失败")
 
     @staticmethod
     def customize_reader(url):
@@ -1405,37 +1632,70 @@ class Webchat:
     def __init__(self):
         is_db_exist = os.path.exists("chatdata.db")
         self.conn = sqlite3.connect("chatdata.db", check_same_thread=False, timeout=5)
+        self.lock = threading.Lock()
         self.daemon_thread = threading.Thread(target=self._daemon, daemon=True, name="WebchatDaemonThread")
         self.daemon_thread.start()
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute("PRAGMA busy_timeout = 3417")
-            cursor.execute("PRAGMA cache_size = -64000")
-            if not is_db_exist:
-                cursor.execute("PRAGMA journal_mode = WAL")
-                cursor.execute("PRAGMA synchronous = NORMAL")
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute("PRAGMA busy_timeout = 3417")
+                cursor.execute("PRAGMA cache_size = -64000")
+                if not is_db_exist:
+                    cursor.execute("PRAGMA journal_mode = WAL")
+                    cursor.execute("PRAGMA synchronous = NORMAL")
     
+    async def _process_user(self, user: User):
+        try:
+            chat_cache_copy = user.chat_cache.copy()
+            for chat_id, chat_instance in chat_cache_copy.items():
+                if time.time() - chat_instance.last_active > 60 * 30: # 30min，尽可能吃满cache hit
+                    if chat_instance.running: # 正在流中，不保存
+                        continue
+                    if user.enable_auto_memorize:
+                        try:
+                            await chat_instance.generate_dynamic_memory()
+                        except Exception:
+                            logger.exception(f"生成动态记忆失败: user={user.user_id}, chat={chat_id}")
+                    if chat_id not in user.chat_cache: # 用户可能删除对话
+                        continue
+                    if chat_instance.running: # 防止竞态
+                        continue
+                    try:
+                        await asyncio.to_thread(self._save_chat, user, chat_id, chat_instance)
+                    except Exception:
+                        logger.exception(f"保存聊天失败: user={user.user_id}, chat={chat_id}")
+                        continue
+                    if chat_instance.running: # 再次检查，防止竞态
+                        continue
+                    try:
+                        del user.chat_cache[chat_id]
+                    except Exception:
+                        logger.exception(f"删除聊天缓存失败，可能已被其他线程删除: user={user.user_id}, chat={chat_id}")
+        except Exception:
+            logger.exception(f"处理用户 {user.user_id} 聊天缓存失败")
+
+    async def _process_all_users(self):
+        users = list(usermanager.get_all_users())
+        if not users:
+            return
+        await asyncio.gather(*[self._process_user(user) for user in users], return_exceptions=True)
+
     def _daemon(self):
         while True:
             time.sleep(60)
-            for user in usermanager.get_all_users():
-                chat_cache_copy = user.chat_cache.copy()
-                for chat_id, chat_instance in chat_cache_copy.items():
-                    if time.time() - chat_instance.last_active > 60 * 5: # 5min
-                        if chat_instance.running: # 正在流中，不保存
-                            continue
-                        self._save_chat(user, chat_id)
-                        if chat_instance.running: # 再次检查，防止竞态
-                            continue
-                        try:
-                            del user.chat_cache[chat_id]
-                        except Exception:
-                            logger.exception(f"删除聊天缓存失败，可能已被其他线程删除: user={user.user_id}, chat={chat_id}")
+            if event_loop is None or not event_loop.is_running():
+                continue
+            future = asyncio.run_coroutine_threadsafe(self._process_all_users(), event_loop)
+            try:
+                future.result()
+            except Exception:
+                logger.exception("Webchat daemon 运行错误")
     
     def _init_user_table(self, user_id: int):
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute(f"CREATE TABLE IF NOT EXISTS u{user_id} (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, compressed_message BLOB)")
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"CREATE TABLE IF NOT EXISTS u{user_id} (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, compressed_message BLOB)")
     
     def _compress(self, data: dict) -> bytes:
         json_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -1449,26 +1709,28 @@ class Webchat:
     
     def _prepare_new_chat(self, user: User):
         chat_instance = ChatInstance(user)
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute(f"INSERT INTO u{user.user_id} (title, compressed_message) VALUES (?, ?)", ("新对话", None))
-            id = cursor.lastrowid
-            if id is None:
-                logger.exception(f"创建新对话失败: user={user.user_id}")
-                raise Exception("创建新对话失败")
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"INSERT INTO u{user.user_id} (title, compressed_message) VALUES (?, ?)", ("新对话", None))
+                id = cursor.lastrowid
+                if id is None:
+                    logger.exception(f"创建新对话失败: user={user.user_id}")
+                    raise Exception("创建新对话失败")
         user.chat_cache[id] = chat_instance
         return (id, chat_instance)
     
     def _prepare_chat(self, user: User, chat_id: int):
         if chat_id in user.chat_cache: # 缓存中存在
             return user.chat_cache[chat_id]
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute(f"SELECT compressed_message FROM u{user.user_id} WHERE id = ?", (chat_id,))
-            compressed = cursor.fetchone()
-            if compressed is None:
-                raise HTTPException(status_code=400, detail="Bad Chat ID")
-            message_tree = self._decompress(compressed[0])
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"SELECT compressed_message FROM u{user.user_id} WHERE id = ?", (chat_id,))
+                compressed = cursor.fetchone()
+                if compressed is None:
+                    raise HTTPException(status_code=400, detail="Bad Chat ID")
+        message_tree = self._decompress(compressed[0])
         chat_instance = ChatInstance(user, message_tree)
         user.chat_cache[chat_id] = chat_instance
         return chat_instance
@@ -1496,11 +1758,15 @@ class Webchat:
     
     async def _generate_title(self, chat_instance: ChatInstance, user_id: int, chat_id: int):
         title = await chat_instance.generate_title()
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute(f"UPDATE u{user_id} SET title = ? WHERE id = ?", (title, chat_id))
-            self.conn.commit()
+        await asyncio.to_thread(self._update_title, user_id, chat_id, title)
         return title
+
+    def _update_title(self, user_id: int, chat_id: int, title: str):
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"UPDATE u{user_id} SET title = ? WHERE id = ?", (title, chat_id))
+                self.conn.commit()
         
     async def _pusher(self, streaming_cache: StreamingCache, start_index: int = 0):
         # 每条缓存项恰好对应一条 SSE 事件（Future 也只转成一个 data 块），
@@ -1526,10 +1792,11 @@ class Webchat:
         self._init_user_table(user_id)
     
     def get_home_data(self, user_id: int):
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute(f"SELECT id, title FROM u{user_id} ORDER BY id DESC LIMIT 20")
-            chats = cursor.fetchall()
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"SELECT id, title FROM u{user_id} ORDER BY id DESC LIMIT 20")
+                chats = cursor.fetchall()
         user = usermanager.get_user(user_id)
         return {"chats": chats, "config_version": user.config_version}
     
@@ -1544,36 +1811,38 @@ class Webchat:
         }
     
     def get_history(self, user_id: int, before: int | None = None, after: int | None = None, limit: int = 10):
-        if before is not None:
-            with self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute(f"SELECT id, title FROM u{user_id} WHERE id < ? ORDER BY id DESC LIMIT ?", (before, limit))
-                messages = cursor.fetchall()
-        elif after is not None:
-            with self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute(f"SELECT id, title FROM u{user_id} WHERE id > ? ORDER BY id ASC LIMIT ?", (after, limit))
-                messages = cursor.fetchall()
-                messages.reverse()
+        with self.lock:
+            if before is not None:
+                with self.conn:
+                    cursor = self.conn.cursor()
+                    cursor.execute(f"SELECT id, title FROM u{user_id} WHERE id < ? ORDER BY id DESC LIMIT ?", (before, limit))
+                    messages = cursor.fetchall()
+            elif after is not None:
+                with self.conn:
+                    cursor = self.conn.cursor()
+                    cursor.execute(f"SELECT id, title FROM u{user_id} WHERE id > ? ORDER BY id ASC LIMIT ?", (after, limit))
+                    messages = cursor.fetchall()
+                    messages.reverse()
 
-        else:
-            with self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute(f"SELECT id, title FROM u{user_id} ORDER BY id DESC LIMIT ?", (limit,))
-                messages = cursor.fetchall()
+            else:
+                with self.conn:
+                    cursor = self.conn.cursor()
+                    cursor.execute(f"SELECT id, title FROM u{user_id} ORDER BY id DESC LIMIT ?", (limit,))
+                    messages = cursor.fetchall()
         return messages
 
     def search_history(self, user_id: int, query: str, before: int | None = None, limit: int = 20):
         # 转义 LIKE 通配符，避免用户输入的 % 和 _ 被当作模糊匹配符
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         pattern = f"%{escaped}%"
-        with self.conn:
-            cursor = self.conn.cursor()
-            if before is None:
-                cursor.execute(f"SELECT id, title FROM u{user_id} WHERE title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ?", (pattern, limit))
-            else: # 分段返回：取 id 比上一页最后一条更小的记录
-                cursor.execute(f"SELECT id, title FROM u{user_id} WHERE title LIKE ? ESCAPE '\\' AND id < ? ORDER BY id DESC LIMIT ?", (pattern, before, limit))
-            messages = cursor.fetchall()
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                if before is None:
+                    cursor.execute(f"SELECT id, title FROM u{user_id} WHERE title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ?", (pattern, limit))
+                else: # 分段返回：取 id 比上一页最后一条更小的记录
+                    cursor.execute(f"SELECT id, title FROM u{user_id} WHERE title LIKE ? ESCAPE '\\' AND id < ? ORDER BY id DESC LIMIT ?", (pattern, before, limit))
+                messages = cursor.fetchall()
         return messages
 
     def get_message(self, user_id: int, chat_id: int):
@@ -1581,10 +1850,11 @@ class Webchat:
         if chat_id in user.chat_cache:
             tree = user.chat_cache[chat_id].chat_tree
         else:
-            with self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute(f"SELECT compressed_message FROM u{user_id} WHERE id = ?", (chat_id,))
-                compressed = cursor.fetchone()
+            with self.lock:
+                with self.conn:
+                    cursor = self.conn.cursor()
+                    cursor.execute(f"SELECT compressed_message FROM u{user_id} WHERE id = ?", (chat_id,))
+                    compressed = cursor.fetchone()
             if compressed is None:
                 raise HTTPException(status_code=404, detail="bad chat id")
             tree = self._decompress(compressed[0])
@@ -1612,7 +1882,7 @@ class Webchat:
                 streaming_cache.data.append(f"event: node_id\ndata: \"{node_id}\"\n\n")
             streaming_cache.current_task = asyncio.create_task(self._generate(streaming_cache, request, chat_instance, node_id, True, user, chat_id))
         else:
-            chat_instance = self._prepare_chat(user, chat_id)
+            chat_instance = await asyncio.to_thread(self._prepare_chat, user, chat_id)
             if request.parent is not None and not chat_instance.verify_parent(request.parent):
                 raise HTTPException(status_code=400, detail="bad parent")
             node_id = chat_instance.create_placehold_node(request.parent, request.content)
@@ -1632,14 +1902,18 @@ class Webchat:
             raise HTTPException(status_code=400, detail="bad reconnect offset")
         return self._pusher(streaming_cache, after)
     
-    def _save_chat(self, user: User, chat_id: int):
+    def _save_chat(self, user: User, chat_id: int, chat_instance: ChatInstance | None = None):
         logger.debug(f"正在为用户 {user.user_id} 保存聊天 {chat_id}")
-        chat_instance = user.chat_cache[chat_id]
+        if chat_instance is None:
+            if chat_id not in user.chat_cache:
+                return
+            chat_instance = user.chat_cache[chat_id]
         compressed = self._compress(chat_instance.chat_tree)
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute(f"UPDATE u{user.user_id} SET compressed_message = ? WHERE id = ?", (compressed, chat_id))
-            self.conn.commit()
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"UPDATE u{user.user_id} SET compressed_message = ? WHERE id = ?", (compressed, chat_id))
+                self.conn.commit()
     
     def get_models(self):
         data = {}
@@ -1658,26 +1932,29 @@ class Webchat:
     
     def close(self):
         logger.info("正在关闭聊天数据库...")
-        self.conn.close()
+        with self.lock:
+            self.conn.close()
 
     def delete_chat(self, user_id: int, chat_id: int):
         user = usermanager.get_user(user_id)
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute(f"DELETE FROM u{user_id} WHERE id = ?", (chat_id,)) # 静默失败
-            self.conn.commit()
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"DELETE FROM u{user_id} WHERE id = ?", (chat_id,)) # 静默失败
+                self.conn.commit()
         if chat_id in user.chat_cache:
             del user.chat_cache[chat_id]
 
     def get_profile_data(self, user_id: int):
         user = usermanager.get_user(user_id)
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute(f"SELECT COUNT(*) FROM u{user_id}")
-            conv_count = cursor.fetchone()[0]
+        with self.lock:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(f"SELECT COUNT(*) FROM u{user_id}")
+                conv_count = cursor.fetchone()[0]
         file_path = f"link_datas/{user_id}.json"
         created_at = int(os.path.getctime(file_path)) if os.path.exists(file_path) else 0
-        return {"conv_count": conv_count, "memory": user.memory, "created_at": created_at}
+        return {"conv_count": conv_count, "memory": user.memory, "created_at": created_at, "enable_auto_memorize": user.enable_auto_memorize}
 
     def add_memory(self, user_id: int, memory: str):
         user = usermanager.get_user(user_id)
@@ -1690,6 +1967,11 @@ class Webchat:
         ok, status, msg = user.validate_and_remove_memory(memory)
         if not ok:
             raise HTTPException(status_code=status, detail=msg)
+
+    def set_dynamic_memory(self, user_id: int, enable: bool):
+        user = usermanager.get_user(user_id)
+        user.enable_auto_memorize = enable
+        user._edited = True
 
 class LRUCache:
     def __init__(self, capacity=50, allow_reverse=False):
