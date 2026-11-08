@@ -39,6 +39,11 @@ export const state = reactive({
   currentChatId: null as number | null,
   currentModel: storedConfig?.model || '',
   previewImageUrl: null as string | null,
+  previewFile: null as {
+    name: string;
+    text: string;
+    onSave?: (newText: string, newName: string) => void;
+  } | null,
   currentVModel: storedConfig?.vmodel || '',
   isThinking: storedConfig?.thinking ?? false,
   isStreaming: false,

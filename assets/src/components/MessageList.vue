@@ -939,7 +939,7 @@ const resetEdgeGesture = () => {
 
 const handleEdgeTouchStart = (e: TouchEvent) => {
   if (!state.isMobile || e.touches.length > 1) return;
-  if (state.isSidebarOpen || state.previewImageUrl || state.showSelectionOverlay) return;
+  if (state.isSidebarOpen || state.previewImageUrl || state.previewFile || state.showSelectionOverlay) return;
   if (messages.value.length <= 1) return;
 
   // 已展开时：触摸导航外任意位置收起
@@ -1043,6 +1043,8 @@ const getMsgPreview = (node: ChatNode) => {
   if (Array.isArray(node.user)) {
     const text = node.user.find((c: any) => c.type === 'text')?.text;
     if (text) return text;
+    const file = node.user.find((c: any) => c.type === 'file');
+    if (file) return `[文件] ${file.name}`;
     if (node.user.some((c: any) => c.type === 'image_url')) return '[图片]';
   }
   return '空消息';

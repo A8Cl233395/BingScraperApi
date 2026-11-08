@@ -25,8 +25,7 @@ const optionsRef = ref<HTMLElement | null>(null);
 // 文件编辑（使用 composable）
 const {
   images,
-  audioFiles,
-  otherFiles,
+  files,
   isProcessingImage,
   isOcrProcessing,
   isConverting,
@@ -35,11 +34,10 @@ const {
   handlePaste,
   handleDrop,
   removeImage,
-  removeAudio,
-  removeOtherFile,
+  removeFile,
+  reorderFiles,
+  updateFile,
   handleOcr,
-  handleAudioConvert,
-  handleFileConvert,
   clearImages,
 } = useImageEditor({ trackDraft: true });
 
@@ -74,42 +72,34 @@ const handleFilePick = () => {
 };
 
 const hasUnconvertedFiles = computed(() =>
-  audioFiles.value.length > 0 || otherFiles.value.length > 0 || isOcrProcessing.value
+  isConverting.value || isOcrProcessing.value || isProcessingImage.value
 );
-
-const handleImageOcr = (index: number) => {
-  handleOcr(index, textInput);
-};
-
-const handleAudioConvertAction = (index: number) => {
-  handleAudioConvert(index, textInput);
-};
-
-const handleFileConvertAction = (index: number) => {
-  handleFileConvert(index, textInput);
-};
 
 let lastBlockedSendToastAt = 0;
 
 const handleSend = () => {
   if (state.isStreaming || isRecording.value || isRecognizing.value) return;
-  if (textInput.value.trim() || images.value.length > 0) {
+  const readyFiles = files.value.filter(f => f.status !== 'converting');
+  if (textInput.value.trim() || images.value.length > 0 || readyFiles.length > 0 || hasUnconvertedFiles.value) {
     if (hasUnconvertedFiles.value) {
       // 发送按钮此时为禁用态，Enter 键发送会在这里静默失败；节流提示避免长按连发
       if (Date.now() - lastBlockedSendToastAt > 1500) {
         lastBlockedSendToastAt = Date.now();
-        showToast('还有文件未转换为文字，请稍候再发送', 'info');
+        showToast('文件正在转换中，请稍候再发送', 'info');
       }
       return;
     }
     
-    // 只有文本没有图片时，直接以字符串形式传输
-    if (images.value.length === 0 && textInput.value.trim()) {
+    // 只有文本没有图片和文件时，直接以字符串形式传输
+    if (images.value.length === 0 && readyFiles.length === 0 && textInput.value.trim()) {
       emit('send', textInput.value.trim());
     } else {
       const content: any[] = [];
       images.value.forEach(url => {
         content.push({ type: 'image_url', image_url: { url } });
+      });
+      readyFiles.forEach(f => {
+        content.push({ type: 'file', name: f.name, text: f.text });
       });
       if (textInput.value.trim()) {
         content.push({ type: 'text', text: textInput.value.trim() });
@@ -189,7 +179,15 @@ const restoreInput = (content: any) => {
     }
     const imageObjs = content.filter((c: any) => c.type === 'image_url');
     images.value = imageObjs.map((c: any) => c.image_url.url);
+    const fileObjs = content.filter((c: any) => c.type === 'file');
+    files.value = fileObjs.map((c: any, idx: number) => ({
+      id: `restored-${Date.now()}-${idx}`,
+      name: c.name,
+      text: c.text,
+      status: 'ready' as const,
+    }));
   }
+  nextTick(adjustHeight);
 };
 
 defineExpose({ restoreInput });
@@ -239,17 +237,14 @@ const setDefaultOption = async (type: 'thinking' | 'enable_function', value: boo
       <!-- File Previews -->
       <FileEditorGrid
         :images="images"
-        :audio-files="audioFiles"
-        :other-files="otherFiles"
+        :files="files"
         :is-processing-image="isProcessingImage"
         :is-ocr-processing="isOcrProcessing"
-        :is-converting="isConverting"
         @remove-image="removeImage"
-        @remove-audio="removeAudio"
-        @remove-other="removeOtherFile"
-        @ocr="handleImageOcr"
-        @convert-audio="handleAudioConvertAction"
-        @convert-file="handleFileConvertAction"
+        @remove-file="removeFile"
+        @reorder-file="reorderFiles"
+        @update-file="updateFile"
+        @ocr="handleOcr"
       />
 
       <VoiceInputBar

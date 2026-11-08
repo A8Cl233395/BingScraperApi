@@ -36,10 +36,10 @@ export const processImage = async (file: File): Promise<string> => {
         const maxSide = 1500;
         if (width > maxSide || height > maxSide) {
           if (width > height) {
-            height = (height / width) * maxSide;
+            height = Math.round((height / width) * maxSide);
             width = maxSide;
           } else {
-            width = (width / height) * maxSide;
+            width = Math.round((width / height) * maxSide);
             height = maxSide;
           }
         }

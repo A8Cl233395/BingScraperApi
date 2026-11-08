@@ -772,23 +772,23 @@ class ChatInstance:
         },
         {
             "name": "manageMemory",
-            "description": "管理 AI 自动记忆，仅在用户明确要求记住或删除时调用",
+            "description": "仅在用户明确要求记住或忘掉某事时调用。仅限增删带 [AUTO] 标记的记忆；无 [AUTO] 标记的记忆为只读，不要操作。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "operation": {
-                        "description": "操作",
+                        "description": "add：新增记忆；remove：删除已有的 [AUTO] 记忆",
                         "type": "string",
-                        "enum": ["add", "remove"],
+                        "enum": ["add", "remove"]
                     },
                     "memory": {
-                        "description": "记忆正文，不要包含 [AUTO] 前缀",
-                        "type": "string",
-                    },
+                        "description": "纯记忆文本，不要包含 [AUTO] 前缀（remove 时需与原记忆正文完全一致）",
+                        "type": "string"
+                    }
                 },
-                "required": ["operation", "memory"],
-            },
-        },
+                "required": ["operation", "memory"]
+            }
+        }
     ]
     tools = [{"type": "function", "function": schema} for schema in _TOOL_SCHEMAS]
     responses_tools = [{"type": "function", **schema} for schema in _TOOL_SCHEMAS]
@@ -975,11 +975,9 @@ class ChatInstance:
                     })
                 continue
             # 思考凭据有就传、忽略思考开关与模型（官方：工具回合必传、跨轮推荐全传，读不了的块 API 自行丢弃）：
-            # 只展开原生 anthropic 块（thinking 必带 signature、redacted_thinking 必带 data），
-            # 空签名伪块（旧兜底残渣）与异协议 item 跳过
+            # 只展开原生 anthropic 块，异协议 item 跳过
             replay_blocks = [dict(b) for b in msg.get("reasoning_blob") or []
-                             if (b.get("type") == "thinking" and b.get("signature"))
-                             or (b.get("type") == "redacted_thinking" and b.get("data"))]
+                             if b.get("type") in ("thinking", "redacted_thinking")]
             if msg["role"] == "assistant" and msg.get("tool_calls"):
                 content = []
                 # thinking / redacted_thinking 块必须原样置于 tool_use 之前（signature 会被逐块校验）
@@ -1067,7 +1065,7 @@ class ChatInstance:
             self.last_active = time.time() # 更新缓存时间
             # 检查多模态
             if not self.chat_tree["root"]["vision"]:
-                if isinstance(content, list) and content[0]["type"] == "image_url": # 应该先在网关校验
+                if isinstance(content, list) and any(b["type"] == "image_url" for b in content): # 应该先在网关校验
                     self.chat_tree["root"]["vision"] = True
             # 初始化单轮次内容
             _model = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["vision"] else (model or self.user.model)) # 锁定模型
@@ -1075,7 +1073,7 @@ class ChatInstance:
             enable_function = enable_function if enable_function is not None else self.user.enable_function # 锁定是否启用函数
             if current_messages is None: # 初始化或继承当前消息
                 current_messages = self._build_messages(self.chat_tree[node_id]["parent"])
-                current_messages.append({"role": "user", "content": content})
+                current_messages.append({"role": "user", "content": self._format_user_content(content)})
             current_node_assistant_messages = current_node_assistant_messages or [] # 初始化或继承当前节点助手消息
             # 开始生成
             answering_content = ""
@@ -1334,6 +1332,32 @@ class ChatInstance:
         else:
             return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
+    @staticmethod
+    def _format_user_content(content: list | str) -> list | str:
+        '''
+        将对话树中的 user 内容转换为模型可识别的格式：
+        file 块包裹为 <source filename="...">...</source> 并与 text 块合并；
+        若不含 image_url 则退化为纯字符串，避免非视觉模型报错。
+        '''
+        if isinstance(content, str):
+            return content
+        image_blocks = []
+        text_parts = []
+        for block in content:
+            b_type = block.get("type")
+            if b_type == "image_url":
+                image_blocks.append(block)
+            elif b_type == "file":
+                text_parts.append(f'<source filename="{block.get("name", "file")}">\n{block.get("text", "")}\n</source>')
+            elif b_type == "text":
+                text_parts.append(block.get("text", ""))
+        combined_text = "\n\n".join(p for p in text_parts if p)
+        if not image_blocks:
+            return combined_text
+        if combined_text:
+            return image_blocks + [{"type": "text", "text": combined_text}]
+        return image_blocks
+
     def _convert_tree(self, target_id=None):
         '''
         将对话树转换为消息列表
@@ -1342,7 +1366,7 @@ class ChatInstance:
         path = []
         while curr != "root":
             node = self.chat_tree[curr]
-            node_msgs = [{"role": "user", "content": node["user"]}] + node["assistant"]
+            node_msgs = [{"role": "user", "content": self._format_user_content(node["user"])}] + node["assistant"]
             path.append(node_msgs)
             curr = node["parent"]
         return [msg for node_msgs in reversed(path) for msg in node_msgs]
@@ -1447,6 +1471,9 @@ class ChatInstance:
         last_block = user_content[-1]
         if isinstance(last_block, dict) and last_block.get("type") == "text":
             return last_block.get("text", "")
+        file_blocks = [b for b in user_content if isinstance(b, dict) and b.get("type") == "file"]
+        if file_blocks:
+            return "\n".join(f"[{b.get('name', '文件')}]\n{b.get('text', '')}" for b in file_blocks)
         return "[图片]"
 
     async def generate_dynamic_memory(self):

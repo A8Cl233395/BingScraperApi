@@ -40,11 +40,10 @@ const toggleTool = (id: string) => {
 const isEditing = ref(false);
 const editText = ref('');
 
-// 编辑模式图片处理（使用 composable）
+// 编辑模式图片与文件处理（使用 composable）
 const {
   images: editImages,
-  audioFiles: editAudioFiles,
-  otherFiles: editOtherFiles,
+  files: editFiles,
   isProcessingImage: isProcessingEditImage,
   isOcrProcessing: isEditOcrProcessing,
   isConverting: isEditConverting,
@@ -53,24 +52,11 @@ const {
   handlePaste: handleEditPaste,
   handleDrop: handleEditDrop,
   removeImage: removeEditImage,
-  removeAudio: removeEditAudio,
-  removeOtherFile: removeEditOtherFile,
-  handleOcr: editHandleOcrRaw,
-  handleAudioConvert: editHandleAudioConvertRaw,
-  handleFileConvert: editHandleFileConvertRaw,
+  removeFile: removeEditFile,
+  reorderFiles: reorderEditFiles,
+  updateFile: updateEditFile,
+  handleOcr: handleEditImageOcr,
 } = useImageEditor();
-
-const handleEditImageOcr = (index: number) => {
-  editHandleOcrRaw(index, editText);
-};
-
-const handleEditAudioConvert = (index: number) => {
-  editHandleAudioConvertRaw(index, editText);
-};
-
-const handleEditFileConvert = (index: number) => {
-  editHandleFileConvertRaw(index, editText);
-};
 const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -144,7 +130,7 @@ const handleCopyAction = () => {
 const handleSelectTextAction = () => {
   let text = '';
   if (props.isUser) {
-    text = userTextContent.value;
+    text = getUserCopyableText();
   } else {
     text = props.message.assistant
       .filter((m: any) => m.role === 'assistant' && m.content)
@@ -276,6 +262,49 @@ const images = computed(() => {
   return props.message.filter((c: any) => c.type === 'image_url').map((c: any) => c.image_url.url);
 });
 
+const files = computed<Array<{ type: 'file'; name: string; text: string }>>(() => {
+  if (!props.isUser || !Array.isArray(props.message)) return [];
+  return props.message.filter((c: any) => c.type === 'file');
+});
+
+const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'webm'];
+const getFileExt = (name: string): string => {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+};
+const isAudioFile = (name: string): boolean => AUDIO_EXTS.includes(getFileExt(name));
+const formatFileMeta = (f: { name: string; text: string }): string => {
+  const ext = getFileExt(f.name).toUpperCase() || 'FILE';
+  const len = (f.text || '').length;
+  const countStr = len >= 1000 ? `${(len / 1000).toFixed(1)}k 字` : `${len} 字`;
+  return `${ext} · ${countStr}`;
+};
+
+const handleSentFileClick = (index: number) => {
+  const f = files.value[index];
+  if (!f) return;
+  state.previewFile = {
+    name: f.name,
+    text: f.text,
+    onSave: (newText: string, newName: string) => {
+      if (newText === f.text && newName === f.name) return;
+      handleEdit();
+      if (editFiles.value[index]) {
+        editFiles.value[index].text = newText;
+        editFiles.value[index].name = newName;
+      }
+    },
+  };
+};
+
+const getUserCopyableText = () => {
+  if (userTextContent.value) return userTextContent.value;
+  if (files.value.length > 0) {
+    return files.value.map(f => f.text).join('\n\n');
+  }
+  return '';
+};
+
 const getToolResponses = (callId: string) => {
   if (props.isUser) return [];
   return props.message.assistant.filter((m: any) => m.role === 'tool' && m.tool_call_id === callId);
@@ -287,7 +316,7 @@ const showCopyFeedback = () => {
   copiedTimer = setTimeout(() => { copied.value = false; }, 2000);
 };
 
-const handleCopy = () => { navigator.clipboard.writeText(userTextContent.value); showCopyFeedback(); };
+const handleCopy = () => { navigator.clipboard.writeText(getUserCopyableText()); showCopyFeedback(); };
 const handleCopyAssistant = () => {
   if (props.isUser || !props.message?.assistant) return;
   const text = props.message.assistant
@@ -302,6 +331,12 @@ const handleEdit = () => {
   isEditing.value = true;
   editText.value = userTextContent.value;
   editImages.value = [...images.value];
+  editFiles.value = files.value.map((f, idx) => ({
+    id: `edit-file-${Date.now()}-${idx}`,
+    name: f.name,
+    text: f.text,
+    status: 'ready' as const,
+  }));
   nextTick(() => {
     adjustEditHeight();
     setTimeout(() => {
@@ -314,15 +349,23 @@ const handleEdit = () => {
 };
 
 const submitEdit = () => {
-  if (editAudioFiles.value.length > 0 || editOtherFiles.value.length > 0) return;
+  if (isEditConverting.value || isEditOcrProcessing.value || isProcessingEditImage.value) {
+    showToast('文件正在转换中，请稍候再确认', 'info');
+    return;
+  }
+  const readyFiles = editFiles.value.filter(f => f.status !== 'converting');
+  if (!editText.value.trim() && editImages.value.length === 0 && readyFiles.length === 0) return;
 
-  // 只有文本没有图片时，直接以字符串形式传输（与 ChatInput 保持一致）
-  if (editImages.value.length === 0 && editText.value.trim()) {
+  // 只有文本没有图片和文件时，直接以字符串形式传输（与 ChatInput 保持一致）
+  if (editImages.value.length === 0 && readyFiles.length === 0 && editText.value.trim()) {
     emit('edit', props.nodeId, editText.value.trim());
   } else {
     const content: any[] = [];
     editImages.value.forEach(url => {
       content.push({ type: 'image_url', image_url: { url } });
+    });
+    readyFiles.forEach(f => {
+      content.push({ type: 'file', name: f.name, text: f.text });
     });
     if (editText.value.trim()) {
       content.push({ type: 'text', text: editText.value.trim() });
@@ -349,13 +392,39 @@ const {
       <template v-if="isUser">
         <div class="group flex flex-col min-w-0 max-w-full" :class="isEditing ? 'w-full items-start' : 'items-end'">
 
-          <!-- Image Content (Outside bubble if there is text) -->
+          <!-- Image Content (Outside bubble if there is text or files) -->
           <div
             v-if="images.length > 0 && !isEditing"
-            class="relative flex flex-wrap gap-2"
+            class="relative flex flex-wrap items-end gap-2 justify-end"
             :class="[
-              userTextContent || isEditing ? 'mb-3' : 'p-1 overflow-hidden',
-              !userTextContent && !isEditing && state.isMobile ? 'user-select-none' : ''
+              userTextContent || files.length > 0 || isEditing ? 'mb-2' : 'p-1 overflow-hidden',
+              !userTextContent && files.length === 0 && !isEditing && state.isMobile ? 'user-select-none' : ''
+            ]"
+            @touchstart="(!userTextContent && files.length === 0 && !isEditing) ? startLongPress($event) : null"
+            @touchend="(!userTextContent && files.length === 0 && !isEditing) ? cancelLongPress() : null"
+            @touchmove="(!userTextContent && files.length === 0 && !isEditing) ? cancelLongPress() : null"
+            @touchcancel="(!userTextContent && files.length === 0 && !isEditing) ? cancelLongPress() : null"
+            @contextmenu="(state.isMobile && !userTextContent && files.length === 0 && !isEditing) ? $event.preventDefault() : null"
+          >
+            <!-- Selected effect for image-only messages -->
+            <Transition name="fade">
+              <div
+                v-if="!userTextContent && files.length === 0 && !isEditing && isPressing"
+                class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
+              ></div>
+            </Transition>
+            <div v-for="(url, idx) in images" :key="idx" class="relative z-10">
+              <img :src="url" @click="state.previewImageUrl = url" class="block max-w-[200px] max-h-[200px] w-auto h-auto object-contain border border-border-main cursor-pointer" />
+            </div>
+          </div>
+
+          <!-- File Content (Outside bubble) -->
+          <div
+            v-if="files.length > 0 && !isEditing"
+            class="relative flex flex-wrap gap-2 justify-end"
+            :class="[
+              userTextContent ? 'mb-2' : 'p-1 overflow-hidden',
+              !userTextContent && state.isMobile ? 'user-select-none' : ''
             ]"
             @touchstart="(!userTextContent && !isEditing) ? startLongPress($event) : null"
             @touchend="(!userTextContent && !isEditing) ? cancelLongPress() : null"
@@ -363,14 +432,29 @@ const {
             @touchcancel="(!userTextContent && !isEditing) ? cancelLongPress() : null"
             @contextmenu="(state.isMobile && !userTextContent && !isEditing) ? $event.preventDefault() : null"
           >
-            <!-- Selected effect for image-only messages -->
+            <!-- Selected effect for file-only messages -->
             <Transition name="fade">
               <div
                 v-if="!userTextContent && !isEditing && isPressing"
                 class="absolute inset-0 bg-white/20 z-20 pointer-events-none"
               ></div>
             </Transition>
-            <img v-for="(url, idx) in images" :key="idx" :src="url" @click="state.previewImageUrl = url" class="relative z-10 max-w-[200px] max-h-[200px] border border-border-main cursor-pointer" />
+            <div
+              v-for="(f, idx) in files"
+              :key="'msg-file-' + idx"
+              @click="handleSentFileClick(idx)"
+              class="msg-file-card relative z-10 flex items-center gap-2.5 px-2.5 h-14 w-48 border border-border-main bg-bg-panel cursor-pointer select-none"
+              :title="`${f.name}（点击预览/修改内容）`"
+            >
+              <div class="w-8 h-8 border border-border-main bg-bg-hover flex items-center justify-center shrink-0">
+                <Music v-if="isAudioFile(f.name)" class="text-sm text-primary-main" />
+                <FileText v-else class="text-sm text-primary-main" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-xs font-medium text-text-main truncate leading-tight">{{ f.name }}</div>
+                <div class="text-[10px] font-mono text-text-placeholder mt-1 truncate leading-none">{{ formatFileMeta(f) }}</div>
+              </div>
+            </div>
           </div>
 
           <!-- Text Bubble Section -->
@@ -394,20 +478,17 @@ const {
 
             <div v-if="!isEditing" class="relative z-10 text-text-main wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed">{{ userTextContent }}</div>
             <div v-else class="w-full" @paste="handleEditPaste" @drop="handleEditDrop" @dragover.prevent>
-              <!-- Edit Image Previews -->
+              <!-- Edit Image & File Previews -->
               <FileEditorGrid
                 :images="editImages"
-                :audio-files="editAudioFiles"
-                :other-files="editOtherFiles"
+                :files="editFiles"
                 :is-processing-image="isProcessingEditImage"
                 :is-ocr-processing="isEditOcrProcessing"
-                :is-converting="isEditConverting"
                 @remove-image="removeEditImage"
-                @remove-audio="removeEditAudio"
-                @remove-other="removeEditOtherFile"
+                @remove-file="removeEditFile"
+                @reorder-file="reorderEditFiles"
+                @update-file="updateEditFile"
                 @ocr="handleEditImageOcr"
-                @convert-audio="handleEditAudioConvert"
-                @convert-file="handleEditFileConvert"
               />
               <textarea ref="editTextareaRef" v-model="editText" maxlength="1000000" class="edge-control w-full bg-bg-main border border-border-input p-2 text-sm resize-none no-scrollbar min-h-[38px]" rows="1" @keydown="handleKeydown"></textarea>
               <input type="file" ref="editFileInput" class="hidden" multiple accept="*/*" @change="handleEditFileUpload" />
@@ -603,6 +684,17 @@ const {
 .user-select-none {
   -webkit-user-select: none !important;
   user-select: none !important;
+}
+
+/* 消息气泡中的文件卡片左侧 2px 主色装饰条 */
+.msg-file-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--primary);
 }
 
 /* 等待指示三段接力，每段一个不同的动作，一眼可辨阶段：

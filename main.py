@@ -446,6 +446,8 @@ if is_webchat_enabled:
                 raise ValueError("列表不能为空")
 
             image_count = 0
+            file_count = 0
+            total_text_len = 0
 
             for i in range(length):
                 item = v[i]
@@ -490,14 +492,41 @@ if is_webchat_enabled:
                     except Exception as e:
                         raise ValueError(f"图片解析失败或已损坏: {str(e)}")
 
+                elif item_type == "file":
+                    file_count += 1
+                    if file_count > 10:
+                        raise ValueError("最多只能包含10个文件")
+
+                    if len(item) != 3:
+                        raise ValueError("文件项中必须且仅允许包含 type、name、text 字段")
+
+                    try:
+                        file_name = item["name"]
+                        file_text = item["text"]
+                    except KeyError:
+                        raise ValueError("文件字典缺少 'name' 或 'text' 字段")
+
+                    if type(file_name) is not str or type(file_text) is not str:
+                        raise ValueError("文件名和内容必须为字符串")
+
+                    if not file_name or len(file_name) > 255:
+                        raise ValueError("文件名不能为空且不能超过255字符")
+
+                    if not file_text:
+                        raise ValueError("文件内容不能为空")
+
+                    total_text_len += len(file_text)
+                    if total_text_len > 1000000:
+                        raise ValueError("文本总长度不能超过100万字符")
+
                 elif item_type == "text":
                     # 判断文本是否位于最后，同时这也保证了不可能存在多个 text
                     # （如果有多个，非末尾的 text 必定触发此异常）
                     if i != length - 1:
                         raise ValueError("文字字段只能有一个，并且必须在列表的最后")
 
-                    if image_count == 0:
-                        raise ValueError("不允许没有图片单独一个文字字段")
+                    if image_count == 0 and file_count == 0:
+                        raise ValueError("不允许没有图片或文件单独一个文字字段")
 
                     if len(item) != 2:
                         raise ValueError("文字项中不允许包含额外字段")
@@ -507,7 +536,11 @@ if is_webchat_enabled:
                     except KeyError:
                         raise ValueError("文字字典缺少 'text' 字段")
 
-                    if len(text_val) > 1000000:
+                    if type(text_val) is not str or not text_val:
+                        raise ValueError("文字字段必须为非空字符串")
+
+                    total_text_len += len(text_val)
+                    if total_text_len > 1000000:
                         raise ValueError("文字长度不能超过100万字符")
                 else:
                     raise ValueError(f"不支持的输入类型: {item_type}")

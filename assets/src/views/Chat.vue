@@ -6,6 +6,7 @@ import ModelSelector from '../components/ModelSelector.vue';
 import ChatInput from '../components/ChatInput.vue';
 import MessageList from '../components/MessageList.vue';
 import ImagePreview from '../components/ImagePreview.vue';
+import FilePreviewModal from '../components/FilePreviewModal.vue';
 import TextSelectionOverlay from '../components/TextSelectionOverlay.vue';
 import HtmlPreview from '../components/HtmlPreview.vue';
 
@@ -176,6 +177,7 @@ watch(
     <HtmlPreview />
     
     <ImagePreview />
+    <FilePreviewModal />
     <TextSelectionOverlay />
     <PetAvatar v-if="state.petEnabled" />
   </div>
