@@ -36,7 +36,7 @@
 
 ### 语音识别
 
-支持 Azure 和阿里云两种服务，可配置多个实例做轮询负载均衡。提供 URL 和二进制数据两种输入方式。阿里云模式需要 `server.public_address` 配置项用于生成临时下载链接。
+支持 Azure 和阿里云两种服务，可配置多个实例做轮询负载均衡；单个实例失败时自动回退到下一个可用实例。提供 URL 和二进制数据两种输入方式。阿里云模式需要 `server.public_address` 配置项用于生成临时下载链接。各识别源的实现位于 `voice_funcs.py`。
 
 ### OCR 文字识别
 
@@ -142,7 +142,7 @@ ncm:
 # B 站视频转录
 bilibili:
 
-# 语音识别（可配置多个，轮询负载均衡）
+# 语音识别（可配置多个，轮询负载均衡 + 失败回退）
 VoiceRecognition:
   - type: azure
     key: your_azure_key
@@ -253,6 +253,7 @@ invite ─> Cloudflare Turnstile
 web_search_api/
 ├── main.py               # FastAPI 应用入口、路由定义、中间件
 ├── functions.py          # 所有服务类、配置加载、模块初始化
+├── voice_funcs.py        # 语音识别源抽象与实现（Aliyun/Azure，VoiceRecognition 聚合调度）
 ├── updater.py            # 数据库结构更新工具
 ├── config.yaml.example   # 配置模板
 ├── config.schema.json    # 配置 JSON Schema

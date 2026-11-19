@@ -63,6 +63,9 @@ async def lifespan(app: FastAPI):
     if is_search_enabled:
         logger.info("正在停止浏览器...")
         searcher.stop()
+    if is_vr_enabled:
+        logger.info("正在停止语音识别...")
+        vr.stop()
 
 # 禁用 docs 和 redoc
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)

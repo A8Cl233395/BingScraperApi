@@ -24,6 +24,7 @@ ncm:
 
 bilibili:
 
+# 语音识别（可配置多个，轮询负载均衡 + 失败回退；aliyun 需要 server.public_address）
 VoiceRecognition:
   - type: azure
     key: xxx

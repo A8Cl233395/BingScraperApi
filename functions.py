@@ -199,117 +199,6 @@ class Bilibili:
         self.cache.put(bv, final_text)
         return final_text
 
-class VoiceRecognition:
-    def __init__(self, services):
-        self.services = services
-        self.balancing_index = 0
-        self.require_link = services[self.balancing_index]["type"] == "aliyun"
-
-    @staticmethod
-    def _parse_json(resp: requests.Response) -> dict:
-        """校验 HTTP 状态 + JSON 解析 + 必须为 dict"""
-        if not resp.ok:
-            raise RuntimeError(f"HTTP [{resp.status_code}]: {resp.text}")
-        try:
-            data = resp.json()
-        except requests.exceptions.JSONDecodeError:
-            raise RuntimeError(f"非json: {resp.text}")
-        if not isinstance(data, dict):
-            raise RuntimeError(f"非字典: {resp.text}")
-        return data
-
-    def audio_transcription_aliyun(self, key, model, file_url):
-        url = "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription"
-        headers = {
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "X-DashScope-Async": "enable",
-        }
-        data = {"model": model, "input": {"file_urls": [file_url]}}
-
-        try:
-            resp = self._parse_json(requests.post(url, json=data, headers=headers, timeout=15))
-            try:
-                task_id = resp["output"]["task_id"]
-            except (KeyError, TypeError):
-                raise RuntimeError(f"阿里云任务创建失败: {resp}")
-
-            result_url = self.get_aliyun_stt_result_loop(key, task_id)
-
-            res = self._parse_json(requests.get(result_url, timeout=20))
-            try:
-                return res["transcripts"][0]["text"]
-            except (KeyError, IndexError, TypeError):
-                raise RuntimeError(f"返回结果中未包含有效文字: {res}")
-
-        except Exception as e:
-            logger.exception("阿里云语音识别失败: %s", e)
-            raise RuntimeError(f"阿里云语音识别失败: {e}") from e
-
-    def get_aliyun_stt_result_loop(self, key, task_id):
-        url = f"https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
-        headers = {"Authorization": f"Bearer {key}"}
-
-        start = time.time()
-        time.sleep(2)
-
-        while time.time() - start < 600:
-            res = self._parse_json(requests.get(url, headers=headers, timeout=10))
-            try:
-                status = res["output"]["task_status"]
-                if status == "SUCCEEDED":
-                    return res["output"]["results"][0]["transcription_url"]
-                elif status in ["RUNNING", "PENDING"]:
-                    time.sleep(1)
-                else:
-                    # 状态变成 FAILED 或其他
-                    raise RuntimeError(f"任务执行失败，状态为 [{status}]: {res}")
-            except (KeyError, IndexError, TypeError):
-                raise RuntimeError(f"阿里云返回结构异常无法解析: {res}")
-
-        raise TimeoutError("阿里云语音识别超时（超过10分钟）")
-
-    def audio_transcription_azure(self, url, key, audio_data=None, audio_url=None) -> str:
-        params = {"url": url, "headers": {"Ocp-Apim-Subscription-Key": key}, "timeout": 30}
-        if audio_data is not None:
-            params["files"] = {"audio": audio_data}
-        elif audio_url is not None:
-            params["data"] = {"definition": json.dumps({"audioUrl": audio_url}, ensure_ascii=False)}
-        else:
-            raise ValueError("audio_data or audio_url is required")
-
-        try:
-            res = self._parse_json(requests.post(**params))
-            try:
-                return "\n".join(i["text"] for i in res["phrases"] if "text" in i)
-            except (KeyError, TypeError):
-                raise RuntimeError(f"Azure 返回了无法解析的内容: {res}")
-
-        except Exception as e:
-            logger.exception("Azure语音识别失败: %s", e)
-            raise RuntimeError(f"Azure语音识别失败: {e}") from e
-    
-    def transcribe_from_url(self, audio_url) -> str:
-        service = self.services[self.balancing_index]
-        self.balancing_index = (self.balancing_index + 1) % len(self.services)
-
-        if service["type"] == "aliyun":
-            return self.audio_transcription_aliyun(service["key"], service["model"], audio_url)
-        elif service["type"] == "azure":
-            return self.audio_transcription_azure(service["url"], service["key"], audio_url=audio_url)
-        return ""
-
-    def transcribe_from_data(self, audio_data) -> str:
-        service = self.services[self.balancing_index]
-        self.balancing_index = (self.balancing_index + 1) % len(self.services)
-
-        if service["type"] == "aliyun":
-            audio_url = generate_download_link(audio_data)
-            return self.audio_transcription_aliyun(service["key"], service["model"], audio_url)
-        elif service["type"] == "azure":
-            return self.audio_transcription_azure(service["url"], service["key"], audio_data)
-        return ""
-
 class OCR:
     def __init__(self):
         self.endpoint = config["ocr"]["umi_ocr_endpoint"]
@@ -1063,18 +952,18 @@ class ChatInstance:
         try:
             self.running += 1
             self.last_active = time.time() # 更新缓存时间
-            # 检查多模态
-            if not self.chat_tree["root"]["vision"]:
-                if isinstance(content, list) and any(b["type"] == "image_url" for b in content): # 应该先在网关校验
-                    self.chat_tree["root"]["vision"] = True
             # 初始化单轮次内容
-            _model = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["vision"] else (model or self.user.model)) # 锁定模型
-            thinking = thinking if thinking is not None else self.user.thinking # 锁定思考
-            enable_function = enable_function if enable_function is not None else self.user.enable_function # 锁定是否启用函数
             if current_messages is None: # 初始化或继承当前消息
+                # 检查多模态
+                if not self.chat_tree["root"]["vision"]:
+                    if isinstance(content, list) and any(b["type"] == "image_url" for b in content): # 应该先在网关校验
+                        self.chat_tree["root"]["vision"] = True
                 current_messages = self._build_messages(self.chat_tree[node_id]["parent"])
                 current_messages.append({"role": "user", "content": self._format_user_content(content)})
             current_node_assistant_messages = current_node_assistant_messages or [] # 初始化或继承当前节点助手消息
+            _model = _model or ((vmodel or self.user.vision_model) if self.chat_tree["root"]["vision"] else (model or self.user.model)) # 锁定模型
+            thinking = thinking if thinking is not None else self.user.thinking # 锁定思考
+            enable_function = enable_function if enable_function is not None else self.user.enable_function # 锁定是否启用函数
             # 开始生成
             answering_content = ""
             reasoning_content = ""
@@ -2124,11 +2013,47 @@ if __name__ != "__main__":
         bili = Bilibili()
 
     if is_vr_enabled:
-        vr = VoiceRecognition(config["VoiceRecognition"])
-        for service in vr.services:
+        from voice_funcs import AliyunVoice, AzureVoice, VoiceRecognition
+        from voice_funcs import logger as voice_logger
+        voice_logger.setLevel(config["server"].get("log_level", "DEBUG"))
+        voice_logger.addHandler(console_handler)
+
+        vr_services = config["VoiceRecognition"]
+        is_download_service_required = any(service["type"] == "aliyun" for service in vr_services)
+        if is_download_service_required:
+            # 阿里云语音识别只接受公网可访问的音频 URL，需要临时下载服务配合
+            if "public_address" in config["server"]:
+                public_address = config["server"]["public_address"]
+                DOWNLOAD_TTL_SECONDS = 3600
+                downloads = {}
+
+                def cleanup_expired_downloads(): # 惰性清理，防止创建过多线程
+                    now = time.time()
+                    expired = [fname for fname, item in list(downloads.items()) if now >= item.get("expire", 0)]
+                    for fname in expired:
+                        downloads.pop(fname, None)
+                        logger.info(f"{fname} 已过期")
+
+                def generate_download_link(data):
+                    cleanup_expired_downloads()
+                    filename = os.urandom(2).hex()
+                    while filename in downloads:
+                        filename += os.urandom(1).hex()
+                    key = os.urandom(8).hex()
+                    downloads[filename] = {"key": key, "data": data, "expire": time.time() + DOWNLOAD_TTL_SECONDS}
+                    return f"{public_address}/download?k={key}&f={filename}"
+            else:
+                logger.critical("配置中未找到 public_address，请确保已配置公网地址")
+                logger.critical("或禁用阿里云语音识别功能")
+                exit(1)
+
+        voice_models = []
+        for service in vr_services:
             if service["type"] == "aliyun":
-                is_download_service_required = True
-                break
+                voice_models.append(AliyunVoice(key=service["key"], model=service["model"], link_factory=generate_download_link)) # type: ignore
+            elif service["type"] == "azure":
+                voice_models.append(AzureVoice(url=service["url"], key=service["key"]))
+        vr = VoiceRecognition(voice_models)
 
     if is_custom_reader_enabled:
         if not is_search_enabled:
@@ -2205,29 +2130,3 @@ if __name__ != "__main__":
             else:
                 logger.error("发送消息失败，WebSocket 未连接，这次请求将被忽略")
                 return False
-
-    if is_download_service_required:
-        if "public_address" in config["server"]:
-            public_address = config["server"]["public_address"]
-            DOWNLOAD_TTL_SECONDS = 3600
-            downloads = {}
-
-            def cleanup_expired_downloads(): # 惰性清理，防止创建过多线程
-                now = time.time()
-                expired = [fname for fname, item in list(downloads.items()) if now >= item.get("expire", 0)]
-                for fname in expired:
-                    downloads.pop(fname, None)
-                    logger.info(f"{fname} 已过期")
-
-            def generate_download_link(data):
-                cleanup_expired_downloads()
-                filename = os.urandom(2).hex()
-                while filename in downloads:
-                    filename += os.urandom(1).hex()
-                key = os.urandom(8).hex()
-                downloads[filename] = {"key": key, "data": data, "expire": time.time() + DOWNLOAD_TTL_SECONDS}
-                return f"{public_address}/download?k={key}&f={filename}"
-        else:
-            logger.critical("配置中未找到 public_address，请确保已配置公网地址")
-            logger.critical("或禁用阿里云语音识别功能")
-            exit(1)
