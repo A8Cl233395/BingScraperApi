@@ -48,157 +48,6 @@ from functools import wraps
 MAX_MEMORY_LENGTH = 500
 MAX_MEMORY_COUNT = 50
 
-def get_final_url(short_url):
-    try:
-        # 发送HEAD请求（有些服务器可能不支持HEAD方法）
-        try:
-            response = requests.head(short_url, allow_redirects=True, timeout=10)
-            return response.url
-        except Exception:
-            # 如果HEAD失败，使用GET但只读取头部
-            response = requests.get(short_url, allow_redirects=False, timeout=10)
-
-            # 如果有重定向
-            if response.status_code in (301, 302, 303, 307, 308):
-                redirect_url = response.headers.get('Location')
-                if redirect_url:
-                    # 可能需要递归处理多次重定向
-                    return get_final_url(redirect_url)
-            return response.url
-    except requests.exceptions.RequestException as e:
-        logger.error(f"请求失败: {e}")
-        return None
-
-class Ncm:
-    def __init__(self):
-        self.cache = LRUCache(100)
-
-    @staticmethod
-    def extract_song_id(url: str) -> str:
-        """从网易云音乐链接或 163cn.tv 短链中提取歌曲 ID"""
-        target_url = url
-        if "music.163.com" not in target_url:
-            final_url = get_final_url(target_url)
-            if not final_url or "music.163.com" not in final_url:
-                raise ValueError("url is not a ncm lyric url")
-            target_url = final_url
-        match = re.search(r"id=(\d+)", target_url)
-        if not match:
-            raise ValueError("Invalid url")
-        return match.group(1)
-
-    def get_details_text(self, song_id, comment_limit=5):
-        cached = self.cache.get(song_id)
-        if cached:
-            return cached
-        lyric_api = f"https://music.163.com/api/song/lyric?os=pc&id={song_id}&lv=-1&tv=-1"
-        comment_api = f"https://music.163.com/api/v1/resource/comments/R_SO_4_{song_id}?offset=0&limit={comment_limit}"
-        details_api = f"https://music.163.com/api/song/detail/?ids=[{song_id}]"
-        combined = ""
-
-        lyric_json = requests.get(lyric_api, timeout=10).json()
-        translations = {}
-        time_tag_regex = r'\[(?:\d{2,}:)?\d{2}[:.]\d{2,}(?:\.\d+)?\]'
-        if "tlyric" in lyric_json and lyric_json["tlyric"]["version"] and lyric_json["tlyric"]["lyric"]:
-            for line in lyric_json["tlyric"]["lyric"].split("\n"):
-                time_tag = re.match(time_tag_regex, line)
-                if time_tag:
-                    cleaned_line = re.sub(time_tag_regex, '', line).strip()
-                    translations[time_tag.group()] = cleaned_line
-        combined_lyrics = []
-        for line in lyric_json["lrc"]["lyric"].split("\n"):
-            time_tag = re.match(time_tag_regex, line)
-            if time_tag:
-                cleaned_line = re.sub(time_tag_regex, '', line).strip()
-                combined_lyrics.append(cleaned_line)  # 添加原歌词
-                if time_tag.group() in translations:
-                    combined_lyrics.append(translations[time_tag.group()])  # 添加翻译
-                    combined_lyrics.append("")  # 添加空行分隔
-                else:
-                    combined_lyrics.append("")  # 如果没有翻译，也添加一个空行保持格式一致
-        combined_lyrics_text = "\n".join(combined_lyrics).strip()
-
-        detail_json = requests.get(details_api, timeout=10).json()
-        song_detail_json = detail_json["songs"][0]
-        name = song_detail_json["name"]
-        artists = [artist["name"] for artist in song_detail_json["artists"]]
-        transname = song_detail_json["transName"] if "transName" in song_detail_json else None
-        alias = song_detail_json["alias"][0] if "alias" in song_detail_json and song_detail_json["alias"] else None
-
-        comment_json = requests.get(comment_api, timeout=10).json()
-        hot_comments = comment_json["hotComments"]
-        comments = [comment["content"] for comment in hot_comments][:comment_limit]
-        comments_text = "\n\n".join(comments).strip()
-        combined += f"曲名: {name}\n"
-        combined += f"翻译名: {transname}\n" if transname else ""
-        combined += f"别名: {alias}\n" if alias else ""
-        combined += f"歌手: {', '.join(artists)}\n"
-        combined += f"歌词{'（包含翻译）' if translations else ''}:\n```\n{combined_lyrics_text}\n```\n"
-        combined += f"热评:\n```\n{comments_text}\n```"
-        self.cache.put(song_id, combined)
-        return combined
-
-class Bilibili:
-    def __init__(self):
-        self.cache = LRUCache(200)
-
-    def _extract_bv_from_url(self, url):
-        if not url:
-            return None
-        
-        if "bilibili.com" in url:
-            match = re.search(r'BV[a-zA-Z0-9]+', url)
-            return match.group(0) if match else None
-        
-        if "b23.tv" in url:
-            final_url = get_final_url(url)
-            if final_url and "bilibili.com" in final_url:
-                match = re.search(r'BV[a-zA-Z0-9]+', final_url)
-                return match.group(0) if match else None
-        
-        return None
-
-    def get_bili_text(self, bv=None, url=None):
-        bv = bv or self._extract_bv_from_url(url)
-        if not bv:
-            return 'url is not a bilibili video url'
-        cached = self.cache.get(bv)
-        if cached:
-            return cached
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
-            "Referer": f"https://www.bilibili.com/video/{bv}",
-            "Origin": "https://www.bilibili.com",
-            "Host": "api.bilibili.com",
-        }
-        view_response = requests.get(f"https://api.bilibili.com/x/web-interface/view?bvid={bv}", headers=headers, timeout=15)
-        if view_response.status_code != 200:
-            return f"B站视频不存在"
-        data = view_response.json()
-        title = data["data"]["title"]
-        desc = data["data"]["desc"]
-        cid = data["data"]["cid"]
-
-        video_url_response = requests.get("https://api.bilibili.com/x/player/wbi/playurl", headers=headers, params={"fnval": 4048, "bvid": bv, "cid": cid}, timeout=15)
-        if video_url_response.status_code != 200:
-            return f"B站视频不存在"
-        video_url_data = video_url_response.json()
-        audio_url = video_url_data["data"]["dash"]["audio"][0]["baseUrl"]
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
-            "Referer": f"https://www.bilibili.com/video/{bv}",
-            "Origin": "https://www.bilibili.com",
-        }
-        audio_request = requests.get(audio_url, headers=headers, timeout=60)
-        audio_data = audio_request.content
-        if audio_request.status_code != 200:
-            return f"B站视频不存在"
-
-        text = vr.transcribe_from_data(audio_data)
-        final_text = f'''标题: {title}\n简介: \n```\n{desc}\n```\nAI字幕:\n```\n{text}\n```'''
-        self.cache.put(bv, final_text)
-        return final_text
-
 class OCR:
     def __init__(self):
         self.endpoint = config["ocr"]["umi_ocr_endpoint"]
@@ -2003,15 +1852,6 @@ if __name__ != "__main__":
             search_methods.append(BingCrawler(timeout=search_config["bing_crawler"].get("timeout", 10000), strict_anti_crawl_mode=search_config["bing_crawler"].get("strict_anti_crawl_mode", False)))
         searcher = WebSearch(search_methods)
 
-    if is_ncm_enabled:
-        ncm = Ncm()
-
-    if is_bilibili_enabled:
-        if not is_vr_enabled:
-            logger.critical("Bilibili 需要语音识别功能，但该功能未启用")
-            exit(1)
-        bili = Bilibili()
-
     if is_vr_enabled:
         from voice_funcs import AliyunVoice, AzureVoice, VoiceRecognition
         from voice_funcs import logger as voice_logger
@@ -2054,6 +1894,26 @@ if __name__ != "__main__":
             elif service["type"] == "azure":
                 voice_models.append(AzureVoice(url=service["url"], key=service["key"]))
         vr = VoiceRecognition(voice_models)
+
+    if is_ncm_enabled or is_bilibili_enabled:
+        from crawler_funcs import logger as crawler_logger
+        crawler_logger.setLevel(config["server"].get("log_level", "DEBUG"))
+        crawler_logger.addHandler(console_handler)
+
+    if is_ncm_enabled:
+        from crawler_funcs import Ncm
+        ncm = Ncm()
+
+    if is_bilibili_enabled:
+        if not is_vr_enabled:
+            logger.critical("Bilibili 需要语音识别功能，但该功能未启用")
+            exit(1)
+        from crawler_funcs import Bilibili
+        bili_config = config.get("bilibili") or {}
+        bili = Bilibili(
+            transcribe_from_data=vr.transcribe_from_data, # type: ignore
+            sessdata=bili_config.get("sessdata"),
+        )
 
     if is_custom_reader_enabled:
         if not is_search_enabled:

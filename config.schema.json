@@ -119,7 +119,17 @@
     "bilibili": {
       "oneOf": [
         { "type": "null" },
-        { "type": "object" }
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sessdata": {
+              "type": ["string", "null"],
+              "default": null,
+              "description": "可选，B 站 Cookie 中的 SESSDATA，配置后可优先拉取视频现成字幕或 AI 字幕"
+            }
+          }
+        }
       ],
       "description": "B 站视频转录功能，需要同时启用 VoiceRecognition"
     },

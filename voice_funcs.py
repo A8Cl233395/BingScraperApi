@@ -40,7 +40,7 @@ class AliyunVoice(VoiceModel):
         """检查 HTTP 状态码；非 200 时记录日志并按错误类型设置冷却，返回 True 表示出错"""
         if resp.status_code == 200:
             return False
-        body = resp.text[:200]
+        body = resp.text
         if resp.status_code in (401, 402, 403): # Key 无效/余额不足，短时间内重试无意义
             logger.error(f"{action} 不可用({resp.status_code}): {body}")
             self.cooldown_until = time.time() + 600
@@ -65,7 +65,7 @@ class AliyunVoice(VoiceModel):
         try:
             return resp.json()["output"]["task_id"]
         except (ValueError, KeyError, TypeError):
-            logger.error(f"阿里云任务创建响应异常: {resp.text[:200]}")
+            logger.error(f"阿里云任务创建响应异常: {resp.text}")
             return None
 
     def _wait_result(self, task_id: str) -> str | None:
@@ -87,10 +87,10 @@ class AliyunVoice(VoiceModel):
                     time.sleep(1)
                 else:
                     # 状态变成 FAILED 或其他
-                    logger.error(f"阿里云语音识别任务失败，状态为 [{status}]: {resp.text[:200]}")
+                    logger.error(f"阿里云语音识别任务失败，状态为 [{status}]: {resp.text}")
                     return None
             except (ValueError, KeyError, IndexError, TypeError):
-                logger.error(f"阿里云返回结构异常无法解析: {resp.text[:200]}")
+                logger.error(f"阿里云返回结构异常无法解析: {resp.text}")
                 return None
 
         logger.error("阿里云语音识别超时（超过10分钟）")
@@ -123,13 +123,13 @@ class AliyunVoice(VoiceModel):
 
             resp = self.client.get(result_url, timeout=20, follow_redirects=True)
             if resp.status_code != 200:
-                logger.error(f"阿里云语音识别结果下载失败({resp.status_code}): {resp.text[:200]}")
+                logger.error(f"阿里云语音识别结果下载失败({resp.status_code}): {resp.text}")
                 return None
             try:
                 res = resp.json()
                 return res["transcripts"][0]["text"]
             except (ValueError, KeyError, IndexError, TypeError):
-                logger.error(f"阿里云返回结果中未包含有效文字: {resp.text[:200]}")
+                logger.error(f"阿里云返回结果中未包含有效文字: {resp.text}")
                 return None
         except httpx.HTTPError as e:
             logger.exception(f"请求阿里云语音识别失败: {e}")
@@ -170,7 +170,7 @@ class AzureVoice(VoiceModel):
             return None
 
         if resp.status_code != 200:
-            body = resp.text[:200]
+            body = resp.text
             if resp.status_code in (401, 402, 403): # Key 无效/余额不足，短时间内重试无意义
                 logger.error(f"Azure 语音识别不可用({resp.status_code}): {body}")
                 self.cooldown_until = time.time() + 600
@@ -184,7 +184,7 @@ class AzureVoice(VoiceModel):
         try:
             return "\n".join(i["text"] for i in resp.json()["phrases"] if "text" in i)
         except (ValueError, KeyError, TypeError):
-            logger.error(f"Azure 返回了无法解析的内容: {resp.text[:200]}")
+            logger.error(f"Azure 返回了无法解析的内容: {resp.text}")
             return None
 
     def transcribe_url(self, audio_url: str) -> str | None:

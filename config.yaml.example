@@ -23,6 +23,7 @@ search:
 ncm:
 
 bilibili:
+  # sessdata: "" # 可选，填入 B 站 Cookie 中的 SESSDATA 后可优先获取现成字幕或 AI 字幕，免去下载音频转写
 
 # 语音识别（可配置多个，轮询负载均衡 + 失败回退；aliyun 需要 server.public_address）
 VoiceRecognition:
